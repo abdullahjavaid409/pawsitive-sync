@@ -22,6 +22,7 @@ class Member {
     this.status,
     this.active = false,
     this.isYou = false,
+    this.joined = true,
   });
 
   final String id;
@@ -32,6 +33,17 @@ class Member {
   final String? status;
   final bool active;
   final bool isYou;
+
+  /// False for people named during setup who have not opened the app yet.
+  final bool joined;
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'name': name,
+    'role': role.name,
+    'joined': joined,
+    if (isYou) 'isYou': true,
+  };
 
   String get roleLabel => switch (role) {
     MemberRole.owner => 'Owner',
@@ -73,6 +85,42 @@ class Pet {
     Species.rabbit => 'Rabbit',
     Species.other => 'Other',
   };
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'name': name,
+    'species': species.name,
+    'ageYears': ageYears,
+    'weightKg': weightKg,
+    'breed': breed,
+    'sex': sex,
+    'conditions': conditions,
+  };
+
+  Pet copyWith({
+    String? name,
+    Species? species,
+    int? ageYears,
+    String? breed,
+    String? sex,
+    List<String>? conditions,
+    double? weightKg,
+    int? onTimePercent,
+    int? dailyMeds,
+  }) {
+    return Pet(
+      id: id,
+      name: name ?? this.name,
+      species: species ?? this.species,
+      ageYears: ageYears ?? this.ageYears,
+      breed: breed ?? this.breed,
+      sex: sex ?? this.sex,
+      conditions: conditions ?? this.conditions,
+      weightKg: weightKg ?? this.weightKg,
+      onTimePercent: onTimePercent ?? this.onTimePercent,
+      dailyMeds: dailyMeds ?? this.dailyMeds,
+    );
+  }
 }
 
 class Dose {
@@ -120,55 +168,158 @@ class Dose {
   }
 }
 
+/// A repeating medicine: what it is and which parts of the day it is given.
 class Medication {
   const Medication({
     required this.id,
     required this.petId,
     required this.name,
-    required this.detail,
-    required this.doseLabel,
-    required this.whenLabel,
-    required this.fallbackLabel,
-    required this.dosesLeft,
+    required this.amount,
+    required this.parts,
     required this.supplyTotal,
-    required this.lastsUntil,
-    required this.onTimeLabel,
-    required this.history,
+    required this.dosesLeft,
+    required this.startDay,
   });
 
   final String id;
   final String petId;
   final String name;
-  final String detail;
-  final String doseLabel;
-  final String whenLabel;
-  final String fallbackLabel;
-  final int dosesLeft;
+  final String amount;
+  final List<DayPart> parts;
+
+  /// 0 means the supply is not tracked.
   final int supplyTotal;
-  final String lastsUntil;
-  final String onTimeLabel;
-  final List<DoseLog> history;
+  final int dosesLeft;
 
-  bool get isLow => dosesLeft <= 5;
+  /// Local calendar day the schedule started, as YYYY-MM-DD.
+  final String startDay;
 
-  Medication copyWith({int? dosesLeft, List<DoseLog>? history}) {
+  bool get tracksSupply => supplyTotal > 0;
+
+  bool get isLow =>
+      tracksSupply && dosesLeft <= (parts.length * 3).clamp(3, 9);
+
+  double get supplyFraction =>
+      tracksSupply ? (dosesLeft / supplyTotal).clamp(0.0, 1.0) : 0;
+
+  String get doseLabel => amount.isEmpty ? 'As prescribed' : amount;
+
+  String get whenLabel {
+    if (parts.isEmpty) return '';
+    if (parts.length == 1) return 'Every ${parts.first.label.toLowerCase()}';
+    final rest = [for (final part in parts.skip(1)) part.label.toLowerCase()];
+    final head = [parts.first.label, ...rest.take(rest.length - 1)].join(', ');
+    return '$head & ${rest.last}';
+  }
+
+  String get detail => [if (amount.isNotEmpty) amount, whenLabel].join(' · ');
+
+  /// Rough last day of supply, or empty when supply is not tracked.
+  String lastsUntil(DateTime now) {
+    if (!tracksSupply || parts.isEmpty) return '';
+    final days = dosesLeft ~/ parts.length;
+    final end = DateTime(now.year, now.month, now.day + days);
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    return '${weekdays[end.weekday - 1]}, ${months[end.month - 1]} ${end.day}';
+  }
+
+  Medication copyWith({int? dosesLeft}) {
     return Medication(
       id: id,
       petId: petId,
       name: name,
-      detail: detail,
-      doseLabel: doseLabel,
-      whenLabel: whenLabel,
-      fallbackLabel: fallbackLabel,
-      dosesLeft: dosesLeft ?? this.dosesLeft,
+      amount: amount,
+      parts: parts,
       supplyTotal: supplyTotal,
-      lastsUntil: lastsUntil,
-      onTimeLabel: onTimeLabel,
-      history: history ?? this.history,
+      dosesLeft: dosesLeft ?? this.dosesLeft,
+      startDay: startDay,
     );
   }
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'petId': petId,
+    'name': name,
+    'amount': amount,
+    'parts': [for (final part in parts) part.name],
+    'supplyTotal': supplyTotal,
+    'dosesLeft': dosesLeft,
+    'startDay': startDay,
+  };
 }
 
+enum LogOutcome { given, skipped }
+
+/// One saved dose: who gave (or skipped) which medicine, on which day and time of day.
+class DoseRecord {
+  const DoseRecord({
+    required this.id,
+    required this.medicationId,
+    required this.part,
+    required this.day,
+    required this.memberId,
+    required this.outcome,
+    required this.amount,
+    required this.timeLabel,
+    this.note,
+  });
+
+  final String id;
+  final String medicationId;
+  final DayPart part;
+  final String day;
+  final String memberId;
+  final LogOutcome outcome;
+  final String amount;
+  final String timeLabel;
+  final String? note;
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'medicationId': medicationId,
+    'part': part.name,
+    'day': day,
+    'memberId': memberId,
+    'outcome': outcome.name,
+    'amount': amount,
+    'timeLabel': timeLabel,
+    if (note != null) 'note': note,
+  };
+}
+
+extension DayPartLabel on DayPart {
+  String get label => switch (this) {
+    DayPart.morning => 'Morning',
+    DayPart.afternoon => 'Afternoon',
+    DayPart.evening => 'Evening',
+  };
+
+  /// Default reminder time for this part of the day.
+  int get hour => switch (this) {
+    DayPart.morning => 8,
+    DayPart.afternoon => 13,
+    DayPart.evening => 20,
+  };
+
+  /// From this hour on, the dose counts as due.
+  int get opensAt => switch (this) {
+    DayPart.morning => 0,
+    DayPart.afternoon => 12,
+    DayPart.evening => 17,
+  };
+
+  String get timeLabel => switch (this) {
+    DayPart.morning => '8:00 AM',
+    DayPart.afternoon => '1:00 PM',
+    DayPart.evening => '8:00 PM',
+  };
+}
+
+/// One past dose of a medicine, ready to show.
 class DoseLog {
   const DoseLog({required this.when, required this.who, this.lateNote});
 

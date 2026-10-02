@@ -1,466 +1,428 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
-import 'package:pawsitive_sync/core/theme/app_colors.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
+import 'package:pawsitive_sync/data/care_repository.dart';
+import 'package:pawsitive_sync/domain/models.dart';
+import 'package:provider/provider.dart';
 
-/// Lets a caregiver choose when a repeating dose is due.
+/// Adds a repeating medicine: name, amount, times of day, and optional supply.
 class ScheduleScreen extends StatefulWidget {
-  const ScheduleScreen({super.key});
+  const ScheduleScreen({super.key, this.petId});
+
+  final String? petId;
 
   @override
   State<ScheduleScreen> createState() => _ScheduleScreenState();
 }
 
 class _ScheduleScreenState extends State<ScheduleScreen> {
-  bool _fromLastDose = true;
+  static const _suggestions = [
+    'Apoquel',
+    'Carprofen',
+    'Gabapentin',
+    'Insulin',
+    'Heartworm',
+    'Flea & tick',
+    'Antibiotic',
+    'Eye drops',
+  ];
+
+  final _name = TextEditingController();
+  final _amount = TextEditingController();
+  final _supply = TextEditingController();
+  final _parts = <DayPart>{DayPart.morning};
+  String? _petId;
+  bool _busy = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _petId = widget.petId;
+    _name.addListener(_refresh);
+    _amount.addListener(_refresh);
+  }
+
+  void _refresh() => setState(() => _error = null);
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _amount.dispose();
+    _supply.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save(CareRepository care, Pet pet) async {
+    if (_busy) return;
+    if (_name.text.trim().isEmpty) {
+      setState(() => _error = 'Add the medicine name.');
+      return;
+    }
+    if (_parts.isEmpty) {
+      setState(() => _error = 'Pick at least one time of day.');
+      return;
+    }
+    setState(() => _busy = true);
+    HapticFeedback.lightImpact();
+    final ok = await care.addMedication(
+      petId: pet.id,
+      name: _name.text,
+      amount: _amount.text,
+      parts: _parts.toList(),
+      supplyTotal: int.tryParse(_supply.text.trim()) ?? 0,
+    );
+    if (!mounted) return;
+    if (!ok) {
+      setState(() {
+        _busy = false;
+        _error = care.lastError ?? 'Could not save. Try again.';
+      });
+      return;
+    }
+    AppLog.event('medication.saved', {'parts': _parts.length});
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('${_name.text.trim()} is on ${pet.name}’s Today list.'),
+      ),
+    );
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go(AppRoutes.today);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final care = context.watch<CareRepository>();
+    final scheme = Theme.of(context).colorScheme;
+    final tokens = context.paws;
+    final text = Theme.of(context).textTheme;
+    final pet =
+        (_petId == null ? null : care.tryPetById(_petId!)) ?? care.primaryPet;
+
+    final header = Row(
+      children: [
+        IconButton(
+          tooltip: 'Back',
+          onPressed: () => context.canPop()
+              ? context.pop()
+              : context.go(AppRoutes.today),
+          icon: StrokeIcon(StrokeIconKind.chevronLeft, color: scheme.onSurface),
+        ),
+        Expanded(
+          child: Text(
+            'Add medicine',
+            textAlign: TextAlign.center,
+            style: text.titleMedium,
+          ),
+        ),
+        const SizedBox(width: 48),
+      ],
+    );
+
+    if (pet == null) {
+      return Scaffold(
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                header,
+                const SizedBox(height: 24),
+                Text('Add your pet first', style: text.headlineMedium),
+                const SizedBox(height: 8),
+                Text(
+                  'Medicines belong to a pet, so we know whose dose it is.',
+                  style: text.bodyLarge?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+                const Spacer(),
+                FilledButton(
+                  onPressed: () => context.pushReplacement(AppRoutes.addPet),
+                  child: const Text('Add a pet'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    final name = _name.text.trim();
+    final preview = Medication(
+      id: 'preview',
+      petId: pet.id,
+      name: name.isEmpty ? 'Medicine' : name,
+      amount: _amount.text.trim(),
+      parts: [for (final part in DayPart.values) if (_parts.contains(part)) part],
+      supplyTotal: 0,
+      dosesLeft: 0,
+      startDay: '',
+    );
+
+    return Scaffold(
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+              child: header,
+            ),
+            Expanded(
+              child: ListView(
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+                children: [
+                  if (care.pets.length > 1) ...[
+                    Text('For', style: text.titleSmall),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final item in care.pets)
+                          ChoiceChip(
+                            label: Text(item.name),
+                            selected: item.id == pet.id,
+                            onSelected: (_) => setState(() => _petId = item.id),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+                  ] else ...[
+                    Text(
+                      'For ${pet.name}',
+                      style: text.bodyLarge?.copyWith(
+                        color: tokens.brandDark,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                  ],
+                  Text('What medicine?', style: text.headlineSmall),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _name,
+                    autofocus: true,
+                    textCapitalization: TextCapitalization.words,
+                    textInputAction: TextInputAction.next,
+                    maxLength: 60,
+                    decoration: const InputDecoration(
+                      hintText: 'Medicine name',
+                      counterText: '',
+                    ),
+                  ),
+                  if (name.isEmpty) ...[
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final suggestion in _suggestions)
+                          ActionChip(
+                            label: Text(suggestion),
+                            onPressed: () {
+                              _name.text = suggestion;
+                              _name.selection = TextSelection.collapsed(
+                                offset: suggestion.length,
+                              );
+                            },
+                          ),
+                      ],
+                    ),
+                  ],
+                  const SizedBox(height: 20),
+                  Text('How much each time?', style: text.titleSmall),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _amount,
+                    textInputAction: TextInputAction.done,
+                    maxLength: 40,
+                    decoration: const InputDecoration(
+                      hintText: 'e.g. 1 tablet, 2 units (optional)',
+                      counterText: '',
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  Text('When is it given?', style: text.titleSmall),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Tap every time of day it is due.',
+                    style: text.bodyMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      for (final part in DayPart.values) ...[
+                        Expanded(
+                          child: _PartTile(
+                            part: part,
+                            selected: _parts.contains(part),
+                            onPressed: () => setState(() {
+                              _error = null;
+                              if (!_parts.remove(part)) _parts.add(part);
+                            }),
+                          ),
+                        ),
+                        if (part != DayPart.evening) const SizedBox(width: 8),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                  Text('Doses in the box', style: text.titleSmall),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Optional. We warn everyone before it runs out.',
+                    style: text.bodyMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: _supply,
+                    keyboardType: TextInputType.number,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(4),
+                    ],
+                    decoration: const InputDecoration(hintText: 'e.g. 30'),
+                  ),
+                  const SizedBox(height: 24),
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: tokens.brandSoft,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'ON TODAY IT WILL SHOW',
+                            style: text.labelSmall?.copyWith(
+                              color: tokens.brandDark,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            preview.amount.isEmpty
+                                ? preview.name
+                                : '${preview.name} · ${preview.amount}',
+                            style: text.titleMedium,
+                          ),
+                          Text(
+                            _parts.isEmpty
+                                ? 'Pick a time of day'
+                                : '${pet.name} · ${preview.whenLabel.toLowerCase()}',
+                            style: text.bodyMedium,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (_error != null) ...[
+                    Text(
+                      _error!,
+                      textAlign: TextAlign.center,
+                      style: text.bodyMedium?.copyWith(color: scheme.error),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  FilledButton(
+                    onPressed: _busy ? null : () => _save(care, pet),
+                    child: _busy
+                        ? const SizedBox.square(
+                            dimension: 20,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Save medicine'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PartTile extends StatelessWidget {
+  const _PartTile({
+    required this.part,
+    required this.selected,
+    required this.onPressed,
+  });
+
+  final DayPart part;
+  final bool selected;
+  final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final tokens = context.paws;
     final text = Theme.of(context).textTheme;
-
-    return Scaffold(
-      body: SafeArea(
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 4, 24, 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    IconButton(
-                      tooltip: 'Back',
-                      onPressed: () => context.pop(),
-                      icon: StrokeIcon(
-                        StrokeIconKind.chevronLeft,
-                        color: scheme.onSurface,
-                      ),
-                    ),
-                    Expanded(
-                      child: Text(
-                        'New medication',
-                        textAlign: TextAlign.center,
-                        style: text.titleMedium,
-                      ),
-                    ),
-                    SizedBox(
-                      width: 48,
-                      child: Text(
-                        '2/3',
-                        textAlign: TextAlign.center,
-                        style: text.bodyMedium,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: tokens.neutral,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    child: Text(
-                      'Heartworm chew · Juniper',
-                      style: text.bodyMedium?.copyWith(
-                        color: scheme.onSurface,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'When should the next dose be due?',
-                  style: text.headlineMedium,
-                ),
-                const SizedBox(height: 16),
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: scheme.surfaceContainerLowest,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: scheme.outlineVariant),
-                  ),
-                  child: SizedBox(
-                    height: 52,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      child: Row(
-                        children: [
-                          Text(
-                            'Repeats',
-                            style: text.bodyLarge?.copyWith(
-                              color: scheme.onSurfaceVariant,
-                            ),
-                          ),
-                          const Spacer(),
-                          Text(
-                            'Every month',
-                            style: text.bodyLarge?.copyWith(
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                _Rule(
-                  title: 'From the last dose',
-                  badge: 'Recommended',
-                  body: 'Gave it late? The next one counts from when it was actually given.',
-                  selected: _fromLastDose,
-                  onPressed: () => setState(() => _fromLastDose = true),
-                ),
-                const SizedBox(height: 8),
-                _Rule(
-                  title: 'Same date every month',
-                  body: 'Stays on the 1st, even after a late dose.',
-                  selected: !_fromLastDose,
-                  onPressed: () => setState(() => _fromLastDose = false),
-                ),
-                const SizedBox(height: 16),
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: tokens.neutral,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'HOW THIS PLAYS OUT',
-                          style: Theme.of(context).textTheme.labelSmall,
-                        ),
-                        const SizedBox(height: 16),
-                        const _Timeline(),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                const Row(
-                  children: [
-                    Expanded(
-                      child: _Mini(label: 'Remind at', value: '9:00 AM'),
-                    ),
-                    SizedBox(width: 8),
-                    Expanded(
-                      child: _Mini(label: 'In the box', value: '6 chews'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-                FilledButton(
-                  onPressed: () {
-                    AppLog.event('schedule.not_saved');
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Saved on Juniper’s schedule.'),
-                      ),
-                    );
-                    context.go(AppRoutes.today);
-                  },
-                  child: const Text('Save medication'),
-                ),
-              ],
-            ),
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: '${part.label}, ${part.timeLabel}',
+      child: Material(
+        color: selected ? tokens.brandSoft : scheme.surfaceContainerLowest,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(
+            color: selected ? scheme.primary : scheme.outlineVariant,
+            width: selected ? 2 : 1,
           ),
         ),
-      ),
-    );
-  }
-}
-
-class _Rule extends StatelessWidget {
-  const _Rule({
-    required this.title,
-    required this.body,
-    required this.selected,
-    required this.onPressed,
-    this.badge,
-  });
-
-  final String title;
-  final String body;
-  final bool selected;
-  final VoidCallback onPressed;
-  final String? badge;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final tokens = context.paws;
-    return Material(
-      color: scheme.surfaceContainerLowest,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(
-          color: selected ? scheme.primary : scheme.outlineVariant,
-          width: selected ? 2 : 1,
-        ),
-      ),
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 22,
-                height: 22,
-                margin: const EdgeInsets.only(top: 1),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(14),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 84),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    selected ? Icons.check_circle : Icons.circle_outlined,
+                    size: 22,
                     color: selected ? scheme.primary : scheme.outline,
-                    width: selected ? 6 : 1.5,
                   ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Wrap(
-                      crossAxisAlignment: WrapCrossAlignment.center,
-                      spacing: 8,
-                      children: [
-                        Text(
-                          title,
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                        if (badge != null)
-                          DecoratedBox(
-                            decoration: BoxDecoration(
-                              color: scheme.primaryContainer,
-                              borderRadius: BorderRadius.circular(5),
-                            ),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 6,
-                                vertical: 2,
-                              ),
-                              child: Text(
-                                badge!,
-                                style: Theme.of(context).textTheme.bodySmall
-                                    ?.copyWith(
-                                      color: tokens.brandDark,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                              ),
-                            ),
-                          ),
-                      ],
+                  const SizedBox(height: 6),
+                  Text(
+                    part.label,
+                    style: text.titleSmall?.copyWith(
+                      fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
                     ),
-                    const SizedBox(height: 4),
-                    Text(
-                      body,
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w400,
-                        height: 1.4,
-                        color: selected
-                            ? scheme.onSurface
-                            : scheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _Timeline extends StatelessWidget {
-  const _Timeline();
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Stack(
-      children: [
-        Positioned(
-          left: 0,
-          right: 0,
-          top: 7,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 0),
-            child: Align(
-              alignment: Alignment.center,
-              child: FractionallySizedBox(
-                widthFactor: 0.75,
-                child: Container(height: 2, color: scheme.outline),
+                  ),
+                  Text(part.timeLabel, style: text.bodySmall),
+                ],
               ),
             ),
           ),
-        ),
-        const Row(
-          children: [
-            Expanded(
-              child: _Stop(
-                date: 'Sep 1',
-                caption: 'was due',
-                struck: true,
-                fill: _StopFill.outlineMuted,
-              ),
-            ),
-            Expanded(
-              child: _Stop(
-                date: 'Sep 4',
-                caption: 'given late',
-                fill: _StopFill.amber,
-              ),
-            ),
-            Expanded(
-              child: _Stop(
-                date: 'Oct 4',
-                caption: 'next due',
-                fill: _StopFill.brand,
-              ),
-            ),
-            Expanded(
-              child: _Stop(
-                date: 'Nov 4',
-                caption: 'then',
-                fill: _StopFill.outlineBrand,
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-enum _StopFill { outlineMuted, amber, brand, outlineBrand }
-
-class _Stop extends StatelessWidget {
-  const _Stop({
-    required this.date,
-    required this.caption,
-    required this.fill,
-    this.struck = false,
-  });
-
-  final String date;
-  final String caption;
-  final _StopFill fill;
-  final bool struck;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final tokens = context.paws;
-    final dateColor = switch (fill) {
-      _StopFill.outlineMuted => scheme.onSurfaceVariant,
-      _StopFill.amber => scheme.onSurface,
-      _StopFill.brand => tokens.brandDark,
-      _StopFill.outlineBrand => scheme.onSurface,
-    };
-    final captionColor = switch (fill) {
-      _StopFill.amber => tokens.warning,
-      _StopFill.brand => tokens.brandDark,
-      _ => scheme.onSurfaceVariant,
-    };
-    return Column(
-      children: [
-        Container(
-          width: 16,
-          height: 16,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: switch (fill) {
-              _StopFill.amber => tokens.amber,
-              _StopFill.brand => scheme.primary,
-              _StopFill.outlineMuted => scheme.surface,
-              _ => scheme.surfaceContainerLowest,
-            },
-            border: switch (fill) {
-              _StopFill.outlineMuted => Border.all(
-                color: AppColors.timelineMuted,
-                width: 2,
-              ),
-              _StopFill.outlineBrand => Border.all(
-                color: scheme.primary,
-                width: 2,
-              ),
-              _ => null,
-            },
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          date,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            color: dateColor,
-            fontWeight: FontWeight.w600,
-            decoration: struck ? TextDecoration.lineThrough : null,
-          ),
-        ),
-        Text(
-          caption,
-          style: Theme.of(context).textTheme.bodySmall
-              ?.copyWith(color: captionColor),
-        ),
-      ],
-    );
-  }
-}
-
-class _Mini extends StatelessWidget {
-  const _Mini({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: scheme.outlineVariant),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            Text(
-              value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodyLarge
-                  ?.copyWith(fontWeight: FontWeight.w500),
-            ),
-          ],
         ),
       ),
     );

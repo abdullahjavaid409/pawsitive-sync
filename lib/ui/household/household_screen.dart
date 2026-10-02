@@ -29,13 +29,30 @@ class HouseholdScreen extends StatelessWidget {
           children: [
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Column(
+              child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Household', style: text.displaySmall),
-                  Text(
-                    'Everyone caring for $names',
-                    style: text.bodyLarge?.copyWith(
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Household', style: text.displaySmall),
+                        Text(
+                          names.isEmpty
+                              ? 'Everyone who helps with medicine'
+                              : 'Everyone caring for $names',
+                          style: text.bodyLarge?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Settings',
+                    onPressed: () => context.push(AppRoutes.settings),
+                    icon: Icon(
+                      Icons.settings_outlined,
                       color: scheme.onSurfaceVariant,
                     ),
                   ),
@@ -76,21 +93,14 @@ class HouseholdScreen extends StatelessWidget {
               ),
               label: const Text('Invite someone'),
             ),
+            if (!care.isConnected)
+              TextButton(
+                onPressed: () => context.push(AppRoutes.join),
+                child: const Text('Have an invite code? Join a household'),
+              ),
             Padding(
               padding: const EdgeInsets.fromLTRB(8, 24, 8, 8),
-              child: Row(
-                children: [
-                  Text('ACTIVITY · TODAY', style: text.labelSmall),
-                  const Spacer(),
-                  Text(
-                    'Filter',
-                    style: text.bodyMedium?.copyWith(
-                      color: scheme.primary,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ],
-              ),
+              child: Text('RECENT ACTIVITY', style: text.labelSmall),
             ),
             if (care.activity.isEmpty)
               Padding(

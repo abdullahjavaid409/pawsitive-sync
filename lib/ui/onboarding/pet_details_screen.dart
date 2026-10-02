@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
@@ -10,12 +8,13 @@ import 'package:pawsitive_sync/core/motion/app_motion.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
-import 'package:pawsitive_sync/core/widgets/story_art.dart';
+import 'package:pawsitive_sync/core/widgets/pet_mark.dart';
+import 'package:pawsitive_sync/ui/onboarding/onboarding_visuals.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
 
-/// Photo, age, and weight. Kept apart from the name so the first form stays short.
+/// Optional details stay editable without slowing down the first step.
 class PetDetailsScreen extends StatelessWidget {
   const PetDetailsScreen({super.key});
 
@@ -26,123 +25,120 @@ class PetDetailsScreen extends StatelessWidget {
     final text = Theme.of(context).textTheme;
     final name = model.petName.trim().isEmpty ? 'them' : model.petName.trim();
 
-    return Scaffold(
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 24, 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              OnboardingHeader(
-                step: 2,
-                onBack: () => context.go(AppRoutes.pet),
-              ),
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.only(left: 12, top: 24),
-                  children: [
-                    Text('A little about $name', style: text.headlineMedium),
-                    const SizedBox(height: 8),
-                    Text(
-                      'A photo helps people know which pet this is. Age and weight can wait.',
-                      style: text.bodyLarge?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-                    const Center(
-                      child: SoftEnter(child: StoryArt('pet', size: 120)),
-                    ),
-                    const SizedBox(height: 24),
-                    InkWell(
-                      onTap: () => _choosePhoto(context, model),
-                      borderRadius: BorderRadius.circular(16),
-                      child: Row(
+    return OnboardingStep(
+      onBack: () => context.go(AppRoutes.pet),
+      child: OnboardingShell(
+        header: OnboardingHeader(
+          step: 2,
+          onBack: () => context.go(AppRoutes.pet),
+        ),
+        body: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            OnboardingTitle(
+              'A little about $name',
+              'Make their profile feel like them. You can update these details anytime.',
+            ),
+            const SizedBox(height: 28),
+            Material(
+              color: scheme.primaryContainer,
+              borderRadius: BorderRadius.circular(24),
+              child: InkWell(
+                onTap: () => _choosePhoto(context, model),
+                borderRadius: BorderRadius.circular(24),
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Row(
+                    children: [
+                      Stack(
                         children: [
-                          _PhotoCircle(bytes: model.photoBytes),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  model.photoBytes == null
-                                      ? 'Add a photo'
-                                      : 'Photo added',
-                                  style: text.bodyLarge?.copyWith(
-                                    fontWeight: FontWeight.w500,
-                                  ),
+                          if (model.photoBytes == null)
+                            ExcludeSemantics(
+                              child: PetMark(
+                                species: model.species,
+                                size: 80,
+                                artScale: 1,
+                              ),
+                            )
+                          else
+                            ClipOval(
+                              child: Image.memory(
+                                model.photoBytes!,
+                                width: 80,
+                                height: 80,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                          Positioned(
+                            right: 0,
+                            bottom: 0,
+                            child: Container(
+                              padding: const EdgeInsets.all(7),
+                              decoration: BoxDecoration(
+                                color: scheme.primary,
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: scheme.primaryContainer,
+                                  width: 3,
                                 ),
-                                Text(
-                                  model.photoBytes == null
-                                      ? 'Tap here. Take one or choose one.'
-                                      : 'Tap here to change it.',
-                                  style: text.bodyMedium,
-                                ),
-                              ],
+                              ),
+                              child: StrokeIcon(
+                                StrokeIconKind.camera,
+                                size: 14,
+                                color: scheme.onPrimary,
+                              ),
                             ),
                           ),
                         ],
                       ),
-                    ),
-                    const SizedBox(height: 28),
-                    _AgeStepper(years: model.ageYears),
-                    const SizedBox(height: 24),
-                    _WeightField(weight: model.weight),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.only(left: 12),
-                child: FilledButton(
-                  onPressed: () {
-                    final weight = model.weight.trim();
-                    if (weight.isNotEmpty &&
-                        !RegExp(r'^\d{1,2}(\.\d{1,2})?$').hasMatch(weight)) {
-                      AppLog.event('pet.weight_rejected');
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'Use a weight like 4.6 kg, or leave it blank.',
-                          ),
+                      const SizedBox(width: 18),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              model.photoBytes == null
+                                  ? 'Add a photo'
+                                  : 'Photo added',
+                              style: text.titleLarge?.copyWith(
+                                color: context.paws.brandDark,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              model.photoBytes == null
+                                  ? 'A familiar face for everyone who helps.'
+                                  : 'Tap to choose a different one.',
+                              style: text.bodyMedium,
+                            ),
+                          ],
                         ),
-                      );
-                      return;
-                    }
-                    context.go(AppRoutes.conditions);
-                  },
-                  child: const Text('Continue'),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ],
-          ),
+            ),
+            const SizedBox(height: 28),
+            _AgeStepper(years: model.ageYears),
+            const SizedBox(height: 24),
+            _WeightField(weight: model.weight),
+            const SizedBox(height: 24),
+            const OnboardingNote(
+              'Don’t know the details? You can add them later.',
+            ),
+          ],
+        ),
+        footer: FilledButton(
+          onPressed: model.hasValidWeight
+              ? () {
+                  FocusScope.of(context).unfocus();
+                  context.go(AppRoutes.conditions);
+                }
+              : null,
+          child: const Text('Continue'),
         ),
       ),
-    );
-  }
-}
-
-class _PhotoCircle extends StatelessWidget {
-  const _PhotoCircle({required this.bytes});
-
-  final Uint8List? bytes;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Container(
-      width: 80,
-      height: 80,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: context.paws.neutral,
-        shape: BoxShape.circle,
-        border: Border.all(color: scheme.outline, width: 1.5),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: bytes == null
-          ? StrokeIcon(StrokeIconKind.camera, color: scheme.onSurfaceVariant)
-          : Image.memory(bytes!, width: 80, height: 80, fit: BoxFit.cover),
     );
   }
 }
@@ -254,20 +250,16 @@ class _AgeStepper extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Age',
-          style: Theme.of(context).textTheme.bodyMedium
-              ?.copyWith(fontWeight: FontWeight.w500),
-        ),
+        Text('Age (years)', style: Theme.of(context).textTheme.titleSmall),
         const SizedBox(height: 8),
         DecoratedBox(
           decoration: BoxDecoration(
             color: scheme.surfaceContainerLowest,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(16),
             border: Border.all(color: scheme.outlineVariant),
           ),
-          child: SizedBox(
-            height: 52,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 60),
             child: Row(
               children: [
                 IconButton(
@@ -277,7 +269,9 @@ class _AgeStepper extends StatelessWidget {
                 ),
                 Expanded(
                   child: Text(
-                    '$years yrs',
+                    years == 0
+                        ? 'Under 1 year'
+                        : '$years ${years == 1 ? 'year' : 'years'}',
                     textAlign: TextAlign.center,
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
@@ -309,24 +303,24 @@ class _WeightField extends StatelessWidget {
       children: [
         Text(
           'Weight (optional)',
-          style: Theme.of(context).textTheme.bodyMedium
-              ?.copyWith(fontWeight: FontWeight.w500),
+          style: Theme.of(context).textTheme.titleSmall,
         ),
         const SizedBox(height: 8),
-        SizedBox(
-          height: 52,
-          child: TextFormField(
-            initialValue: weight,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            inputFormatters: [
-              FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-            ],
-            onChanged: context.read<OnboardingViewModel>().setWeight,
-            decoration: InputDecoration(
-              suffixText: 'kg',
-              suffixStyle: Theme.of(context).textTheme.bodyLarge
-                  ?.copyWith(color: scheme.onSurfaceVariant),
-            ),
+        TextFormField(
+          initialValue: weight,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          inputFormatters: [
+            FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+          ],
+          onChanged: context.read<OnboardingViewModel>().setWeight,
+          decoration: InputDecoration(
+            hintText: 'e.g. 4.6',
+            errorText: context.watch<OnboardingViewModel>().hasValidWeight
+                ? null
+                : 'Enter a weight like 4.6, or leave blank.',
+            suffixText: 'kg',
+            suffixStyle: Theme.of(context).textTheme.bodyLarge
+                ?.copyWith(color: scheme.onSurfaceVariant),
           ),
         ),
       ],

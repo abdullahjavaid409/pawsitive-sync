@@ -7,10 +7,12 @@ import 'package:pawsitive_sync/core/routing/app_shell.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/ui/household/household_screen.dart';
 import 'package:pawsitive_sync/ui/household/invite_screen.dart';
+import 'package:pawsitive_sync/ui/household/join_screen.dart';
+import 'package:pawsitive_sync/ui/pets/add_pet_screen.dart';
+import 'package:pawsitive_sync/ui/pets/edit_pet_screen.dart';
 import 'package:pawsitive_sync/ui/meds/medication_screen.dart';
 import 'package:pawsitive_sync/ui/meds/schedule_screen.dart';
 import 'package:pawsitive_sync/ui/onboarding/caregivers_screen.dart';
-import 'package:pawsitive_sync/ui/onboarding/day_preview_screen.dart';
 import 'package:pawsitive_sync/ui/onboarding/conditions_screen.dart';
 import 'package:pawsitive_sync/ui/onboarding/notifications_screen.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
@@ -18,7 +20,9 @@ import 'package:pawsitive_sync/ui/onboarding/pet_basics_screen.dart';
 import 'package:pawsitive_sync/ui/onboarding/pet_details_screen.dart';
 import 'package:pawsitive_sync/ui/onboarding/welcome_screen.dart';
 import 'package:pawsitive_sync/ui/paywall/paywall_screen.dart';
+import 'package:provider/provider.dart';
 import 'package:pawsitive_sync/ui/pets/pet_profile_screen.dart';
+import 'package:pawsitive_sync/ui/settings/settings_screen.dart';
 import 'package:pawsitive_sync/ui/reports/vet_report_screen.dart';
 import 'package:pawsitive_sync/ui/today/lock_screen.dart';
 import 'package:pawsitive_sync/ui/today/today_screen.dart';
@@ -37,13 +41,19 @@ GoRouter createRouter(OnboardingViewModel onboarding) {
           location == AppRoutes.welcome ||
           location.startsWith(AppRoutes.onboarding) ||
           location == AppRoutes.paywall ||
-          location == AppRoutes.lock;
+          location == AppRoutes.lock ||
+          location == AppRoutes.join;
       if (!onboarding.isComplete && !open) {
-        AppLog.event('nav.redirect', {
-          'from': location,
-          'to': AppRoutes.welcome,
-        });
-        return AppRoutes.welcome;
+        final resume = onboarding.resumeRoute;
+        AppLog.event('nav.redirect', {'from': location, 'to': resume});
+        return resume;
+      }
+      if (!onboarding.isComplete && location.startsWith(AppRoutes.onboarding)) {
+        final guard = onboarding.guardRoute(location);
+        if (guard != null) {
+          AppLog.event('nav.redirect', {'from': location, 'to': guard});
+          return guard;
+        }
       }
       if (onboarding.isComplete &&
           (location == AppRoutes.welcome ||
@@ -59,11 +69,6 @@ GoRouter createRouter(OnboardingViewModel onboarding) {
       GoRoute(
         path: AppRoutes.welcome,
         builder: (context, state) => const AdaptivePage(child: WelcomeScreen()),
-      ),
-      GoRoute(
-        path: AppRoutes.day,
-        builder: (context, state) =>
-            const AdaptivePage(child: DayPreviewScreen()),
       ),
       GoRoute(
         path: AppRoutes.pet,
@@ -148,13 +153,38 @@ GoRouter createRouter(OnboardingViewModel onboarding) {
       GoRoute(
         path: AppRoutes.schedule,
         parentNavigatorKey: rootNavigatorKey,
-        builder: (context, state) =>
-            const AdaptivePage(child: ScheduleScreen()),
+        builder: (context, state) => AdaptivePage(
+          child: ScheduleScreen(petId: state.uri.queryParameters['pet']),
+        ),
       ),
       GoRoute(
         path: AppRoutes.invite,
         parentNavigatorKey: rootNavigatorKey,
         builder: (context, state) => const AdaptivePage(child: InviteScreen()),
+      ),
+      GoRoute(
+        path: AppRoutes.join,
+        parentNavigatorKey: rootNavigatorKey,
+        builder: (context, state) => AdaptivePage(
+          child: JoinScreen(initialCode: state.uri.queryParameters['code']),
+        ),
+      ),
+      GoRoute(
+        path: AppRoutes.addPet,
+        parentNavigatorKey: rootNavigatorKey,
+        builder: (context, state) => const AdaptivePage(child: AddPetScreen()),
+      ),
+      GoRoute(
+        path: AppRoutes.editPetPath,
+        parentNavigatorKey: rootNavigatorKey,
+        builder: (context, state) => AdaptivePage(
+          child: EditPetScreen(petId: state.pathParameters['id']!),
+        ),
+      ),
+      GoRoute(
+        path: AppRoutes.settings,
+        parentNavigatorKey: rootNavigatorKey,
+        builder: (context, state) => const AdaptivePage(child: SettingsScreen()),
       ),
     ],
   );
@@ -194,8 +224,19 @@ class _NotFoundScreenState extends State<NotFoundScreen> {
               Text(widget.path, style: Theme.of(context).textTheme.bodyMedium),
               const SizedBox(height: 24),
               FilledButton(
-                onPressed: () => context.go(AppRoutes.today),
-                child: const Text('Go to today'),
+                onPressed: () {
+                  final onboarding = context.read<OnboardingViewModel>();
+                  context.go(
+                    onboarding.isComplete
+                        ? AppRoutes.today
+                        : onboarding.resumeRoute,
+                  );
+                },
+                child: Text(
+                  context.watch<OnboardingViewModel>().isComplete
+                      ? 'Go to today'
+                      : 'Back to setup',
+                ),
               ),
             ],
           ),

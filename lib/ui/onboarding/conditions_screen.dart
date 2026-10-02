@@ -1,13 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
-import 'package:pawsitive_sync/core/motion/app_motion.dart';
-import 'package:pawsitive_sync/core/widgets/story_art.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
+import 'package:pawsitive_sync/ui/onboarding/onboarding_visuals.dart';
 import 'package:provider/provider.dart';
 
-/// Asks which conditions the pet is being treated for.
 class ConditionsScreen extends StatelessWidget {
   const ConditionsScreen({super.key});
 
@@ -15,80 +13,74 @@ class ConditionsScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final model = context.watch<OnboardingViewModel>();
     final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
     final name = model.petName.trim().isEmpty
         ? 'your pet'
         : model.petName.trim();
     final count = model.conditions.length;
 
-    return Scaffold(
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 24, 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              OnboardingHeader(
-                step: 3,
-                onBack: () => context.go(AppRoutes.petDetails),
+    return OnboardingStep(
+      onBack: () => context.go(AppRoutes.petDetails),
+      child: OnboardingShell(
+        header: OnboardingHeader(
+          step: 3,
+          onBack: () => context.go(AppRoutes.petDetails),
+        ),
+        body: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            OnboardingTitle(
+              'What care does $name need?',
+              'Choose all that apply. This helps us organize their care.',
+            ),
+            const SizedBox(height: 24),
+            Container(
+              padding: const EdgeInsets.fromLTRB(12, 8, 20, 8),
+              decoration: BoxDecoration(
+                color: scheme.primaryContainer,
+                borderRadius: BorderRadius.circular(20),
               ),
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.only(left: 12, top: 24),
-                  children: [
-                    Text(
-                      'What is $name being treated for?',
-                      style: Theme.of(context).textTheme.headlineMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      "Pick all that apply. We'll set up a starter schedule for each.",
-                      style: Theme.of(context).textTheme.bodyLarge
-                          ?.copyWith(color: scheme.onSurfaceVariant),
-                    ),
-                    const SizedBox(height: 16),
-                    Center(
-                      child: SoftEnter(
-                        child: Column(
-                          children: [
-                            const StoryArt('conditions', size: 140),
-                            const SizedBox(height: 8),
-                            Text(
-                              name,
-                              style: Theme.of(context).textTheme.titleSmall,
-                            ),
-                          ],
+              child: Row(
+                children: [
+                  const OnboardingArtwork('health', height: 76),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Their care, in one place',
+                          style: text.titleSmall,
                         ),
-                      ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Add medicines and a schedule after setup.',
+                          style: text.bodyMedium,
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 16),
-                    for (final option
-                        in OnboardingViewModel.conditionOptions) ...[
-                      SelectableOption(
-                        title: option.$1,
-                        subtitle: option.$2,
-                        selected: model.conditions.contains(option.$1),
-                        minHeight: 64,
-                        onPressed: () => model.toggleCondition(option.$1),
-                      ),
-                      const SizedBox(height: 8),
-                    ],
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.only(left: 12),
-                child: FilledButton(
-                  onPressed: count == 0
-                      ? null
-                      : () => context.go(AppRoutes.caregivers),
-                  child: Text(
-                    count == 0
-                        ? 'Select at least one'
-                        : 'Continue with $count selected',
                   ),
-                ),
+                ],
               ),
+            ),
+            const SizedBox(height: 24),
+            for (final option in OnboardingViewModel.conditionOptions) ...[
+              SelectableOption(
+                title: option.$1,
+                subtitle: option.$2,
+                selected: model.conditions.contains(option.$1),
+                onPressed: () => model.toggleCondition(option.$1),
+              ),
+              const SizedBox(height: onboardingOptionGap),
             ],
+          ],
+        ),
+        footer: FilledButton(
+          onPressed: count == 0 ? null : () => context.go(AppRoutes.caregivers),
+          child: Text(
+            count == 0
+                ? 'Select at least one'
+                : 'Continue with $count selected',
           ),
         ),
       ),

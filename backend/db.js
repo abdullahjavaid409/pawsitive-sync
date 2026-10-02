@@ -1,177 +1,259 @@
+import { createHash, randomBytes } from "node:crypto";
 import pg from "pg";
 
 const { Pool } = pg;
 
+const schemaVersion = "2";
+const parts = ["morning", "afternoon", "evening"];
+const species = ["cat", "dog", "rabbit", "other"];
+const roles = ["owner", "caregiver", "sitter"];
+const outcomes = ["given", "skipped"];
+const codeAlphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+
 export function createPool(connectionString) {
   return new Pool({
     connectionString,
-    max: 3,
+    max: 5,
     idleTimeoutMillis: 10_000,
   });
 }
 
 export async function migrate(pool, log) {
   const started = Date.now();
+  await pool.query("CREATE TABLE IF NOT EXISTS meta (key text PRIMARY KEY, value text NOT NULL)");
+  const current = await pool.query("SELECT value FROM meta WHERE key = 'schema_version'");
+  if (current.rows[0]?.value !== schemaVersion) {
+    // Version 1 held one shared demo household with no owners; nothing in it is user data.
+    await pool.query("DROP TABLE IF EXISTS activity, doses, medications, pets, members, settings CASCADE");
+  }
   await pool.query(`
-    CREATE TABLE IF NOT EXISTS settings (
-      id integer PRIMARY KEY CHECK (id = 1),
-      is_pro boolean NOT NULL,
-      plan text NOT NULL
+    CREATE TABLE IF NOT EXISTS households (
+      id text PRIMARY KEY,
+      invite_code text NOT NULL UNIQUE,
+      is_pro boolean NOT NULL DEFAULT false,
+      plan text NOT NULL DEFAULT 'yearly',
+      created_at timestamptz NOT NULL DEFAULT now()
     );
     CREATE TABLE IF NOT EXISTS members (
-      id text PRIMARY KEY,
+      household_id text NOT NULL REFERENCES households (id) ON DELETE CASCADE,
+      id text NOT NULL,
       name text NOT NULL,
-      initials text NOT NULL,
       role text NOT NULL,
-      avatar_tone text NOT NULL,
-      status text,
-      active boolean NOT NULL DEFAULT false,
-      is_you boolean NOT NULL DEFAULT false
+      token_hash text UNIQUE,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (household_id, id)
     );
     CREATE TABLE IF NOT EXISTS pets (
-      id text PRIMARY KEY,
+      household_id text NOT NULL REFERENCES households (id) ON DELETE CASCADE,
+      id text NOT NULL,
       name text NOT NULL,
       species text NOT NULL,
-      age_years integer NOT NULL,
-      breed text NOT NULL,
-      sex text NOT NULL,
-      conditions jsonb NOT NULL,
-      weight_kg double precision NOT NULL,
-      on_time_percent integer NOT NULL,
-      daily_meds integer NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS doses (
-      id text PRIMARY KEY,
-      pet_id text NOT NULL,
-      medication_id text NOT NULL,
-      name text NOT NULL,
-      amount text NOT NULL,
-      part text NOT NULL,
-      status text NOT NULL,
-      subtitle text NOT NULL,
-      given_by_id text
+      age_years integer NOT NULL DEFAULT 0,
+      weight_kg double precision NOT NULL DEFAULT 0,
+      breed text NOT NULL DEFAULT '',
+      sex text NOT NULL DEFAULT '',
+      conditions jsonb NOT NULL DEFAULT '[]',
+      created_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (household_id, id)
     );
     CREATE TABLE IF NOT EXISTS medications (
-      id text PRIMARY KEY,
+      household_id text NOT NULL REFERENCES households (id) ON DELETE CASCADE,
+      id text NOT NULL,
       pet_id text NOT NULL,
       name text NOT NULL,
-      detail text NOT NULL,
-      dose_label text NOT NULL,
-      when_label text NOT NULL,
-      fallback_label text NOT NULL,
-      doses_left integer NOT NULL,
-      supply_total integer NOT NULL,
-      lasts_until text NOT NULL,
-      on_time_label text NOT NULL,
-      history jsonb NOT NULL
+      amount text NOT NULL DEFAULT '',
+      parts jsonb NOT NULL,
+      supply_total integer NOT NULL DEFAULT 0,
+      doses_left integer NOT NULL DEFAULT 0,
+      start_day text NOT NULL,
+      archived boolean NOT NULL DEFAULT false,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (household_id, id)
     );
-    CREATE TABLE IF NOT EXISTS activity (
-      id integer GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    CREATE TABLE IF NOT EXISTS dose_logs (
+      household_id text NOT NULL REFERENCES households (id) ON DELETE CASCADE,
+      id text NOT NULL,
+      medication_id text NOT NULL,
+      part text NOT NULL,
+      day text NOT NULL,
       member_id text NOT NULL,
-      actor text NOT NULL,
-      action text NOT NULL,
-      emphasis text NOT NULL,
+      outcome text NOT NULL,
+      amount text NOT NULL DEFAULT '',
+      note text,
       time_label text NOT NULL,
-      note text
+      created_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (household_id, id),
+      UNIQUE (household_id, medication_id, part, day)
     );
-    CREATE INDEX IF NOT EXISTS doses_pet_id_idx ON doses (pet_id);
-    CREATE INDEX IF NOT EXISTS doses_status_idx ON doses (status);
-    CREATE INDEX IF NOT EXISTS activity_member_id_idx ON activity (member_id);
-    CREATE INDEX IF NOT EXISTS medications_pet_id_idx ON medications (pet_id);
+    CREATE INDEX IF NOT EXISTS dose_logs_day_idx ON dose_logs (household_id, day);
   `);
-  log("db.migrated", { durationMs: Date.now() - started });
+  await pool.query(
+    `INSERT INTO meta (key, value) VALUES ('schema_version', $1)
+     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+    [schemaVersion],
+  );
+  log("db.migrated", { version: schemaVersion, durationMs: Date.now() - started });
 }
 
-const seedMembers = [
-  ["you", "You", "You", "owner", "brand", null, false, true],
-  ["sara", "Sara", "S", "caregiver", "soft", "Active now", true, false],
-  ["dan", "Dan", "D", "caregiver", "neutral", "On duty tonight", false, false],
-  ["priya", "Priya", "P", "sitter", "neutral", "Oct 5 – Oct 12", false, false],
-];
-
-const seedPets = [
-  ["miso", "Miso", "cat", 12, "Domestic shorthair", "female", ["Diabetes", "Kidney disease"], 4.6, 97, 3],
-  ["juniper", "Juniper", "dog", 8, "Mixed breed", "female", ["Arthritis"], 18.2, 100, 1],
-];
-
-const seedDoses = [
-  ["insulin-am", "miso", "insulin", "Insulin", "2 units", "morning", "given", "Miso · Sara, 8:02 AM", "sara"],
-  ["benazepril-am", "miso", "benazepril", "Benazepril", "2.5 mg", "morning", "given", "Miso · Sara, 8:04 AM", "sara"],
-  ["joint-am", "juniper", "joint", "Joint supplement", "", "morning", "given", "Juniper · Dan, 8:30 AM", "dan"],
-  ["fluids-pm", "miso", "fluids", "Fluids", "100 ml", "afternoon", "due", "Miso · due 1:00 PM", null],
-  ["insulin-pm", "miso", "insulin", "Insulin", "2 units", "evening", "upcoming", "Miso · 8:00 PM with food · Dan", null],
-];
-
-export async function seedIfEmpty(pool, log) {
-  const existing = await pool.query("SELECT 1 FROM settings WHERE id = 1");
-  if (existing.rowCount > 0) {
-    log("db.seed_skipped", { reason: "already_seeded" });
-    return;
+export class InputError extends Error {
+  constructor(message) {
+    super(message);
+    this.status = 400;
   }
+}
 
+function text(value, field, { max = 80, required = true } = {}) {
+  const result = typeof value === "string" ? value.trim().slice(0, max) : "";
+  if (required && !result) throw new InputError(`${field} is required`);
+  return result;
+}
+
+function id(value, field) {
+  if (typeof value !== "string" || !/^[a-z0-9-]{1,40}$/.test(value)) {
+    throw new InputError(`${field} is not valid`);
+  }
+  return value;
+}
+
+function oneOf(value, allowed, field, fallback) {
+  if (allowed.includes(value)) return value;
+  if (fallback !== undefined) return fallback;
+  throw new InputError(`${field} is not valid`);
+}
+
+function day(value, field) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw new InputError(`${field} must be YYYY-MM-DD`);
+  }
+  return value;
+}
+
+function count(value, max) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) return 0;
+  return Math.min(Math.round(number), max);
+}
+
+function weight(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0 || number > 200) return 0;
+  return Math.round(number * 10) / 10;
+}
+
+function list(value, max) {
+  return Array.isArray(value) ? value.slice(0, max) : [];
+}
+
+function newToken() {
+  return randomBytes(32).toString("base64url");
+}
+
+export function hashToken(token) {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+function newId(prefix) {
+  return `${prefix}-${randomBytes(6).toString("hex")}`;
+}
+
+function newCode() {
+  const bytes = randomBytes(6);
+  let code = "";
+  for (const byte of bytes) code += codeAlphabet[byte % codeAlphabet.length];
+  return code;
+}
+
+function readPet(input) {
+  return {
+    id: id(input?.id, "pet.id"),
+    name: text(input?.name, "pet.name", { max: 40 }),
+    species: oneOf(input?.species, species, "pet.species", "other"),
+    ageYears: count(input?.ageYears, 40),
+    weightKg: weight(input?.weightKg),
+    conditions: list(input?.conditions, 12)
+      .map((item) => text(item, "condition", { max: 40, required: false }))
+      .filter(Boolean),
+  };
+}
+
+function readMedication(input) {
+  const chosen = [...new Set(list(input?.parts, 3))].filter((part) => parts.includes(part));
+  if (chosen.length === 0) throw new InputError("Pick at least one time of day");
+  const supplyTotal = count(input?.supplyTotal, 1000);
+  return {
+    id: id(input?.id, "medication.id"),
+    petId: id(input?.petId, "medication.petId"),
+    name: text(input?.name, "medication.name", { max: 60 }),
+    amount: text(input?.amount, "medication.amount", { max: 40, required: false }),
+    parts: parts.filter((part) => chosen.includes(part)),
+    supplyTotal,
+    dosesLeft: input?.dosesLeft === undefined ? supplyTotal : count(input.dosesLeft, supplyTotal),
+    startDay: day(input?.startDay, "medication.startDay"),
+  };
+}
+
+function readLog(input) {
+  return {
+    id: id(input?.id, "log.id"),
+    medicationId: id(input?.medicationId, "log.medicationId"),
+    part: oneOf(input?.part, parts, "log.part"),
+    day: day(input?.day, "log.day"),
+    memberId: input?.memberId === undefined ? undefined : id(input.memberId, "log.memberId"),
+    outcome: oneOf(input?.outcome, outcomes, "log.outcome"),
+    amount: text(input?.amount, "log.amount", { max: 40, required: false }),
+    note: text(input?.note, "log.note", { max: 200, required: false }) || null,
+    timeLabel: text(input?.timeLabel, "log.timeLabel", { max: 20 }),
+  };
+}
+
+async function insertPet(client, householdId, pet) {
+  const result = await client.query(
+    `INSERT INTO pets (household_id, id, name, species, age_years, weight_kg, conditions)
+     VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)
+     ON CONFLICT (household_id, id) DO UPDATE SET
+       name = EXCLUDED.name, species = EXCLUDED.species, age_years = EXCLUDED.age_years,
+       weight_kg = EXCLUDED.weight_kg, conditions = EXCLUDED.conditions
+     RETURNING *`,
+    [householdId, pet.id, pet.name, pet.species, pet.ageYears, pet.weightKg, JSON.stringify(pet.conditions)],
+  );
+  return mapPet(result.rows[0]);
+}
+
+async function insertMedication(client, householdId, medication) {
+  const pet = await client.query("SELECT 1 FROM pets WHERE household_id = $1 AND id = $2", [
+    householdId,
+    medication.petId,
+  ]);
+  if (pet.rowCount === 0) throw new InputError("That pet is not in this household");
+  const result = await client.query(
+    `INSERT INTO medications (household_id, id, pet_id, name, amount, parts, supply_total, doses_left, start_day)
+     VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9)
+     ON CONFLICT (household_id, id) DO UPDATE SET
+       name = EXCLUDED.name, amount = EXCLUDED.amount, parts = EXCLUDED.parts,
+       supply_total = EXCLUDED.supply_total, doses_left = EXCLUDED.doses_left, archived = false
+     RETURNING *`,
+    [
+      householdId,
+      medication.id,
+      medication.petId,
+      medication.name,
+      medication.amount,
+      JSON.stringify(medication.parts),
+      medication.supplyTotal,
+      medication.dosesLeft,
+      medication.startDay,
+    ],
+  );
+  return mapMedication(result.rows[0]);
+}
+
+async function transaction(pool, work) {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    await client.query("INSERT INTO settings (id, is_pro, plan) VALUES (1, false, 'yearly')");
-    for (const row of seedMembers) {
-      await client.query(
-        `INSERT INTO members (id, name, initials, role, avatar_tone, status, active, is_you)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-        row,
-      );
-    }
-    for (const row of seedPets) {
-      await client.query(
-        `INSERT INTO pets (id, name, species, age_years, breed, sex, conditions, weight_kg, on_time_percent, daily_meds)
-         VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10)`,
-        [row[0], row[1], row[2], row[3], row[4], row[5], JSON.stringify(row[6]), row[7], row[8], row[9]],
-      );
-    }
-    for (const row of seedDoses) {
-      await client.query(
-        `INSERT INTO doses (id, pet_id, medication_id, name, amount, part, status, subtitle, given_by_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-        row,
-      );
-    }
-    await client.query(
-      `INSERT INTO medications (
-         id, pet_id, name, detail, dose_label, when_label, fallback_label,
-         doses_left, supply_total, lasts_until, on_time_label, history
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb)`,
-      [
-        "benazepril",
-        "miso",
-        "Benazepril",
-        "2.5 mg tablet · Miso · kidney support",
-        "1 tablet",
-        "Daily, 8:00 AM",
-        "Ping Sara after 30 min",
-        4,
-        30,
-        "Tue, Oct 6",
-        "29 of 30 on time this month",
-        JSON.stringify([
-          { when: "Today · 8:04 AM", who: "Sara" },
-          { when: "Thu · 8:11 AM", who: "Dan" },
-          { when: "Wed · 9:40 AM", who: "You", lateNote: "1h 40m late" },
-        ]),
-      ],
-    );
-    const activity = [
-      ["sara", "Sara", "gave Miso", "Insulin · 2 units", "8:02 AM", null],
-      ["sara", "Sara", "gave Miso", "Benazepril", "8:04 AM", null],
-      ["dan", "Dan", "noted for Miso", "", "8:20 AM", "Vomited a little after breakfast"],
-    ];
-    for (const row of activity) {
-      await client.query(
-        `INSERT INTO activity (member_id, actor, action, emphasis, time_label, note)
-         VALUES ($1,$2,$3,$4,$5,$6)`,
-        row,
-      );
-    }
+    const result = await work(client);
     await client.query("COMMIT");
-    log("db.seeded", { members: seedMembers.length, pets: seedPets.length, doses: seedDoses.length });
+    return result;
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
@@ -180,16 +262,99 @@ export async function seedIfEmpty(pool, log) {
   }
 }
 
-function mapMember(row) {
+/// Creates a household from a device's setup, including anything it saved offline.
+export async function createHousehold(pool, body) {
+  const ownerName = text(body?.owner?.name, "owner.name", { max: 40, required: false }) || "You";
+  const ownerId = body?.owner?.id === undefined ? "you" : id(body.owner.id, "owner.id");
+  const pets = list(body?.pets, 10).map(readPet);
+  const caregivers = list(body?.caregivers, 10).map((item) => ({
+    id: id(item?.id, "caregiver.id"),
+    name: text(item?.name, "caregiver.name", { max: 40 }),
+    role: oneOf(item?.role, roles, "caregiver.role", "caregiver"),
+  }));
+  const medications = list(body?.medications, 50).map(readMedication);
+  const logs = list(body?.logs, 2000).map(readLog);
+  const token = newToken();
+
+  return transaction(pool, async (client) => {
+    const householdId = newId("house");
+    let inviteCode = "";
+    for (let attempt = 0; attempt < 5 && !inviteCode; attempt += 1) {
+      const candidate = newCode();
+      const inserted = await client.query(
+        `INSERT INTO households (id, invite_code) VALUES ($1, $2)
+         ON CONFLICT (invite_code) DO NOTHING RETURNING id`,
+        [householdId, candidate],
+      );
+      if (inserted.rowCount > 0) inviteCode = candidate;
+    }
+    if (!inviteCode) throw new Error("Could not make an invite code");
+
+    await client.query(
+      `INSERT INTO members (household_id, id, name, role, token_hash) VALUES ($1,$2,$3,'owner',$4)`,
+      [householdId, ownerId, ownerName, hashToken(token)],
+    );
+    for (const caregiver of caregivers) {
+      if (caregiver.id === ownerId) continue;
+      await client.query(
+        `INSERT INTO members (household_id, id, name, role) VALUES ($1,$2,$3,$4)
+         ON CONFLICT DO NOTHING`,
+        [householdId, caregiver.id, caregiver.name, caregiver.role === "owner" ? "caregiver" : caregiver.role],
+      );
+    }
+    for (const pet of pets) await insertPet(client, householdId, pet);
+    for (const medication of medications) await insertMedication(client, householdId, medication);
+    for (const entry of logs) {
+      await client.query(
+        `INSERT INTO dose_logs (household_id, id, medication_id, part, day, member_id, outcome, amount, note, time_label)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING`,
+        [
+          householdId,
+          entry.id,
+          entry.medicationId,
+          entry.part,
+          entry.day,
+          entry.memberId ?? ownerId,
+          entry.outcome,
+          entry.amount,
+          entry.note,
+          entry.timeLabel,
+        ],
+      );
+    }
+    return { token, householdId, memberId: ownerId };
+  });
+}
+
+export async function joinHousehold(pool, body) {
+  const code = text(body?.code, "code", { max: 12 }).toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const name = text(body?.name, "name", { max: 40 });
+  const household = await pool.query("SELECT id FROM households WHERE invite_code = $1", [code]);
+  if (household.rowCount === 0) return null;
+  const householdId = household.rows[0].id;
+  const memberId = newId("member");
+  const token = newToken();
+  await pool.query(
+    `INSERT INTO members (household_id, id, name, role, token_hash) VALUES ($1,$2,$3,$4,$5)`,
+    [householdId, memberId, name, oneOf(body?.role, ["caregiver", "sitter"], "role", "caregiver"), hashToken(token)],
+  );
+  return { token, householdId, memberId };
+}
+
+export async function memberForToken(pool, token) {
+  if (typeof token !== "string" || token.length < 20 || token.length > 100) return null;
+  const result = await pool.query("SELECT household_id, id FROM members WHERE token_hash = $1", [hashToken(token)]);
+  const row = result.rows[0];
+  return row ? { householdId: row.household_id, memberId: row.id } : null;
+}
+
+function mapMember(row, memberId) {
   return {
     id: row.id,
     name: row.name,
-    initials: row.initials,
     role: row.role,
-    avatarTone: row.avatar_tone,
-    ...(row.status ? { status: row.status } : {}),
-    ...(row.active ? { active: true } : {}),
-    ...(row.is_you ? { isYou: true } : {}),
+    joined: row.token_hash !== null,
+    ...(row.id === memberId ? { isYou: true } : {}),
   };
 }
 
@@ -199,26 +364,10 @@ function mapPet(row) {
     name: row.name,
     species: row.species,
     ageYears: row.age_years,
+    weightKg: row.weight_kg,
     breed: row.breed,
     sex: row.sex,
     conditions: row.conditions,
-    weightKg: row.weight_kg,
-    onTimePercent: row.on_time_percent,
-    dailyMeds: row.daily_meds,
-  };
-}
-
-function mapDose(row) {
-  return {
-    id: row.id,
-    petId: row.pet_id,
-    medicationId: row.medication_id,
-    name: row.name,
-    amount: row.amount,
-    part: row.part,
-    status: row.status,
-    subtitle: row.subtitle,
-    ...(row.given_by_id ? { givenById: row.given_by_id } : {}),
   };
 }
 
@@ -227,108 +376,161 @@ function mapMedication(row) {
     id: row.id,
     petId: row.pet_id,
     name: row.name,
-    detail: row.detail,
-    doseLabel: row.dose_label,
-    whenLabel: row.when_label,
-    fallbackLabel: row.fallback_label,
-    dosesLeft: row.doses_left,
+    amount: row.amount,
+    parts: row.parts,
     supplyTotal: row.supply_total,
-    lastsUntil: row.lasts_until,
-    onTimeLabel: row.on_time_label,
-    history: row.history,
+    dosesLeft: row.doses_left,
+    startDay: row.start_day,
   };
 }
 
-function mapActivity(row) {
+function mapLog(row) {
   return {
+    id: row.id,
+    medicationId: row.medication_id,
+    part: row.part,
+    day: row.day,
     memberId: row.member_id,
-    actor: row.actor,
-    action: row.action,
-    emphasis: row.emphasis,
-    timeLabel: row.time_label,
+    outcome: row.outcome,
+    amount: row.amount,
     ...(row.note ? { note: row.note } : {}),
+    timeLabel: row.time_label,
   };
 }
 
-export async function loadHousehold(pool) {
-  const [settings, members, pets, doses, medications, activity] = await Promise.all([
-    pool.query("SELECT is_pro, plan FROM settings WHERE id = 1"),
-    pool.query("SELECT * FROM members ORDER BY is_you DESC, name"),
-    pool.query("SELECT * FROM pets ORDER BY name"),
-    pool.query("SELECT * FROM doses"),
-    pool.query("SELECT * FROM medications"),
-    pool.query("SELECT * FROM activity ORDER BY id DESC"),
+export async function loadHousehold(pool, { householdId, memberId }) {
+  const [house, members, pets, medications, logs] = await Promise.all([
+    pool.query("SELECT * FROM households WHERE id = $1", [householdId]),
+    pool.query("SELECT * FROM members WHERE household_id = $1 ORDER BY created_at", [householdId]),
+    pool.query("SELECT * FROM pets WHERE household_id = $1 ORDER BY created_at", [householdId]),
+    pool.query(
+      "SELECT * FROM medications WHERE household_id = $1 AND archived = false ORDER BY created_at",
+      [householdId],
+    ),
+    pool.query(
+      `SELECT * FROM dose_logs WHERE household_id = $1
+       AND created_at > now() - interval '100 days' ORDER BY created_at DESC LIMIT 3000`,
+      [householdId],
+    ),
   ]);
-  const setting = settings.rows[0];
+  const household = house.rows[0];
+  if (!household) return null;
   return {
-    isPro: setting?.is_pro ?? false,
-    plan: setting?.plan ?? "yearly",
-    members: members.rows.map(mapMember),
+    household: {
+      id: household.id,
+      inviteCode: household.invite_code,
+      isPro: household.is_pro,
+      plan: household.plan,
+    },
+    memberId,
+    members: members.rows.map((row) => mapMember(row, memberId)),
     pets: pets.rows.map(mapPet),
-    doses: doses.rows.map(mapDose),
     medications: medications.rows.map(mapMedication),
-    activity: activity.rows.map(mapActivity),
+    logs: logs.rows.map(mapLog),
   };
 }
 
-export async function logDose(pool, doseId, body) {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const doseResult = await client.query("SELECT * FROM doses WHERE id = $1 FOR UPDATE", [doseId]);
-    const memberResult = await client.query("SELECT * FROM members WHERE id = $1", [body.memberId]);
-    const dose = doseResult.rows[0];
-    const member = memberResult.rows[0];
-    if (!dose || !member || typeof body.amount !== "string" || typeof body.timeLabel !== "string") {
-      await client.query("ROLLBACK");
-      return null;
-    }
-    const petResult = await client.query("SELECT name FROM pets WHERE id = $1", [dose.pet_id]);
-    const petName = petResult.rows[0]?.name ?? "Pet";
-    const who = member.is_you ? "You" : member.name;
-    const subtitle = `${petName} · ${who}, ${body.timeLabel}`;
-    const updated = await client.query(
-      `UPDATE doses SET status = 'given', amount = $2, given_by_id = $3, subtitle = $4 WHERE id = $1 RETURNING *`,
-      [doseId, body.amount, member.id, subtitle],
-    );
-    const note = { vomited: "Vomited a little after the dose", partial: "Partial dose", lowAppetite: "Low appetite" }[body.outcome] ?? null;
-    const emphasis = body.amount ? `${dose.name} · ${body.amount}` : dose.name;
-    const activity = await client.query(
-      `INSERT INTO activity (member_id, actor, action, emphasis, time_label, note)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-      [member.id, who, `gave ${petName}`, emphasis, body.timeLabel, note],
-    );
-    await client.query("COMMIT");
-    return { dose: mapDose(updated.rows[0]), activity: mapActivity(activity.rows[0]) };
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  } finally {
-    client.release();
-  }
+export async function addPet(pool, { householdId }, body) {
+  const existing = await pool.query("SELECT count(*)::int AS n FROM pets WHERE household_id = $1", [householdId]);
+  if (existing.rows[0].n >= 10) throw new InputError("A household can have up to 10 pets");
+  return insertPet(pool, householdId, readPet(body));
 }
 
-export async function skipDose(pool, doseId) {
-  const result = await pool.query("DELETE FROM doses WHERE id = $1", [doseId]);
+export async function updatePet(pool, { householdId }, petId, body) {
+  const exists = await pool.query("SELECT 1 FROM pets WHERE household_id = $1 AND id = $2", [
+    householdId,
+    id(petId, "pet.id"),
+  ]);
+  if (exists.rowCount === 0) return null;
+  return insertPet(pool, householdId, readPet({ ...body, id: petId }));
+}
+
+export async function addMedication(pool, { householdId }, body) {
+  return insertMedication(pool, householdId, readMedication(body));
+}
+
+export async function archiveMedication(pool, { householdId }, medicationId) {
+  const result = await pool.query(
+    "UPDATE medications SET archived = true WHERE household_id = $1 AND id = $2",
+    [householdId, id(medicationId, "medication.id")],
+  );
   return result.rowCount > 0;
 }
 
-export async function refillMedication(pool, medicationId) {
+export async function refillMedication(pool, { householdId }, medicationId) {
   const result = await pool.query(
-    "UPDATE medications SET doses_left = supply_total WHERE id = $1 RETURNING *",
-    [medicationId],
+    `UPDATE medications SET doses_left = supply_total
+     WHERE household_id = $1 AND id = $2 AND archived = false RETURNING *`,
+    [householdId, id(medicationId, "medication.id")],
   );
   return result.rows[0] ? mapMedication(result.rows[0]) : null;
 }
 
-export async function setPlan(pool, plan) {
+/// Saves one dose. A second log for the same medicine, time of day, and date is refused.
+export async function logDose(pool, { householdId, memberId }, body) {
+  const entry = readLog(body);
+  return transaction(pool, async (client) => {
+    const medication = await client.query(
+      "SELECT * FROM medications WHERE household_id = $1 AND id = $2 AND archived = false FOR UPDATE",
+      [householdId, entry.medicationId],
+    );
+    if (medication.rowCount === 0) return { missing: true };
+    let giver = memberId;
+    if (entry.memberId && entry.memberId !== memberId) {
+      const member = await client.query("SELECT 1 FROM members WHERE household_id = $1 AND id = $2", [
+        householdId,
+        entry.memberId,
+      ]);
+      if (member.rowCount > 0) giver = entry.memberId;
+    }
+    const inserted = await client.query(
+      `INSERT INTO dose_logs (household_id, id, medication_id, part, day, member_id, outcome, amount, note, time_label)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       ON CONFLICT DO NOTHING RETURNING *`,
+      [
+        householdId,
+        entry.id,
+        entry.medicationId,
+        entry.part,
+        entry.day,
+        giver,
+        entry.outcome,
+        entry.amount,
+        entry.note,
+        entry.timeLabel,
+      ],
+    );
+    if (inserted.rowCount === 0) {
+      const existing = await client.query(
+        `SELECT * FROM dose_logs WHERE household_id = $1
+         AND ((medication_id = $2 AND part = $3 AND day = $4) OR id = $5)`,
+        [householdId, entry.medicationId, entry.part, entry.day, entry.id],
+      );
+      return { conflict: existing.rows[0] ? mapLog(existing.rows[0]) : null };
+    }
+    let updated = mapMedication(medication.rows[0]);
+    if (entry.outcome === "given" && updated.supplyTotal > 0) {
+      const result = await client.query(
+        `UPDATE medications SET doses_left = GREATEST(doses_left - 1, 0)
+         WHERE household_id = $1 AND id = $2 RETURNING *`,
+        [householdId, entry.medicationId],
+      );
+      updated = mapMedication(result.rows[0]);
+    }
+    return { log: mapLog(inserted.rows[0]), medication: updated };
+  });
+}
+
+export async function setPlan(pool, { householdId }, plan) {
   if (plan !== "yearly" && plan !== "monthly") return null;
-  await pool.query("UPDATE settings SET plan = $1 WHERE id = 1", [plan]);
+  await pool.query("UPDATE households SET plan = $1 WHERE id = $2", [plan, householdId]);
   return plan;
 }
 
-export async function startTrial(pool) {
-  await pool.query("UPDATE settings SET is_pro = true WHERE id = 1");
-  const result = await pool.query("SELECT plan FROM settings WHERE id = 1");
+export async function startTrial(pool, { householdId }) {
+  const result = await pool.query(
+    "UPDATE households SET is_pro = true WHERE id = $1 RETURNING plan",
+    [householdId],
+  );
   return { isPro: true, plan: result.rows[0]?.plan ?? "yearly" };
 }

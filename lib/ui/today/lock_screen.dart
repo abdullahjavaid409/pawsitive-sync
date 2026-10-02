@@ -4,7 +4,10 @@ import 'package:pawsitive_sync/core/format/day_label.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/theme/app_colors.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
+import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
+import 'package:pawsitive_sync/data/care_repository.dart';
+import 'package:provider/provider.dart';
 
 /// Lock-screen preview of a due dose, with quick actions.
 class LockScreen extends StatelessWidget {
@@ -15,6 +18,17 @@ class LockScreen extends StatelessWidget {
     final text = Theme.of(context).textTheme;
     final tokens = context.paws;
     final scheme = Theme.of(context).colorScheme;
+    final care = context.watch<CareRepository>();
+    final due = care.nextDue;
+    final pet = due == null ? care.primaryPet : care.petById(due.petId);
+    final petName = pet?.name ?? 'Your pet';
+    final dueTitle = due == null
+        ? 'Nothing is due right now'
+        : "$petName's ${due.name.toLowerCase()} is due";
+    final dueBody = due == null
+        ? 'You will get a reminder here when a dose is due.'
+        : [if (due.amount.isNotEmpty) due.amount, due.subtitle].join(' · ');
+    final latest = care.activity.isEmpty ? null : care.activity.first;
 
     return Scaffold(
       backgroundColor: AppColors.lock,
@@ -65,25 +79,16 @@ class LockScreen extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(width: 8),
-                          Text(
-                            'PAWSITIVESYNC',
-                            style: text.bodySmall?.copyWith(
-                              letterSpacing: 0.3,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
+                          const AppWordmark(compact: true),
                           const Spacer(),
                           Text('now', style: text.bodySmall),
                         ],
                       ),
                       const SizedBox(height: 8),
-                      Text(
-                        "Miso's evening insulin is due",
-                        style: text.titleMedium,
-                      ),
+                      Text(dueTitle, style: text.titleMedium),
                       const SizedBox(height: 2),
                       Text(
-                        '2 units with food at 8:00 PM. Dan is on tonight.',
+                        dueBody,
                         style: text.titleSmall?.copyWith(
                           fontWeight: FontWeight.w400,
                           height: 1.4,
@@ -164,11 +169,19 @@ class LockScreen extends StatelessWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              "Sara gave Juniper's supplement",
+                              latest == null
+                                  ? 'No doses logged yet today'
+                                  : '${latest.actor} ${latest.action}',
                               style: text.titleSmall,
                             ),
                             Text(
-                              'Evening dose done · 7:41 PM',
+                              latest == null
+                                  ? 'Given doses show up here'
+                                  : [
+                                      if (latest.emphasis.isNotEmpty)
+                                        latest.emphasis,
+                                      latest.timeLabel,
+                                    ].join(' · '),
                               style: text.bodyMedium?.copyWith(
                                 color: scheme.onSurface,
                               ),

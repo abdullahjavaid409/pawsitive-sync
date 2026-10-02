@@ -5,147 +5,17 @@ import 'package:pawsitive_sync/core/motion/app_motion.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
-import 'package:pawsitive_sync/core/widgets/moment_art.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
-import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
-import 'package:provider/provider.dart';
+import 'package:pawsitive_sync/ui/onboarding/onboarding_visuals.dart';
 
-/// First screen. The drawing and one real dose sit together, then one button.
-class WelcomeScreen extends StatelessWidget {
+class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final tokens = context.paws;
-    final text = Theme.of(context).textTheme;
-
-    return _WelcomeSeen(
-      child: Scaffold(
-        body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      width: 32,
-                      height: 32,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: scheme.primary,
-                        borderRadius: BorderRadius.circular(9),
-                      ),
-                      child: StrokeIcon(
-                        StrokeIconKind.paw,
-                        size: 18,
-                        color: scheme.onPrimary,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Text('PawsitiveSync', style: text.titleLarge),
-                  ],
-                ),
-                const SizedBox(height: 20),
-                const Center(
-                  child: SoftEnter(
-                    child: MomentArt('welcome', size: 168, announce: false),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                SoftEnter(
-                  delay: const Duration(milliseconds: 80),
-                  child: SurfaceCard(
-                    padding: const EdgeInsets.all(16),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 40,
-                          height: 40,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: scheme.primary,
-                            shape: BoxShape.circle,
-                          ),
-                          child: StrokeIcon(
-                            StrokeIconKind.check,
-                            size: 20,
-                            color: scheme.onPrimary,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text('Morning insulin', style: text.titleMedium),
-                              Text(
-                                'Given by Sara at 8:02 AM',
-                                style: text.bodyMedium,
-                              ),
-                            ],
-                          ),
-                        ),
-                        InitialsAvatar(
-                          label: 'S',
-                          size: 28,
-                          background: tokens.brandSoft,
-                          foreground: tokens.brandDark,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text('See who already gave it.', style: text.headlineMedium),
-                const SizedBox(height: 8),
-                Text(
-                  'One shared list, so the medicine is not given twice.',
-                  style: text.bodyLarge?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-                const Spacer(),
-                FilledButton(
-                  onPressed: () {
-                    AppLog.event('welcome.continued');
-                    context.go(AppRoutes.pet);
-                  },
-                  child: const Text('Get started'),
-                ),
-                Center(
-                  child: TextButton(
-                    onPressed: () {
-                      AppLog.event('welcome.invited');
-                      context.read<OnboardingViewModel>().finish(
-                        reminders: false,
-                      );
-                      context.go(AppRoutes.household);
-                    },
-                    child: const Text('I was invited'),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
+  State<WelcomeScreen> createState() => _WelcomeScreenState();
 }
 
-class _WelcomeSeen extends StatefulWidget {
-  const _WelcomeSeen({required this.child});
-
-  final Widget child;
-
-  @override
-  State<_WelcomeSeen> createState() => _WelcomeSeenState();
-}
-
-class _WelcomeSeenState extends State<_WelcomeSeen> {
+class _WelcomeScreenState extends State<WelcomeScreen> {
   @override
   void initState() {
     super.initState();
@@ -153,5 +23,131 @@ class _WelcomeSeenState extends State<_WelcomeSeen> {
   }
 
   @override
-  Widget build(BuildContext context) => widget.child;
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final compact = MediaQuery.sizeOf(context).height < 740;
+
+    return OnboardingShell(
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(9),
+                decoration: BoxDecoration(
+                  color: context.paws.brandSoft,
+                  borderRadius: BorderRadius.circular(13),
+                ),
+                child: StrokeIcon(
+                  StrokeIconKind.paw,
+                  size: 22,
+                  color: context.paws.brandDark,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    'PawsitiveSync',
+                    style: text.headlineSmall?.copyWith(
+                      fontSize: 22,
+                      letterSpacing: -0.6,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          SizedBox(height: compact ? 16 : 24),
+          Center(
+            child: SoftEnter(
+              child: OnboardingArtwork('welcome', height: compact ? 200 : 246),
+            ),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            'A little less worry.\nA lot more care.',
+            style: text.displaySmall?.copyWith(
+              fontSize: 34,
+              height: 1.12,
+              letterSpacing: -1.2,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            'Their medicines, reminders, and the people who love them. All in sync.',
+            style: text.bodyLarge?.copyWith(
+              fontSize: 16,
+              height: 1.5,
+              color: scheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 24),
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerLowest,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: scheme.outlineVariant),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(11),
+                  decoration: BoxDecoration(
+                    color: context.paws.brandSoft,
+                    shape: BoxShape.circle,
+                  ),
+                  child: StrokeIcon(
+                    StrokeIconKind.check,
+                    size: 20,
+                    color: context.paws.brandDark,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('See who already gave it.', style: text.titleSmall),
+                      const SizedBox(height: 4),
+                      Text(
+                        'One shared list. Everyone up to date.',
+                        style: text.bodyMedium,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+      footer: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FilledButton(
+            onPressed: () {
+              AppLog.event('welcome.continued');
+              context.go(AppRoutes.pet);
+            },
+            child: const Text('Get started'),
+          ),
+          const SizedBox(height: 4),
+          TextButton(
+            onPressed: () {
+              AppLog.event('welcome.invited');
+              context.push(AppRoutes.join);
+            },
+            child: const Text('I have an invite code'),
+          ),
+        ],
+      ),
+    );
+  }
 }

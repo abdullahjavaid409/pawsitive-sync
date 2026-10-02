@@ -222,13 +222,160 @@ class SurfaceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerLowest,
+    return Material(
+      color: scheme.surfaceContainerLowest,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(radius),
-        border: Border.all(color: borderColor ?? scheme.outlineVariant),
+        side: BorderSide(color: borderColor ?? scheme.outlineVariant),
       ),
       child: padding == null ? child : Padding(padding: padding!, child: child),
+    );
+  }
+}
+
+/// Brand wordmark. Larger on welcome, compact in previews.
+class AppWordmark extends StatelessWidget {
+  const AppWordmark({super.key, this.compact = false, this.color});
+
+  final bool compact;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.paws;
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    return Text(
+      compact ? 'PAWSITIVESYNC' : 'PawsitiveSync',
+      style: text.headlineSmall?.copyWith(
+        fontSize: compact ? 13 : 26,
+        height: 1.1,
+        fontWeight: FontWeight.w600,
+        letterSpacing: compact ? 0.3 : -0.5,
+        color: color ?? (compact ? scheme.onSurface : tokens.brandDark),
+      ),
+    );
+  }
+}
+
+const onboardingScreenPadding = EdgeInsets.fromLTRB(24, 12, 24, 16);
+const onboardingContentPadding = EdgeInsets.only(top: 28, bottom: 24);
+const onboardingTitleGap = 12.0;
+const onboardingSectionGap = 24.0;
+const onboardingOptionGap = 12.0;
+const onboardingFooterGap = 16.0;
+
+/// One layout for setup: a quiet header, scrollable content and a reachable
+/// action. Scaffold owns keyboard insets so they are never applied twice.
+class OnboardingShell extends StatelessWidget {
+  const OnboardingShell({
+    super.key,
+    this.header,
+    required this.body,
+    this.footer,
+  });
+
+  final Widget? header;
+  final Widget body;
+  final Widget? footer;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Theme(
+      data: theme.copyWith(
+        inputDecorationTheme: theme.inputDecorationTheme.copyWith(
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(16),
+            borderSide: BorderSide(
+              color: theme.colorScheme.primary,
+              width: 1.5,
+            ),
+          ),
+        ),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            minimumSize: const Size(double.infinity, 56),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            textStyle: theme.textTheme.titleLarge,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+            ),
+          ),
+        ),
+      ),
+      child: Scaffold(
+        resizeToAvoidBottomInset: true,
+        body: SafeArea(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (header != null)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 0),
+                  child: header,
+                ),
+              Expanded(
+                child: SingleChildScrollView(
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
+                  padding: EdgeInsets.fromLTRB(
+                    24,
+                    header == null ? 20 : 28,
+                    24,
+                    24,
+                  ),
+                  child: body,
+                ),
+              ),
+              if (footer != null) OnboardingFooter(child: footer!),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Keeps Android back aligned with the onboarding header back button.
+class OnboardingStep extends StatelessWidget {
+  const OnboardingStep({super.key, required this.onBack, required this.child});
+
+  final VoidCallback onBack;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) onBack();
+      },
+      child: child,
+    );
+  }
+}
+
+/// SafeArea and Scaffold already account for system and keyboard insets.
+class OnboardingFooter extends StatelessWidget {
+  const OnboardingFooter({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
+      child: SizedBox(width: double.infinity, child: child),
     );
   }
 }
@@ -239,29 +386,68 @@ class OnboardingHeader extends StatelessWidget {
   final int step;
   final VoidCallback onBack;
 
+  static const _labels = [
+    'Your pet',
+    'Pet details',
+    'Health',
+    'Care circle',
+    'Reminders',
+  ];
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Row(
+    final text = Theme.of(context).textTheme;
+    return Column(
       children: [
-        IconButton(
-          onPressed: onBack,
-          tooltip: 'Back',
-          icon: StrokeIcon(StrokeIconKind.chevronLeft, color: scheme.onSurface),
-        ),
-        Expanded(
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(2),
-            child: LinearProgressIndicator(
-              value: step / 5,
-              minHeight: 4,
-              backgroundColor: scheme.outlineVariant,
-              color: scheme.primary,
+        Row(
+          children: [
+            IconButton(
+              onPressed: onBack,
+              tooltip: 'Back',
+              style: IconButton.styleFrom(
+                backgroundColor: scheme.surfaceContainerLowest,
+                side: BorderSide(color: scheme.outlineVariant),
+                minimumSize: const Size(44, 44),
+              ),
+              icon: StrokeIcon(
+                StrokeIconKind.chevronLeft,
+                size: 20,
+                color: scheme.onSurface,
+              ),
             ),
+            const SizedBox(width: 14),
+            Expanded(child: Text(_labels[step - 1], style: text.titleSmall)),
+            Text(
+              MediaQuery.textScalerOf(context).scale(14) > 20
+                  ? '$step/5'
+                  : '$step of 5',
+              style: text.bodyMedium,
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Semantics(
+          label: 'Setup progress',
+          value: 'Step $step of 5',
+          child: Row(
+            children: [
+              for (var i = 0; i < 5; i++) ...[
+                if (i > 0) const SizedBox(width: 6),
+                Expanded(
+                  child: AnimatedContainer(
+                    duration: AppMotion.enterOf(context),
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: i < step ? scheme.primary : scheme.outlineVariant,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+              ],
+            ],
           ),
         ),
-        const SizedBox(width: 16),
-        Text('$step of 5', style: Theme.of(context).textTheme.bodyMedium),
       ],
     );
   }
@@ -274,7 +460,8 @@ class SelectableOption extends StatelessWidget {
     required this.selected,
     required this.onPressed,
     this.subtitle,
-    this.minHeight = 56,
+    this.minHeight = 68,
+    this.leading,
   });
 
   final String title;
@@ -282,61 +469,67 @@ class SelectableOption extends StatelessWidget {
   final bool selected;
   final VoidCallback onPressed;
   final double minHeight;
+  final Widget? leading;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final tokens = context.paws;
-    return Material(
-      color: selected ? scheme.primaryContainer : scheme.surfaceContainerLowest,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: BorderSide(
-          color: selected ? scheme.primary : scheme.outlineVariant,
-          width: selected ? 1.5 : 1,
+    return Semantics(
+      checked: selected,
+      child: Material(
+        color: selected
+            ? scheme.primaryContainer
+            : scheme.surfaceContainerLowest,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(
+            color: selected ? scheme.primary : scheme.outlineVariant,
+            width: selected ? 1.5 : 1,
+          ),
         ),
-      ),
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(14),
-        child: ConstrainedBox(
-          constraints: BoxConstraints(minHeight: minHeight),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        title,
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(
-                              fontWeight: selected
-                                  ? FontWeight.w600
-                                  : FontWeight.w500,
-                            ),
-                      ),
-                      if (subtitle != null) ...[
-                        const SizedBox(height: 2),
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(16),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: minHeight),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                children: [
+                  if (leading != null) ...[
+                    ExcludeSemantics(child: leading!),
+                    const SizedBox(width: 14),
+                  ],
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
                         Text(
-                          subtitle!,
-                          style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(
-                                color: selected
-                                    ? tokens.brandDark
-                                    : scheme.onSurfaceVariant,
-                              ),
+                          title,
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w500),
                         ),
+                        if (subtitle != null) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            subtitle!,
+                            style: Theme.of(context).textTheme.bodyMedium
+                                ?.copyWith(
+                                  color: selected
+                                      ? tokens.brandDark
+                                      : scheme.onSurfaceVariant,
+                                ),
+                          ),
+                        ],
                       ],
-                    ],
+                    ),
                   ),
-                ),
-                const SizedBox(width: 16),
-                CheckMark(selected: selected),
-              ],
+                  const SizedBox(width: 16),
+                  CheckMark(selected: selected),
+                ],
+              ),
             ),
           ),
         ),

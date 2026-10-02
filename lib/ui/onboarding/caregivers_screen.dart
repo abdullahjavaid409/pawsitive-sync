@@ -2,141 +2,101 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
-import 'package:pawsitive_sync/core/motion/app_motion.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
-import 'package:pawsitive_sync/core/widgets/story_art.dart';
+import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
+import 'package:pawsitive_sync/ui/onboarding/onboarding_visuals.dart';
 import 'package:provider/provider.dart';
 
-/// Asks who else helps care for the pet.
-class CaregiversScreen extends StatelessWidget {
+class CaregiversScreen extends StatefulWidget {
   const CaregiversScreen({super.key});
+
+  @override
+  State<CaregiversScreen> createState() => _CaregiversScreenState();
+}
+
+class _CaregiversScreenState extends State<CaregiversScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<OnboardingViewModel>().ensureDefaultCaregiver();
+    });
+  }
+
+  static const _descriptions = [
+    'A simple routine of your own',
+    'Keep the people at home in sync',
+    'Make handovers feel easy',
+    'Share the daily responsibilities',
+  ];
 
   @override
   Widget build(BuildContext context) {
     final model = context.watch<OnboardingViewModel>();
     final scheme = Theme.of(context).colorScheme;
-    final tokens = context.paws;
-    final name = model.petName.trim().isEmpty
-        ? 'your pet'
-        : model.petName.trim();
-    final count = model.caregiverCount;
-    final label = count == 1
-        ? 'Just you, one schedule'
-        : '$count people, one schedule';
 
-    return Scaffold(
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 8, 24, 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              OnboardingHeader(
-                step: 4,
-                onBack: () => context.go(AppRoutes.conditions),
+    return OnboardingStep(
+      onBack: () => context.go(AppRoutes.conditions),
+      child: OnboardingShell(
+        header: OnboardingHeader(
+          step: 4,
+          onBack: () => context.go(AppRoutes.conditions),
+        ),
+        body: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const OnboardingTitle(
+              'Who helps with care?',
+              'Choose everyone who gives a dose. You can invite them after setup.',
+            ),
+            const SizedBox(height: 20),
+            Container(
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: scheme.primaryContainer,
+                borderRadius: BorderRadius.circular(24),
               ),
-              Expanded(
-                child: ListView(
-                  padding: const EdgeInsets.only(left: 12, top: 24),
-                  children: [
-                    Text(
-                      'Who else gives $name medication?',
-                      style: Theme.of(context).textTheme.headlineMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Pick everyone who helps.',
-                      style: Theme.of(context).textTheme.bodyLarge
-                          ?.copyWith(color: scheme.onSurfaceVariant),
-                    ),
-                    const SizedBox(height: 16),
-                    const Center(
-                      child: SoftEnter(child: StoryArt('people', size: 140)),
-                    ),
-                    const SizedBox(height: 16),
-                    for (final option
-                        in OnboardingViewModel.caregiverOptions) ...[
-                      SelectableOption(
-                        title: option,
-                        selected: model.caregivers.contains(option),
-                        onPressed: () => model.toggleCaregiver(option),
-                      ),
-                      const SizedBox(height: 8),
-                    ],
-                    const SizedBox(height: 16),
-                    SurfaceCard(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              InitialsAvatar(
-                                label: 'You',
-                                size: 28,
-                                fontSize: 11,
-                                background: scheme.primary,
-                                foreground: scheme.onPrimary,
-                                borderColor: scheme.surfaceContainerLowest,
-                              ),
-                              Transform.translate(
-                                offset: const Offset(-8, 0),
-                                child: InitialsAvatar(
-                                  label: 'P',
-                                  size: 28,
-                                  background: tokens.brandSoft,
-                                  foreground: tokens.brandDark,
-                                  borderColor: scheme.surfaceContainerLowest,
-                                ),
-                              ),
-                              Transform.translate(
-                                offset: const Offset(-16, 0),
-                                child: InitialsAvatar(
-                                  label: 'S',
-                                  size: 28,
-                                  background: tokens.neutral,
-                                  foreground: scheme.onSurface,
-                                  borderColor: scheme.surfaceContainerLowest,
-                                ),
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                label,
-                                style: Theme.of(context).textTheme.bodyMedium
-                                    ?.copyWith(
-                                      color: tokens.brandDark,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'When more than one person gives meds, doses get missed or given twice. Here, everyone sees who gave what, the moment it happens.',
-                            style: Theme.of(context).textTheme.bodyLarge,
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
+              child: const OnboardingArtwork('care', height: 96),
+            ),
+            const SizedBox(height: 20),
+            for (
+              var i = 0;
+              i < OnboardingViewModel.caregiverOptions.length;
+              i++
+            ) ...[
+              SelectableOption(
+                title: OnboardingViewModel.caregiverOptions[i],
+                subtitle: _descriptions[i],
+                selected: model.caregivers.contains(
+                  OnboardingViewModel.caregiverOptions[i],
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.only(left: 12),
-                child: FilledButton(
-                  onPressed: model.caregivers.isEmpty
-                      ? null
-                      : () => context.go(AppRoutes.notifications),
-                  child: Text(
-                    model.caregivers.isEmpty
-                        ? 'Choose at least one person'
-                        : 'Continue',
+                leading: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: scheme.surface,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: StrokeIcon(
+                    i == 0 ? StrokeIconKind.paw : StrokeIconKind.people,
+                    size: 20,
+                    color: context.paws.brandDark,
                   ),
                 ),
+                onPressed: () => model.toggleCaregiver(
+                  OnboardingViewModel.caregiverOptions[i],
+                ),
               ),
+              if (i < OnboardingViewModel.caregiverOptions.length - 1)
+                const SizedBox(height: 12),
             ],
-          ),
+          ],
+        ),
+        footer: FilledButton(
+          onPressed: model.caregivers.isEmpty
+              ? null
+              : () => context.go(AppRoutes.notifications),
+          child: const Text('Continue'),
         ),
       ),
     );

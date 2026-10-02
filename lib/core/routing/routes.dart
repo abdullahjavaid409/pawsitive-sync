@@ -2,7 +2,6 @@
 abstract final class AppRoutes {
   static const welcome = '/';
   static const onboarding = '/onboarding';
-  static const day = '/onboarding/day';
   static const pet = '/onboarding/pet';
   static const petDetails = '/onboarding/details';
   static const conditions = '/onboarding/conditions';
@@ -16,7 +15,12 @@ abstract final class AppRoutes {
   static const schedule = '/schedule';
   static const invite = '/invite';
   static const lock = '/lock';
+  static const join = '/join';
+  static const addPet = '/add-pet';
+  static const editPetPath = '/edit-pet/:id';
+  static const settings = '/settings';
   static const medicationPath = '/medication/:id';
 
   static String medication(String id) => '/medication/$id';
+  static String editPet(String id) => '/edit-pet/$id';
 }

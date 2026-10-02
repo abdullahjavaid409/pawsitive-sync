@@ -1,150 +1,325 @@
-import 'dart:convert';
-
-import 'package:http/http.dart' as http;
+import 'package:characters/characters.dart';
+import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
+import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 
-/// One household snapshot from GET /v1/household.
+/// Everything the household API knows, from GET /v1/household.
 class HouseholdSnapshot {
   const HouseholdSnapshot({
+    required this.inviteCode,
     required this.isPro,
     required this.plan,
+    required this.memberId,
     required this.members,
     required this.pets,
-    required this.doses,
     required this.medications,
-    required this.activity,
+    required this.logs,
   });
 
+  final String inviteCode;
   final bool isPro;
   final BillingPlan plan;
+  final String memberId;
   final List<Member> members;
   final List<Pet> pets;
-  final List<Dose> doses;
   final List<Medication> medications;
-  final List<ActivityItem> activity;
+  final List<DoseRecord> logs;
 }
 
-class SavedDose {
-  const SavedDose({required this.dose, required this.activity});
+/// A device's access to one household. The token is private to this device.
+class HouseholdSession {
+  const HouseholdSession({required this.token, required this.snapshot});
 
-  final Dose dose;
-  final ActivityItem activity;
+  final String token;
+  final HouseholdSnapshot snapshot;
 }
 
-/// Talks to the household API. No polling. Callers fetch once and write on an action.
+enum HouseholdErrorKind {
+  offline,
+  unauthorized,
+  notFound,
+  conflict,
+  invalid,
+  server,
+}
+
+class HouseholdException implements Exception {
+  const HouseholdException(this.message, {required this.kind, this.existing});
+
+  final String message;
+  final HouseholdErrorKind kind;
+
+  /// For [HouseholdErrorKind.conflict]: the dose someone already logged.
+  final DoseRecord? existing;
+
+  @override
+  String toString() => message;
+}
+
+/// Talks to the household API on Railway. No polling: fetch once, write on an action.
 class HouseholdApi {
-  HouseholdApi(this.base, {http.Client? client})
-    : _client = client ?? http.Client();
+  HouseholdApi(Uri base, {Dio? dio, int retries = 2})
+    : _dio = dio ?? Dio() {
+    _dio.options
+      ..baseUrl = base.toString().replaceFirst(RegExp(r'/$'), '')
+      ..connectTimeout = const Duration(seconds: 8)
+      ..sendTimeout = const Duration(seconds: 10)
+      ..receiveTimeout = const Duration(seconds: 12)
+      ..contentType = Headers.jsonContentType
+      ..responseType = ResponseType.json;
+    _dio.interceptors.addAll([
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          final value = token;
+          if (value != null) options.headers['authorization'] = 'Bearer $value';
+          handler.next(options);
+        },
+      ),
+      _RetryReads(_dio, retries),
+      if (kDebugMode)
+        LogInterceptor(
+          requestHeader: false,
+          responseHeader: false,
+          responseBody: false,
+          logPrint: (line) => debugPrint('[api] $line'),
+        ),
+    ]);
+  }
 
-  final Uri base;
-  final http.Client _client;
+  final Dio _dio;
+
+  /// Set once this device has joined or created a household.
+  String? token;
+
+  Future<HouseholdSession> createHousehold({
+    required Member owner,
+    required List<Member> caregivers,
+    required List<Pet> pets,
+    required List<Medication> medications,
+    required List<DoseRecord> logs,
+  }) async {
+    final body = await _send('POST', '/v1/households', {
+      'owner': {'id': owner.id, 'name': owner.isYou ? 'You' : owner.name},
+      'caregivers': [
+        for (final member in caregivers)
+          {'id': member.id, 'name': member.name, 'role': member.role.name},
+      ],
+      'pets': [for (final pet in pets) pet.toJson()],
+      'medications': [for (final item in medications) item.toJson()],
+      'logs': [for (final log in logs) log.toJson()],
+    });
+    return _session(body);
+  }
+
+  Future<HouseholdSession> join({
+    required String code,
+    required String name,
+  }) async {
+    final body = await _send('POST', '/v1/join', {'code': code, 'name': name});
+    return _session(body);
+  }
 
   Future<HouseholdSnapshot> fetchHousehold() async {
-    final body = await _get('/v1/household');
-    return HouseholdSnapshot(
-      isPro: body['isPro'] == true,
-      plan: _plan(body['plan']),
-      members: _list(body['members'], _member),
-      pets: _list(body['pets'], _pet),
-      doses: _list(body['doses'], _dose),
-      medications: _list(body['medications'], _medication),
-      activity: _list(body['activity'], _activity),
+    return _snapshot(await _send('GET', '/v1/household'));
+  }
+
+  Future<Pet> addPet(Pet pet) async {
+    final body = await _send('POST', '/v1/pets', pet.toJson());
+    return _pet(_map(body['pet']));
+  }
+
+  Future<Pet> updatePet(Pet pet) async {
+    final body = await _send(
+      'PATCH',
+      '/v1/pets/${Uri.encodeComponent(pet.id)}',
+      pet.toJson(),
     );
+    return _pet(_map(body['pet']));
   }
 
-  Future<SavedDose> logDose({
-    required String doseId,
-    required String memberId,
-    required String amount,
-    required String timeLabel,
-    String? outcome,
-  }) async {
-    final body = await _post('/v1/doses/$doseId/log', {
-      'memberId': memberId,
-      'amount': amount,
-      'timeLabel': timeLabel,
-      if (outcome != null) 'outcome': outcome,
-    });
-    final dose = body['dose'];
-    final activity = body['activity'];
-    if (dose is! Map<String, dynamic> || activity is! Map<String, dynamic>) {
-      throw const HouseholdException('The dose was not saved.');
-    }
-    return SavedDose(dose: _dose(dose), activity: _activity(activity));
+  Future<Medication> addMedication(Medication medication) async {
+    final body = await _send('POST', '/v1/medications', medication.toJson());
+    return _medication(_map(body['medication']));
   }
 
-  Future<void> skipDose(String doseId) async {
-    await _post('/v1/doses/$doseId/skip', {});
+  Future<void> removeMedication(String id) async {
+    await _send('DELETE', '/v1/medications/${Uri.encodeComponent(id)}');
   }
 
   Future<Medication> refill(String medicationId) async {
-    final body = await _post('/v1/medications/$medicationId/refill', {});
+    final body = await _send(
+      'POST',
+      '/v1/medications/${Uri.encodeComponent(medicationId)}/refill',
+    );
+    return _medication(_map(body['medication']));
+  }
+
+  /// Throws a conflict [HouseholdException] when the dose was already logged.
+  Future<({DoseRecord log, Medication? medication})> logDose(
+    DoseRecord record,
+  ) async {
+    final body = await _send('POST', '/v1/logs', record.toJson());
     final medication = body['medication'];
-    if (medication is! Map<String, dynamic>) {
-      throw const HouseholdException('The refill was not saved.');
-    }
-    return _medication(medication);
+    return (
+      log: _log(_map(body['log'])),
+      medication: medication is Map<String, dynamic>
+          ? _medication(medication)
+          : null,
+    );
   }
 
   Future<BillingPlan> setPlan(BillingPlan plan) async {
-    final body = await _post('/v1/billing/plan', {'plan': plan.name});
+    final body = await _send('POST', '/v1/billing/plan', {'plan': plan.name});
     return _plan(body['plan']);
   }
 
   Future<({bool isPro, BillingPlan plan})> startTrial() async {
-    final body = await _post('/v1/billing/trial', {});
+    final body = await _send('POST', '/v1/billing/trial');
     return (isPro: body['isPro'] == true, plan: _plan(body['plan']));
   }
 
-  Future<Map<String, dynamic>> _get(String path) async {
-    final response = await _client
-        .get(_uri(path))
-        .timeout(const Duration(seconds: 8));
-    return _read(response);
-  }
-
-  Future<Map<String, dynamic>> _post(
-    String path,
-    Map<String, dynamic> payload,
-  ) async {
-    final response = await _client
-        .post(
-          _uri(path),
-          headers: const {'content-type': 'application/json'},
-          body: jsonEncode(payload),
-        )
-        .timeout(const Duration(seconds: 8));
-    return _read(response);
-  }
-
-  Uri _uri(String path) {
-    final prefix = base.path.endsWith('/')
-        ? base.path.substring(0, base.path.length - 1)
-        : base.path;
-    return base.replace(path: '$prefix$path');
-  }
-
-  Map<String, dynamic> _read(http.Response response) {
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw HouseholdException(
-        'The household did not answer (${response.statusCode}).',
+  Future<Map<String, dynamic>> _send(
+    String method,
+    String path, [
+    Map<String, Object?>? data,
+  ]) async {
+    try {
+      final response = await _dio.request<Object?>(
+        path,
+        data: data,
+        options: Options(method: method),
       );
+      return _map(response.data);
+    } on DioException catch (error) {
+      throw _translate(error);
     }
-    final decoded = jsonDecode(response.body);
-    if (decoded is! Map<String, dynamic>) {
-      throw const HouseholdException('The household answer was not usable.');
+  }
+
+  HouseholdException _translate(DioException error) {
+    final status = error.response?.statusCode;
+    final data = error.response?.data;
+    final serverMessage = data is Map && data['error'] is String
+        ? data['error'] as String
+        : null;
+    AppLog.event('api.failed', {
+      'path': error.requestOptions.path,
+      'status': status ?? 0,
+      'type': error.type.name,
+    });
+    switch (error.type) {
+      case DioExceptionType.connectionTimeout:
+      case DioExceptionType.sendTimeout:
+      case DioExceptionType.receiveTimeout:
+      case DioExceptionType.connectionError:
+        return const HouseholdException(
+          "Can't reach the household. Check your internet and try again.",
+          kind: HouseholdErrorKind.offline,
+        );
+      default:
+        break;
     }
-    return decoded;
+    return switch (status) {
+      401 => HouseholdException(
+        serverMessage ?? 'This phone is no longer in the household.',
+        kind: HouseholdErrorKind.unauthorized,
+      ),
+      404 => HouseholdException(
+        serverMessage ?? 'That was not found.',
+        kind: HouseholdErrorKind.notFound,
+      ),
+      409 => HouseholdException(
+        serverMessage ?? 'Someone already logged this dose.',
+        kind: HouseholdErrorKind.conflict,
+        existing: data is Map<String, dynamic> && data['log'] is Map
+            ? _log(_map(data['log']))
+            : null,
+      ),
+      400 || 413 => HouseholdException(
+        serverMessage ?? 'Something in that form was not right.',
+        kind: HouseholdErrorKind.invalid,
+      ),
+      429 => HouseholdException(
+        serverMessage ?? 'Too many tries. Wait a minute and try again.',
+        kind: HouseholdErrorKind.invalid,
+      ),
+      _ => const HouseholdException(
+        'The household server had a problem. Try again in a moment.',
+        kind: HouseholdErrorKind.server,
+      ),
+    };
   }
 }
 
-class HouseholdException implements Exception {
-  const HouseholdException(this.message);
+/// Retries reads after a dropped connection or a gateway error. Writes are never retried.
+class _RetryReads extends Interceptor {
+  _RetryReads(this._dio, this._retries);
 
-  final String message;
+  final Dio _dio;
+  final int _retries;
 
   @override
-  String toString() => message;
+  Future<void> onError(
+    DioException err,
+    ErrorInterceptorHandler handler,
+  ) async {
+    final options = err.requestOptions;
+    final attempt = (options.extra['attempt'] as int?) ?? 0;
+    final status = err.response?.statusCode ?? 0;
+    final transient =
+        err.type == DioExceptionType.connectionError ||
+        err.type == DioExceptionType.connectionTimeout ||
+        err.type == DioExceptionType.receiveTimeout ||
+        status == 502 ||
+        status == 503 ||
+        status == 504;
+    if (options.method != 'GET' || !transient || attempt >= _retries) {
+      return handler.next(err);
+    }
+    await Future<void>.delayed(Duration(milliseconds: 400 * (attempt + 1)));
+    options.extra['attempt'] = attempt + 1;
+    try {
+      handler.resolve(await _dio.fetch<Object?>(options));
+    } on DioException catch (next) {
+      handler.next(next);
+    }
+  }
+}
+
+HouseholdSession _session(Map<String, dynamic> body) {
+  final token = body['token'];
+  if (token is! String || token.isEmpty) {
+    throw const HouseholdException(
+      'The household answer was not usable.',
+      kind: HouseholdErrorKind.server,
+    );
+  }
+  return HouseholdSession(token: token, snapshot: _snapshot(body));
+}
+
+HouseholdSnapshot _snapshot(Map<String, dynamic> body) {
+  final house = body['household'] is Map<String, dynamic>
+      ? body['household'] as Map<String, dynamic>
+      : const <String, dynamic>{};
+  return HouseholdSnapshot(
+    inviteCode: '${house['inviteCode'] ?? ''}',
+    isPro: house['isPro'] == true,
+    plan: _plan(house['plan']),
+    memberId: '${body['memberId'] ?? ''}',
+    members: _list(body['members'], memberFromJson),
+    pets: _list(body['pets'], _pet),
+    medications: _list(body['medications'], _medication),
+    logs: _list(body['logs'], _log),
+  );
+}
+
+Map<String, dynamic> _map(Object? value) {
+  if (value is Map<String, dynamic>) return value;
+  if (value == null || value == '') return const {};
+  throw const HouseholdException(
+    'The household answer was not usable.',
+    kind: HouseholdErrorKind.server,
+  );
 }
 
 List<T> _list<T>(Object? value, T Function(Map<String, dynamic>) map) {
@@ -155,22 +330,27 @@ List<T> _list<T>(Object? value, T Function(Map<String, dynamic>) map) {
   ];
 }
 
-Member _member(Map<String, dynamic> json) {
+Member memberFromJson(Map<String, dynamic> json) {
+  final name = '${json['name'] ?? ''}'.trim();
+  final isYou = json['isYou'] == true;
+  final role = _enum(MemberRole.values, json['role'], MemberRole.caregiver);
   return Member(
     id: '${json['id']}',
-    name: '${json['name']}',
-    initials: '${json['initials']}',
-    role: _enum(MemberRole.values, json['role'], MemberRole.caregiver),
-    avatarTone: _enum(
-      AvatarTone.values,
-      json['avatarTone'],
-      AvatarTone.neutral,
-    ),
-    status: json['status'] as String?,
-    active: json['active'] == true,
-    isYou: json['isYou'] == true,
+    name: isYou ? 'You' : (name.isEmpty ? 'Someone' : name),
+    initials: isYou
+        ? 'You'
+        : (name.isEmpty ? '?' : name.characters.first.toUpperCase()),
+    role: role,
+    avatarTone: isYou
+        ? AvatarTone.brand
+        : (role == MemberRole.sitter ? AvatarTone.neutral : AvatarTone.soft),
+    status: json['joined'] == false ? 'Not joined yet' : null,
+    isYou: isYou,
+    joined: json['joined'] != false,
   );
 }
+
+Pet petFromJson(Map<String, dynamic> json) => _pet(json);
 
 Pet _pet(Map<String, dynamic> json) {
   return Pet(
@@ -186,64 +366,54 @@ Pet _pet(Map<String, dynamic> json) {
         '$item',
     ],
     weightKg: _double(json['weightKg']),
-    onTimePercent: _int(json['onTimePercent']),
-    dailyMeds: _int(json['dailyMeds']),
+    onTimePercent: 0,
+    dailyMeds: 0,
   );
 }
 
-Dose _dose(Map<String, dynamic> json) {
-  return Dose(
-    id: '${json['id']}',
-    petId: '${json['petId']}',
-    medicationId: '${json['medicationId']}',
-    name: '${json['name']}',
-    amount: '${json['amount'] ?? ''}',
-    part: _enum(DayPart.values, json['part'], DayPart.morning),
-    status: _enum(DoseStatus.values, json['status'], DoseStatus.upcoming),
-    subtitle: '${json['subtitle'] ?? ''}',
-    givenById: json['givenById'] as String?,
-  );
-}
+Medication medicationFromJson(Map<String, dynamic> json) => _medication(json);
 
 Medication _medication(Map<String, dynamic> json) {
+  final parts = [
+    for (final item in json['parts'] is List ? json['parts'] as List : const [])
+      ?_enumOrNull(DayPart.values, item),
+  ];
   return Medication(
     id: '${json['id']}',
     petId: '${json['petId']}',
     name: '${json['name']}',
-    detail: '${json['detail'] ?? ''}',
-    doseLabel: '${json['doseLabel'] ?? ''}',
-    whenLabel: '${json['whenLabel'] ?? ''}',
-    fallbackLabel: '${json['fallbackLabel'] ?? ''}',
-    dosesLeft: _int(json['dosesLeft']),
+    amount: '${json['amount'] ?? ''}',
+    parts: parts,
     supplyTotal: _int(json['supplyTotal']),
-    lastsUntil: '${json['lastsUntil'] ?? ''}',
-    onTimeLabel: '${json['onTimeLabel'] ?? ''}',
-    history: _list(json['history'], (item) {
-      return DoseLog(
-        when: '${item['when']}',
-        who: '${item['who']}',
-        lateNote: item['lateNote'] as String?,
-      );
-    }),
+    dosesLeft: _int(json['dosesLeft']),
+    startDay: '${json['startDay'] ?? ''}',
   );
 }
 
-ActivityItem _activity(Map<String, dynamic> json) {
-  return ActivityItem(
+DoseRecord doseRecordFromJson(Map<String, dynamic> json) => _log(json);
+
+DoseRecord _log(Map<String, dynamic> json) {
+  return DoseRecord(
+    id: '${json['id']}',
+    medicationId: '${json['medicationId']}',
+    part: _enum(DayPart.values, json['part'], DayPart.morning),
+    day: '${json['day']}',
     memberId: '${json['memberId']}',
-    actor: '${json['actor']}',
-    action: '${json['action']}',
-    emphasis: '${json['emphasis']}',
-    timeLabel: '${json['timeLabel']}',
+    outcome: _enum(LogOutcome.values, json['outcome'], LogOutcome.given),
+    amount: '${json['amount'] ?? ''}',
+    timeLabel: '${json['timeLabel'] ?? ''}',
     note: json['note'] as String?,
   );
 }
 
-T _enum<T extends Enum>(List<T> values, Object? name, T fallback) {
+T _enum<T extends Enum>(List<T> values, Object? name, T fallback) =>
+    _enumOrNull(values, name) ?? fallback;
+
+T? _enumOrNull<T extends Enum>(List<T> values, Object? name) {
   for (final value in values) {
     if (value.name == name) return value;
   }
-  return fallback;
+  return null;
 }
 
 BillingPlan _plan(Object? name) =>

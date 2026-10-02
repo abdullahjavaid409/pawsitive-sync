@@ -1,30 +1,27 @@
-import 'dart:typed_data';
-
 import 'package:flutter/foundation.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
+import 'package:pawsitive_sync/core/routing/routes.dart';
+import 'package:pawsitive_sync/core/constants/pet_limits.dart';
+import 'package:pawsitive_sync/data/onboarding_profile.dart';
+import 'package:pawsitive_sync/data/onboarding_state.dart';
 import 'package:pawsitive_sync/data/reminder_choice.dart';
 import 'package:pawsitive_sync/domain/models.dart';
+import 'package:pawsitive_sync/domain/pet_conditions.dart';
 
 /// Stores setup answers until onboarding is marked complete.
 class OnboardingViewModel extends ChangeNotifier {
   bool isComplete = false;
-  String petName = 'Miso';
+  String petName = '';
   Species species = Species.cat;
-  int ageYears = 12;
-  String weight = '4.6';
-  final Set<String> conditions = {'Diabetes', 'Kidney disease'};
-  final Set<String> caregivers = {'Partner or family', 'Pet sitter or walker'};
+  int ageYears = 0;
+  String weight = '';
+  final Set<String> conditions = {};
+  final Set<String> caregivers = {};
   bool remindersOn = false;
   Uint8List? photoBytes;
+  static const maxPetNameLength = PetLimits.maxNameLength;
 
-  static const conditionOptions = [
-    ('Diabetes', 'Insulin, usually twice a day'),
-    ('Kidney disease', 'Fluids, blood pressure tablets'),
-    ('Thyroid', 'Daily tablets or gel'),
-    ('Heart condition', 'Several meds at set times'),
-    ('Arthritis or pain', 'Daily pain relief, supplements'),
-    ('Preventatives only', 'Flea, tick, heartworm'),
-  ];
+  static const conditionOptions = PetConditions.options;
 
   static const caregiverOptions = [
     'Just me',
@@ -33,10 +30,66 @@ class OnboardingViewModel extends ChangeNotifier {
     'Roommates',
   ];
 
+  static Future<OnboardingViewModel> load() async {
+    final model = OnboardingViewModel();
+    final results = await Future.wait<bool>([
+      OnboardingState.read(),
+      ReminderChoice.read(),
+    ]);
+    model.isComplete = results[0];
+    model.remindersOn = results[1];
+    if (model.isComplete) {
+      await OnboardingProfile.applyTo(model);
+    }
+    return model;
+  }
+
+  bool get hasValidPetName {
+    final trimmed = petName.trim();
+    return trimmed.isNotEmpty && trimmed.length <= maxPetNameLength;
+  }
+
+  bool get hasConditions => conditions.isNotEmpty;
+
+  bool get hasCaregivers => caregivers.isNotEmpty;
+
+  String get resumeRoute {
+    if (isComplete) return AppRoutes.today;
+    if (!hasValidPetName) return AppRoutes.welcome;
+    if (!hasConditions) return AppRoutes.petDetails;
+    if (caregivers.isEmpty) return AppRoutes.caregivers;
+    return AppRoutes.notifications;
+  }
+
+  static String backRouteForStep(int step) => switch (step) {
+    1 => AppRoutes.welcome,
+    2 => AppRoutes.pet,
+    3 => AppRoutes.petDetails,
+    4 => AppRoutes.conditions,
+    5 => AppRoutes.caregivers,
+    _ => AppRoutes.welcome,
+  };
+
+  /// Sends deep links and manual URL edits back to the earliest missing step.
+  String? guardRoute(String location) {
+    if (isComplete) return null;
+    return switch (location) {
+      AppRoutes.petDetails when !hasValidPetName => AppRoutes.pet,
+      AppRoutes.conditions when !hasValidPetName => AppRoutes.pet,
+      AppRoutes.caregivers when !hasValidPetName => AppRoutes.pet,
+      AppRoutes.caregivers when !hasConditions => AppRoutes.conditions,
+      AppRoutes.notifications when !hasValidPetName => AppRoutes.pet,
+      AppRoutes.notifications when !hasConditions => AppRoutes.conditions,
+      AppRoutes.notifications when caregivers.isEmpty => AppRoutes.caregivers,
+      _ => null,
+    };
+  }
+
   void setName(String value) {
-    final wasEmpty = petName.trim().isEmpty;
+    if (value.length > maxPetNameLength) return;
+    final wasValid = hasValidPetName;
     petName = value;
-    if (wasEmpty != value.trim().isEmpty) notifyListeners();
+    if (wasValid != hasValidPetName) notifyListeners();
   }
 
   void setPhoto(Uint8List? bytes) {
@@ -55,8 +108,12 @@ class OnboardingViewModel extends ChangeNotifier {
   }
 
   void setWeight(String value) {
+    final wasValid = hasValidWeight;
     weight = value;
+    if (wasValid != hasValidWeight) notifyListeners();
   }
+
+  bool get hasValidWeight => PetLimits.isValidWeight(weight);
 
   void toggleCondition(String name) {
     if (conditions.contains(name)) {
@@ -65,6 +122,13 @@ class OnboardingViewModel extends ChangeNotifier {
       conditions.add(name);
     }
     notifyListeners();
+  }
+
+  void ensureDefaultCaregiver() {
+    if (caregivers.isEmpty) {
+      caregivers.add('Just me');
+      notifyListeners();
+    }
   }
 
   void toggleCaregiver(String name) {
@@ -94,11 +158,36 @@ class OnboardingViewModel extends ChangeNotifier {
     AppLog.event(on ? 'reminders.on' : 'reminders.off');
   }
 
-  void finish({required bool reminders}) {
+  /// Changes reminders after setup and remembers the choice.
+  Future<void> saveReminders(bool on) async {
+    chooseReminders(on);
+    await ReminderChoice.write(on);
+  }
+
+  Future<void> finish({required bool reminders}) async {
+    if (isComplete) return;
     remindersOn = reminders;
     isComplete = true;
     notifyListeners();
-    ReminderChoice.write(reminders);
+    await Future.wait([
+      ReminderChoice.write(reminders),
+      OnboardingState.write(true),
+      OnboardingProfile.write(this),
+    ]);
     AppLog.event('onboarding.finished', {'reminders': reminders});
+  }
+
+  /// Clears setup state after account deletion so welcome shows again.
+  void resetForSignOut() {
+    isComplete = false;
+    petName = '';
+    species = Species.cat;
+    ageYears = 0;
+    weight = '';
+    conditions.clear();
+    caregivers.clear();
+    remindersOn = false;
+    photoBytes = null;
+    notifyListeners();
   }
 }

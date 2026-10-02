@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/format/day_label.dart';
+import 'package:pawsitive_sync/core/layout/app_art_size.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/motion/app_motion.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
@@ -10,7 +11,9 @@ import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/pet_mark.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
+import 'package:pawsitive_sync/data/dose_reminders.dart';
 import 'package:pawsitive_sync/domain/models.dart';
+import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:pawsitive_sync/ui/today/dose_sheets.dart';
 import 'package:provider/provider.dart';
 
@@ -31,6 +34,13 @@ class _TodayScreenState extends State<TodayScreen> {
     final scheme = Theme.of(context).colorScheme;
     final tokens = context.paws;
     final text = Theme.of(context).textTheme;
+    final primaryPet = care.primaryPet;
+    final selectedPet = _petId == null ? null : care.tryPetById(_petId!);
+    if (_petId != null && selectedPet == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _petId = null);
+      });
+    }
     final doses = care.doses
         .where((dose) => _petId == null || dose.petId == _petId)
         .toList();
@@ -46,19 +56,22 @@ class _TodayScreenState extends State<TodayScreen> {
     final low = care.lowSupply;
     final left = slots - given;
     final summary = doses.isEmpty
-        ? 'Nothing to give today.'
+        ? null
         : left == 0
-        ? 'Every medicine today is given.'
-        : '$given given. $left still to give.';
+        ? 'All done for today.'
+        : '$given of $slots given · $left left';
+    final showHousehold = care.members.length > 1;
     final faces = care.members.length >= 3
         ? [care.members[1], care.members[2], care.members[0]]
         : care.members;
+    final petLabel = selectedPet?.name ?? primaryPet?.name;
+    final isEmpty = doses.isEmpty;
 
     return Scaffold(
       body: SafeArea(
         bottom: false,
         child: RefreshIndicator(
-          onRefresh: care.sync,
+          onRefresh: care.hasApi ? care.sync : () async {},
           child: ListView(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
@@ -67,64 +80,62 @@ class _TodayScreenState extends State<TodayScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          dayLabel(),
-                          style: text.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                        Text('Today', style: text.displaySmall),
-                      ],
+                    child: _TodayHeader(
+                      petName: petLabel,
+                      isEmpty: isEmpty,
                     ),
                   ),
-                  Semantics(
-                    button: true,
-                    label: 'Household, ${care.members.length} people in sync',
-                    child: InkWell(
-                      onTap: () => context.go(AppRoutes.household),
-                      borderRadius: BorderRadius.circular(20),
-                      child: SizedBox(
-                        width: 74,
-                        height: 30,
-                        child: Stack(
-                          children: [
-                            for (var i = 0; i < faces.length && i < 3; i++)
-                              Positioned(
-                                left: i * 22.0,
-                                child: _memberAvatar(
-                                  context,
-                                  faces[i],
-                                  size: 30,
+                  if (showHousehold)
+                    Semantics(
+                      button: true,
+                      label:
+                          'Household, ${care.members.length} people helping',
+                      child: InkWell(
+                        onTap: () => context.go(AppRoutes.household),
+                        borderRadius: BorderRadius.circular(20),
+                        child: SizedBox(
+                          width: 74,
+                          height: 30,
+                          child: Stack(
+                            children: [
+                              for (var i = 0; i < faces.length && i < 3; i++)
+                                Positioned(
+                                  left: i * 22.0,
+                                  child: _memberAvatar(
+                                    context,
+                                    faces[i],
+                                    size: 30,
+                                  ),
                                 ),
-                              ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
                 ],
               ),
-              _HouseholdSync(
-                syncing: care.syncing,
-                error: care.syncError,
-                onRetry: care.sync,
-              ),
+              if (care.hasApi && (care.isConnected || care.syncError != null))
+                _HouseholdSync(
+                  syncing: care.syncing,
+                  error: care.syncError,
+                  onRetry: care.sync,
+                ),
+              const SizedBox(height: 20),
+              _QuickActions(hasPet: primaryPet != null),
+              const _RemindersBanner(),
               const SizedBox(height: 16),
               if (next != null)
                 SoftEnter(
                   child: _NowCard(
                     dose: next,
-                    pet: care.petById(next.petId),
+                    pet: care.tryPetById(next.petId) ?? primaryPet!,
                     time: _dueTime(next),
                     onPressed: () => _openDose(context, next!),
                   ),
                 )
               else if (doses.isNotEmpty)
                 const SoftEnter(child: _CalmCard()),
-              if (doses.isNotEmpty) ...[
+              if (summary != null) ...[
                 const SizedBox(height: 12),
                 Text(summary, style: text.bodyLarge),
               ],
@@ -149,34 +160,38 @@ class _TodayScreenState extends State<TodayScreen> {
                   ],
                 ),
               ],
-              const SizedBox(height: 16),
-              SizedBox(
-                height: 44,
-                child: ListView(
-                  scrollDirection: Axis.horizontal,
-                  children: [
-                    _FilterChip(
-                      label: 'All pets',
-                      selected: _petId == null,
-                      onPressed: () => setState(() => _petId = null),
-                    ),
-                    for (final pet in care.pets) ...[
-                      const SizedBox(width: 8),
+              if (care.pets.length > 1) ...[
+                const SizedBox(height: 16),
+                SizedBox(
+                  height: 44,
+                  child: ListView(
+                    scrollDirection: Axis.horizontal,
+                    children: [
                       _FilterChip(
-                        label: pet.name,
-                        species: pet.species,
-                        selected: _petId == pet.id,
-                        onPressed: () {
-                          setState(() => _petId = pet.id);
-                          if (!care.doses.any((dose) => dose.petId == pet.id)) {
-                            AppLog.event('dose.empty', {'petId': pet.id});
-                          }
-                        },
+                        label: 'All pets',
+                        selected: _petId == null,
+                        onPressed: () => setState(() => _petId = null),
                       ),
+                      for (final pet in care.pets) ...[
+                        const SizedBox(width: 8),
+                        _FilterChip(
+                          label: pet.name,
+                          species: pet.species,
+                          selected: _petId == pet.id,
+                          onPressed: () {
+                            setState(() => _petId = pet.id);
+                            if (!care.doses.any(
+                              (dose) => dose.petId == pet.id,
+                            )) {
+                              AppLog.event('dose.empty', {'petId': pet.id});
+                            }
+                          },
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
-              ),
+              ],
               if (low != null) ...[
                 const SizedBox(height: 16),
                 Material(
@@ -201,9 +216,9 @@ class _TodayScreenState extends State<TodayScreen> {
                       ),
                       child: Row(
                         children: [
-                          const MomentArt(
+                          MomentArt(
                             'medication.low',
-                            size: 40,
+                            size: appInlineArtSize(context),
                             announce: false,
                           ),
                           const SizedBox(width: 12),
@@ -219,7 +234,9 @@ class _TodayScreenState extends State<TodayScreen> {
                                   ),
                                 ),
                                 Text(
-                                  '${low.dosesLeft} doses left · lasts until ${low.lastsUntil.split(',').first}',
+                                  low.dosesLeft == 0
+                                      ? 'None left · refill soon'
+                                      : '${low.dosesLeft} ${low.dosesLeft == 1 ? 'dose' : 'doses'} left · until ${low.lastsUntil(care.now)}',
                                   style: text.bodyMedium?.copyWith(
                                     color: tokens.warning,
                                   ),
@@ -240,26 +257,28 @@ class _TodayScreenState extends State<TodayScreen> {
                   ),
                 ),
               ],
-              if (doses.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 28),
-                  child: Column(
-                    children: [
-                      const MomentArt('dose.empty', size: 120),
-                      const SizedBox(height: 12),
-                      Text(
-                        _petId == null
-                            ? 'Nothing is scheduled today.'
-                            : 'Nothing is scheduled for this pet today.',
-                        textAlign: TextAlign.center,
-                        style: text.bodyLarge?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
+              if (isEmpty) ...[
+                const SizedBox(height: 8),
+                const SoftEnter(child: _HowItWorks()),
+                SoftEnter(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(0, 24, 0, 8),
+                    child: _EmptyToday(
+                      petName: selectedPet?.name ?? primaryPet?.name,
+                      hasPet: primaryPet != null,
+                      onAddMedicine: () {
+                        AppLog.event('today.add_medicine');
+                        context.push(AppRoutes.schedule);
+                      },
+                      onViewPet: () => context.go(AppRoutes.pets),
+                      onInvite: () => care.isConnected
+                          ? context.go(AppRoutes.household)
+                          : context.push(AppRoutes.join),
+                    ),
                   ),
-                )
-              else
+                ),
+              ]
+              else ...[
                 for (final part in DayPart.values) ...[
                   if (doses.any((dose) => dose.part == part)) ...[
                     _PartLabel(part),
@@ -269,6 +288,20 @@ class _TodayScreenState extends State<TodayScreen> {
                     ),
                   ],
                 ],
+                const SizedBox(height: 16),
+                OutlinedButton.icon(
+                  onPressed: () => context.push(AppRoutes.schedule),
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size.fromHeight(52),
+                  ),
+                  icon: StrokeIcon(
+                    StrokeIconKind.plus,
+                    size: 18,
+                    color: scheme.primary,
+                  ),
+                  label: const Text('Add another medicine'),
+                ),
+              ],
             ],
           ),
         ),
@@ -329,9 +362,9 @@ class _PartLabel extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(0, 16, 0, 8),
       child: Row(
         children: [
-          MomentArt(name, size: 36, announce: false),
+          MomentArt(name, size: appPartArtSize(context), announce: false),
           const SizedBox(width: 8),
-          Text(label, style: Theme.of(context).textTheme.labelSmall),
+          Text(label, style: Theme.of(context).textTheme.titleSmall),
         ],
       ),
     );
@@ -399,7 +432,7 @@ class _HouseholdSyncState extends State<_HouseholdSync> {
           Row(
             children: [
               if (art != null) ...[
-                MomentArt(art, size: 40, announce: false),
+                MomentArt(art, size: appInlineArtSize(context), announce: false),
                 const SizedBox(width: 8),
               ],
               Expanded(
@@ -676,7 +709,10 @@ class _NowCard extends StatelessWidget {
           const SizedBox(height: 12),
           Row(
             children: [
-              PetMark(species: pet.species, size: 52),
+              PetMark(
+                species: pet.species,
+                size: appPetMarkSize(context, compact: 56),
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -730,16 +766,384 @@ class _CalmCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Nothing to give right now', style: text.titleMedium),
+          Text('Nothing due right now', style: text.titleMedium),
           const SizedBox(height: 4),
           Text(
-            'You can rest. Later medicines stay in the list below.',
+            'Later doses stay in the list below.',
             style: text.bodyLarge?.copyWith(
               color: Theme.of(context).colorScheme.onSurfaceVariant,
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _TodayHeader extends StatelessWidget {
+  const _TodayHeader({required this.isEmpty, this.petName});
+
+  final bool isEmpty;
+  final String? petName;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final name = petName?.trim();
+    final title = isEmpty
+        ? 'Pet medicine, shared'
+        : name == null || name.isEmpty
+        ? 'Today\'s medicines'
+        : '$name\'s medicines today';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          greetingLabel(),
+          style: text.bodyLarge?.copyWith(color: scheme.onSurfaceVariant),
+        ),
+        const SizedBox(height: 4),
+        Text(title, style: text.displaySmall),
+        const SizedBox(height: 6),
+        Text(dayLabel(), style: text.bodyMedium),
+        const SizedBox(height: 10),
+        Text(
+          'See what\'s due today and who already gave it — so the same dose is never given twice.',
+          style: text.bodyLarge?.copyWith(color: scheme.onSurfaceVariant),
+        ),
+      ],
+    );
+  }
+}
+
+/// Every main feature, one tap from home.
+class _QuickActions extends StatelessWidget {
+  const _QuickActions({required this.hasPet});
+
+  final bool hasPet;
+
+  @override
+  Widget build(BuildContext context) {
+    final actions = [
+      if (hasPet)
+        (
+          StrokeIconKind.plus,
+          'Add\nmedicine',
+          () => context.push(AppRoutes.schedule),
+        ),
+      (StrokeIconKind.paw, 'My\npet', () => context.go(AppRoutes.pets)),
+      (
+        StrokeIconKind.people,
+        'Family &\nhelpers',
+        () => context.go(AppRoutes.household),
+      ),
+      (
+        StrokeIconKind.file,
+        'Vet\nreport',
+        () => context.go(AppRoutes.reports),
+      ),
+    ];
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var i = 0; i < actions.length; i++) ...[
+          Expanded(
+            child: _QuickAction(
+              icon: actions[i].$1,
+              label: actions[i].$2,
+              onPressed: () {
+                AppLog.event('today.quick_action', {
+                  'action': actions[i].$2.replaceAll('\n', ' '),
+                });
+                actions[i].$3();
+              },
+            ),
+          ),
+          if (i != actions.length - 1) const SizedBox(width: 8),
+        ],
+      ],
+    );
+  }
+}
+
+class _QuickAction extends StatelessWidget {
+  const _QuickAction({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final StrokeIconKind icon;
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final tokens = context.paws;
+    final text = Theme.of(context).textTheme;
+    return Semantics(
+      button: true,
+      label: label.replaceAll('\n', ' '),
+      excludeSemantics: true,
+      child: Material(
+        color: scheme.surfaceContainerLowest,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: scheme.outlineVariant),
+        ),
+        child: InkWell(
+          onTap: onPressed,
+          borderRadius: BorderRadius.circular(16),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 96),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: tokens.brandSoft,
+                      shape: BoxShape.circle,
+                    ),
+                    child: StrokeIcon(icon, size: 20, color: tokens.brandDark),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    label,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    style: text.bodySmall?.copyWith(
+                      color: scheme.onSurface,
+                      fontWeight: FontWeight.w600,
+                      height: 1.2,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Lets people turn reminders on from home with one tap.
+class _RemindersBanner extends StatefulWidget {
+  const _RemindersBanner();
+
+  @override
+  State<_RemindersBanner> createState() => _RemindersBannerState();
+}
+
+class _RemindersBannerState extends State<_RemindersBanner> {
+  bool _busy = false;
+
+  Future<void> _turnOn() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final onboarding = context.read<OnboardingViewModel>();
+    final care = context.read<CareRepository>();
+    final messenger = ScaffoldMessenger.of(context);
+    final allowed = await DoseReminders.ask();
+    await onboarding.saveReminders(allowed);
+    if (allowed) await DoseReminders.scheduleNext(care);
+    if (!mounted) return;
+    setState(() => _busy = false);
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          allowed
+              ? 'Reminders are on.'
+              : 'Reminders stay off. You can allow them in phone Settings.',
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final on = context.watch<OnboardingViewModel>().remindersOn;
+    if (on) return const SizedBox.shrink();
+    final scheme = Theme.of(context).colorScheme;
+    final tokens = context.paws;
+    final text = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Material(
+        color: tokens.neutral,
+        borderRadius: BorderRadius.circular(14),
+        child: InkWell(
+          onTap: _busy ? null : _turnOn,
+          borderRadius: BorderRadius.circular(14),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+            child: Row(
+              children: [
+                StrokeIcon(
+                  StrokeIconKind.bell,
+                  size: 20,
+                  color: tokens.brandDark,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'Get a reminder when a dose is due',
+                    style: text.bodyMedium?.copyWith(
+                      color: scheme.onSurface,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+                Text(
+                  _busy ? '…' : 'Turn on',
+                  style: text.bodyMedium?.copyWith(
+                    color: tokens.brandDark,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _HowItWorks extends StatelessWidget {
+  const _HowItWorks();
+
+  static const _steps = [
+    ('1', 'Add your pet\'s medicines'),
+    ('2', 'Tap “I gave this” after each dose'),
+    ('3', 'Everyone in your home sees the same list'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final tokens = context.paws;
+
+    return SurfaceCard(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('How it works', style: text.titleMedium),
+          const SizedBox(height: 12),
+          for (final step in _steps) ...[
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 28,
+                  height: 28,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: tokens.brandSoft,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Text(
+                    step.$1,
+                    style: text.titleSmall?.copyWith(color: tokens.brandDark),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      step.$2,
+                      style: text.bodyLarge?.copyWith(
+                        color: scheme.onSurface,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (step != _steps.last) const SizedBox(height: 12),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyToday extends StatelessWidget {
+  const _EmptyToday({
+    required this.hasPet,
+    required this.onAddMedicine,
+    required this.onViewPet,
+    required this.onInvite,
+    this.petName,
+  });
+
+  final bool hasPet;
+  final String? petName;
+  final VoidCallback onAddMedicine;
+  final VoidCallback onViewPet;
+  final VoidCallback onInvite;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final name = petName?.trim();
+    final title = !hasPet
+        ? 'Waiting for your household'
+        : name == null || name.isEmpty
+        ? 'Nothing scheduled yet'
+        : 'Nothing scheduled for $name yet';
+    final body = !hasPet
+        ? 'Ask whoever invited you to share the pet\'s medicine list. It will show up here.'
+        : 'Add the medicines $name takes. They\'ll appear here each day.';
+
+    return Column(
+      children: [
+        MomentArt('dose.empty', size: appEmptyStateArtSize(context)),
+        const SizedBox(height: 20),
+        Text(
+          title,
+          textAlign: TextAlign.center,
+          style: text.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          body,
+          textAlign: TextAlign.center,
+          style: text.bodyLarge?.copyWith(color: scheme.onSurfaceVariant),
+        ),
+        const SizedBox(height: 24),
+        if (hasPet) ...[
+          FilledButton(
+            onPressed: onAddMedicine,
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(48),
+            ),
+            child: const Text('Add first medicine'),
+          ),
+          const SizedBox(height: 8),
+          TextButton(onPressed: onViewPet, child: const Text('View pet profile')),
+        ] else
+          OutlinedButton(
+            onPressed: onInvite,
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(48),
+            ),
+            child: const Text('Open household'),
+          ),
+      ],
     );
   }
 }

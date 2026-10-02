@@ -2,13 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
+import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
-import 'package:pawsitive_sync/domain/models.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
-/// Builds a caregiver or sitter invite link.
+/// Shows the household's invite code and shares it.
 class InviteScreen extends StatefulWidget {
   const InviteScreen({super.key});
 
@@ -17,23 +18,71 @@ class InviteScreen extends StatefulWidget {
 }
 
 class _InviteScreenState extends State<InviteScreen> {
-  InviteRole _role = InviteRole.sitter;
-  bool _notify = true;
   bool _copied = false;
+  bool _connecting = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _ensureShared());
+  }
+
+  Future<void> _ensureShared() async {
+    final care = context.read<CareRepository>();
+    if (care.isConnected) return;
+    setState(() {
+      _connecting = true;
+      _error = null;
+    });
+    final error = await care.connect();
+    if (!mounted) return;
+    setState(() {
+      _connecting = false;
+      _error = error;
+    });
+  }
+
+  String _message(CareRepository care) {
+    final pets = care.pets.map((pet) => pet.name).toList();
+    final who = pets.isEmpty
+        ? 'our pet'
+        : pets.length == 1
+        ? pets.first
+        : '${pets.sublist(0, pets.length - 1).join(', ')} and ${pets.last}';
+    return 'Help me with $who’s medicine on PawsitiveSync, so no dose is missed or given twice.\n\n'
+        'Open the app, tap “I have an invite code”, and enter: ${care.inviteCode}';
+  }
+
+  Future<void> _share(BuildContext buttonContext, CareRepository care) async {
+    AppLog.event('invite.share_tapped');
+    final box = buttonContext.findRenderObject() as RenderBox?;
+    await SharePlus.instance.share(
+      ShareParams(
+        text: _message(care),
+        subject: 'Join our PawsitiveSync household',
+        sharePositionOrigin: box == null
+            ? null
+            : box.localToGlobal(Offset.zero) & box.size,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
     final care = context.watch<CareRepository>();
     final scheme = Theme.of(context).colorScheme;
+    final tokens = context.paws;
     final text = Theme.of(context).textTheme;
-    final pets = care.pets.map((pet) => pet.name).join(', ');
+    final code = care.inviteCode;
+    final ready = care.isConnected && code.isNotEmpty;
 
     return Scaffold(
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Row(
                 children: [
@@ -55,216 +104,131 @@ class _InviteScreenState extends State<InviteScreen> {
                   const SizedBox(width: 48),
                 ],
               ),
-              Text(
-                'Who are you inviting?',
-                style: text.headlineMedium?.copyWith(
-                  fontSize: 24,
-                  height: 1.2,
-                  letterSpacing: -0.4,
-                ),
-              ),
-              const SizedBox(height: 16),
-              _RoleTile(
-                title: 'Caregiver',
-                subtitle: 'Partner or family. Sees and logs everything.',
-                selected: _role == InviteRole.caregiver,
-                onPressed: () => setState(() => _role = InviteRole.caregiver),
-              ),
-              const SizedBox(height: 8),
-              _RoleTile(
-                title: 'Sitter',
-                subtitle: 'Only what they need, for set dates. Access ends on its own.',
-                selected: _role == InviteRole.sitter,
-                onPressed: () => setState(() => _role = InviteRole.sitter),
-              ),
-              const SizedBox(height: 16),
-              SurfaceCard(
-                child: Column(
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
                   children: [
-                    _InfoRow(
-                      icon: StrokeIconKind.calendar,
-                      label: 'Access',
-                      value: 'Oct 5 – Oct 12',
+                    Text(
+                      'Invite someone who helps',
+                      style: text.headlineMedium,
                     ),
-                    _InfoRow(
-                      icon: StrokeIconKind.paw,
-                      label: 'Pets',
-                      value: pets,
-                    ),
-                    _InfoRow(
-                      icon: StrokeIconKind.eye,
-                      label: 'Can see',
-                      value: "Today's doses, notes",
-                      showDivider: false,
-                    ),
-                    InkWell(
-                      onTap: () => setState(() => _notify = !_notify),
-                      child: SizedBox(
-                        height: 52,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: Row(
-                            children: [
-                              StrokeIcon(
-                                StrokeIconKind.bell,
-                                size: 20,
-                                color: scheme.onSurfaceVariant,
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  'Tell me when they log a dose',
-                                  style: text.bodyLarge,
-                                ),
-                              ),
-                              PillSwitch(on: _notify),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  color: scheme.surfaceContainer,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
-                  child: Row(
-                    children: [
-                      StrokeIcon(
-                        StrokeIconKind.link,
-                        size: 20,
+                    const SizedBox(height: 8),
+                    Text(
+                      'A partner, family member, or sitter. They see the same list and can mark doses as given.',
+                      style: text.bodyLarge?.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
+                    ),
+                    const SizedBox(height: 24),
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: tokens.brandSoft,
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
                         child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              'Invite link ready',
-                              style: text.titleSmall?.copyWith(
-                                fontWeight: FontWeight.w500,
+                              'YOUR INVITE CODE',
+                              style: text.labelSmall?.copyWith(
+                                color: tokens.brandDark,
                               ),
                             ),
-                            Text(
-                              'Works once · expires in 48 hours',
-                              style: text.bodySmall,
-                            ),
+                            const SizedBox(height: 12),
+                            if (ready)
+                              Semantics(
+                                label: 'Invite code ${code.split('').join(' ')}',
+                                child: SelectableText(
+                                  code,
+                                  textAlign: TextAlign.center,
+                                  style: text.displaySmall?.copyWith(
+                                    letterSpacing: 8,
+                                    fontWeight: FontWeight.w600,
+                                    color: tokens.brandDark,
+                                  ),
+                                ),
+                              )
+                            else if (_connecting)
+                              const Padding(
+                                padding: EdgeInsets.all(12),
+                                child: CircularProgressIndicator(),
+                              )
+                            else
+                              Text(
+                                _error ?? 'Getting your code…',
+                                textAlign: TextAlign.center,
+                                style: text.bodyLarge?.copyWith(
+                                  color: scheme.error,
+                                ),
+                              ),
+                            const SizedBox(height: 12),
+                            if (ready)
+                              OutlinedButton.icon(
+                                onPressed: () async {
+                                  await Clipboard.setData(
+                                    ClipboardData(text: code),
+                                  );
+                                  if (!mounted) return;
+                                  AppLog.event('invite.copied');
+                                  setState(() => _copied = true);
+                                },
+                                icon: Icon(
+                                  _copied
+                                      ? Icons.check_rounded
+                                      : Icons.copy_rounded,
+                                  size: 18,
+                                ),
+                                label: Text(_copied ? 'Copied' : 'Copy code'),
+                              )
+                            else if (!_connecting)
+                              OutlinedButton(
+                                onPressed: _ensureShared,
+                                child: const Text('Try again'),
+                              ),
                           ],
                         ),
                       ),
-                      OutlinedButton(
-                        onPressed: () async {
-                          await Clipboard.setData(
-                            const ClipboardData(
-                              text:
-                                  'https://pawsitivesync.app/join/miso-juniper',
-                            ),
-                          );
-                          if (!mounted) return;
-                          AppLog.event('invite.copied');
-                          setState(() => _copied = true);
-                        },
-                        style: OutlinedButton.styleFrom(
-                          minimumSize: const Size(0, 44),
-                          padding: const EdgeInsets.symmetric(horizontal: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
+                    ),
+                    const SizedBox(height: 24),
+                    Text('How they join', style: text.titleMedium),
+                    const SizedBox(height: 8),
+                    SurfaceCard(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        children: [
+                          const _Step(
+                            number: 1,
+                            text: 'They install PawsitiveSync.',
                           ),
-                          textStyle: text.titleSmall,
-                        ),
-                        child: Text(_copied ? 'Copied' : 'Copy'),
+                          const _Step(
+                            number: 2,
+                            text: 'They tap “I have an invite code”.',
+                          ),
+                          _Step(
+                            number: 3,
+                            text: ready
+                                ? 'They enter $code and their name.'
+                                : 'They enter your code and their name.',
+                            last: true,
+                          ),
+                        ],
                       ),
-                    ],
-                  ),
-                ),
-              ),
-              const Spacer(),
-              FilledButton.icon(
-                onPressed: () {
-                  AppLog.event('invite.share_tapped');
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Invite ready to share.')),
-                  );
-                  context.pop();
-                },
-                icon: StrokeIcon(
-                  StrokeIconKind.share,
-                  size: 20,
-                  color: scheme.onPrimary,
-                ),
-                label: const Text('Share invite'),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _RoleTile extends StatelessWidget {
-  const _RoleTile({
-    required this.title,
-    required this.subtitle,
-    required this.selected,
-    required this.onPressed,
-  });
-
-  final String title;
-  final String subtitle;
-  final bool selected;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Material(
-      color: scheme.surfaceContainerLowest,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(
-          color: selected ? scheme.primary : scheme.outlineVariant,
-          width: selected ? 2 : 1,
-        ),
-      ),
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Row(
-            children: [
-              Container(
-                width: 22,
-                height: 22,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: selected ? scheme.primary : scheme.outline,
-                    width: selected ? 6 : 1.5,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(title, style: Theme.of(context).textTheme.titleMedium),
-                    Text(
-                      subtitle,
-                      style: Theme.of(context).textTheme.bodyMedium,
                     ),
                   ],
                 ),
               ),
+              Builder(
+                builder: (buttonContext) => FilledButton.icon(
+                  onPressed: ready ? () => _share(buttonContext, care) : null,
+                  icon: StrokeIcon(
+                    StrokeIconKind.share,
+                    size: 20,
+                    color: scheme.onPrimary,
+                  ),
+                  label: const Text('Share invite'),
+                ),
+              ),
             ],
           ),
         ),
@@ -273,59 +237,32 @@ class _RoleTile extends StatelessWidget {
   }
 }
 
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-    this.showDivider = true,
-  });
+class _Step extends StatelessWidget {
+  const _Step({required this.number, required this.text, this.last = false});
 
-  final StrokeIconKind icon;
-  final String label;
-  final String value;
-  final bool showDivider;
+  final int number;
+  final String text;
+  final bool last;
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: showDivider
-            ? Border(bottom: BorderSide(color: scheme.surfaceContainer))
-            : null,
-      ),
-      child: SizedBox(
-        height: 52,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Row(
-            children: [
-              StrokeIcon(icon, size: 20, color: scheme.onSurfaceVariant),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyLarge
-                      ?.copyWith(color: scheme.onSurfaceVariant),
-                ),
-              ),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(
-                  value,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  textAlign: TextAlign.end,
-                  style: Theme.of(context).textTheme.bodyLarge
-                      ?.copyWith(fontWeight: FontWeight.w500),
-                ),
-              ),
-            ],
+    final tokens = context.paws;
+    final theme = Theme.of(context).textTheme;
+    return Padding(
+      padding: EdgeInsets.only(bottom: last ? 0 : 12),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 14,
+            backgroundColor: tokens.brandSoft,
+            child: Text(
+              '$number',
+              style: theme.titleSmall?.copyWith(color: tokens.brandDark),
+            ),
           ),
-        ),
+          const SizedBox(width: 12),
+          Expanded(child: Text(text, style: theme.bodyLarge)),
+        ],
       ),
     );
   }

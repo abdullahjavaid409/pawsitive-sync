@@ -1,3 +1,11 @@
+/// "Good morning" from the phone's clock.
+String greetingLabel([DateTime? date]) {
+  final hour = (date ?? DateTime.now()).hour;
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
 /// "Friday, October 2" from the phone's clock.
 String dayLabel([DateTime? date]) {
   final day = date ?? DateTime.now();

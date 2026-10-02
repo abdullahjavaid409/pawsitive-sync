@@ -3,7 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/layout/adaptive.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 
-/// Keeps each tab stack alive and hides the bottom bar on Reports.
+/// Keeps each tab stack alive behind one bottom bar or side rail.
 class AppShell extends StatelessWidget {
   const AppShell({super.key, required this.navigationShell});
 
@@ -50,11 +50,9 @@ class _CompactShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final showBar = navigationShell.currentIndex != 3;
     return Scaffold(
       body: navigationShell,
-      bottomNavigationBar: showBar
-          ? DecoratedBox(
+      bottomNavigationBar: DecoratedBox(
               decoration: BoxDecoration(
                 color: scheme.surface,
                 border: Border(top: BorderSide(color: scheme.outlineVariant)),
@@ -109,8 +107,7 @@ class _CompactShell extends StatelessWidget {
                   ),
                 ),
               ),
-            )
-          : null,
+            ),
     );
   }
 }

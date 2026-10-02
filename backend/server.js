@@ -1,14 +1,20 @@
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
 import {
+  InputError,
+  addMedication,
+  addPet,
+  updatePet,
+  archiveMedication,
+  createHousehold,
   createPool,
+  joinHousehold,
   loadHousehold,
   logDose,
+  memberForToken,
   migrate,
   refillMedication,
-  seedIfEmpty,
   setPlan,
-  skipDose,
   startTrial,
 } from "./db.js";
 
@@ -36,14 +42,11 @@ function send(res, status, body) {
   res.end(payload);
 }
 
-const maxBodyBytes = 4096;
+const smallBody = 8 * 1024;
+const importBody = 512 * 1024;
 const rateWindowMs = 60_000;
-const rateLimit = 30;
+const limits = { default: 120, join: 10, create: 10 };
 const hits = new Map();
-
-function safeId(value) {
-  return /^[a-z0-9-]{1,40}$/.test(value);
-}
 
 function clientKey(req) {
   const forwarded = req.headers["x-forwarded-for"];
@@ -53,26 +56,26 @@ function clientKey(req) {
   return req.socket.remoteAddress ?? "unknown";
 }
 
-function limited(req) {
+function limited(req, bucket) {
   const now = Date.now();
-  const key = clientKey(req);
+  const key = `${bucket}:${clientKey(req)}`;
   const current = hits.get(key);
   if (!current || current.resetAt <= now) {
-    if (hits.size > 500) hits.clear();
+    if (hits.size > 5000) hits.clear();
     hits.set(key, { count: 1, resetAt: now + rateWindowMs });
     return false;
   }
   current.count += 1;
-  return current.count > rateLimit;
+  return current.count > limits[bucket];
 }
 
-function readJson(req) {
+function readJson(req, maxBytes = smallBody) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
     req.on("data", (chunk) => {
       size += chunk.length;
-      if (size > maxBodyBytes) {
+      if (size > maxBytes) {
         reject(Object.assign(new Error("Body too large"), { status: 413 }));
         req.destroy();
         return;
@@ -120,15 +123,20 @@ async function connectWithRetry() {
   }
 }
 
+function bucketFor(req, path) {
+  if (req.method === "POST" && path === "/v1/join") return "join";
+  if (req.method === "POST" && path === "/v1/households") return "create";
+  return "default";
+}
+
 const server = createServer(async (req, res) => {
   const started = Date.now();
-  const requestId = req.headers["x-request-id"]?.toString() || randomUUID();
+  const requestId = req.headers["x-request-id"]?.toString().slice(0, 64) || randomUUID();
   const url = new URL(req.url ?? "/", "http://localhost");
   res.setHeader("x-request-id", requestId);
-  log("request.received", { requestId, method: req.method, path: url.pathname });
 
-  if (url.pathname !== "/health" && limited(req)) {
-    send(res, 429, { error: "Too many requests" });
+  if (url.pathname !== "/health" && limited(req, bucketFor(req, url.pathname))) {
+    send(res, 429, { error: "Too many tries. Wait a minute and try again." });
     log("request.limited", { requestId, method: req.method, path: url.pathname });
     return;
   }
@@ -146,88 +154,127 @@ const server = createServer(async (req, res) => {
   } catch (error) {
     const status = error instanceof SyntaxError ? 400 : error.status ?? 500;
     const message =
-      status === 400 ? "Invalid JSON" : status === 413 ? "Body too large" : "Internal error";
+      error instanceof InputError
+        ? error.message
+        : status === 400
+          ? "Invalid JSON"
+          : status === 413
+            ? "Body too large"
+            : "Internal error";
     send(res, status, { error: message });
     log("request.failed", {
       requestId,
       method: req.method,
       path: url.pathname,
       status,
+      reason: status === 500 ? String(error?.message ?? error).slice(0, 200) : message,
       durationMs: Date.now() - started,
     });
   }
 });
 
+async function authorize(req) {
+  const header = req.headers.authorization;
+  if (typeof header !== "string" || !header.startsWith("Bearer ")) return null;
+  return memberForToken(pool, header.slice(7).trim());
+}
+
+async function snapshot(auth) {
+  return loadHousehold(pool, auth);
+}
+
 async function route(req, url, requestId) {
-  if (req.method === "GET" && url.pathname === "/health") {
+  const path = url.pathname;
+  if (req.method === "GET" && path === "/health") {
     await pool.query("SELECT 1");
-    return { status: 200, body: { ok: true, service: "pawsitive-api", database: "postgres" } };
-  }
-  if (req.method === "GET" && url.pathname === "/v1/household") {
-    return { status: 200, body: await loadHousehold(pool) };
+    return { status: 200, body: { ok: true, service: "pawsitive-api", version: 2 } };
   }
 
-  const doseLog = url.pathname.match(/^\/v1\/doses\/([^/]+)\/log$/);
-  if (req.method === "POST" && doseLog) {
+  if (req.method === "POST" && path === "/v1/households") {
+    const body = await readJson(req, importBody);
+    const created = await createHousehold(pool, body);
+    log("household.created", { requestId, householdId: created.householdId });
+    return { status: 201, body: { token: created.token, ...(await snapshot(created)) } };
+  }
+
+  if (req.method === "POST" && path === "/v1/join") {
     const body = await readJson(req);
-    const doseId = decodeURIComponent(doseLog[1]);
-    if (!safeId(doseId)) {
-      return { status: 400, body: { error: "Unknown dose" } };
+    const joined = await joinHousehold(pool, body);
+    if (!joined) {
+      log("household.join_rejected", { requestId });
+      return { status: 404, body: { error: "That invite code was not found. Check it and try again." } };
     }
-    const saved = await logDose(pool, doseId, body);
-    if (!saved) {
-      log("dose.log_rejected", { requestId, doseId, memberId: body.memberId ?? null });
-      return { status: 400, body: { error: "Dose, member, amount, and time are required" } };
-    }
-    log("dose.logged", { requestId, doseId, memberId: body.memberId, outcome: body.outcome ?? "smooth" });
-    return { status: 200, body: saved };
+    log("household.joined", { requestId, householdId: joined.householdId, memberId: joined.memberId });
+    return { status: 201, body: { token: joined.token, ...(await snapshot(joined)) } };
   }
 
-  const doseSkip = url.pathname.match(/^\/v1\/doses\/([^/]+)\/skip$/);
-  if (req.method === "POST" && doseSkip) {
-    const doseId = decodeURIComponent(doseSkip[1]);
-    if (!safeId(doseId)) {
-      return { status: 400, body: { error: "Unknown dose" } };
-    }
-    const removed = await skipDose(pool, doseId);
-    if (!removed) {
-      log("dose.skip_rejected", { requestId, doseId });
-      return { status: 404, body: { error: "Dose not found" } };
-    }
-    log("dose.skipped", { requestId, doseId });
-    return { status: 200, body: { doseId } };
+  if (!path.startsWith("/v1/")) return { status: 404, body: { error: "Not found" } };
+
+  const auth = await authorize(req);
+  if (!auth) return { status: 401, body: { error: "Sign in again to reach this household." } };
+
+  if (req.method === "GET" && path === "/v1/household") {
+    const house = await snapshot(auth);
+    if (!house) return { status: 401, body: { error: "This household no longer exists." } };
+    return { status: 200, body: house };
   }
 
-  const refill = url.pathname.match(/^\/v1\/medications\/([^/]+)\/refill$/);
+  if (req.method === "POST" && path === "/v1/pets") {
+    const pet = await addPet(pool, auth, await readJson(req));
+    log("pet.added", { requestId, householdId: auth.householdId, petId: pet.id });
+    return { status: 201, body: { pet } };
+  }
+
+  const petPath = path.match(/^\/v1\/pets\/([^/]+)$/);
+  if (req.method === "PATCH" && petPath) {
+    const pet = await updatePet(pool, auth, decodeURIComponent(petPath[1]), await readJson(req));
+    if (!pet) return { status: 404, body: { error: "Pet not found" } };
+    log("pet.updated", { requestId, householdId: auth.householdId, petId: pet.id });
+    return { status: 200, body: { pet } };
+  }
+
+  if (req.method === "POST" && path === "/v1/medications") {
+    const medication = await addMedication(pool, auth, await readJson(req));
+    log("medication.added", { requestId, householdId: auth.householdId, medicationId: medication.id });
+    return { status: 201, body: { medication } };
+  }
+
+  const medicationPath = path.match(/^\/v1\/medications\/([^/]+)$/);
+  if (req.method === "DELETE" && medicationPath) {
+    const removed = await archiveMedication(pool, auth, decodeURIComponent(medicationPath[1]));
+    if (!removed) return { status: 404, body: { error: "Medication not found" } };
+    log("medication.archived", { requestId, householdId: auth.householdId });
+    return { status: 200, body: { ok: true } };
+  }
+
+  const refill = path.match(/^\/v1\/medications\/([^/]+)\/refill$/);
   if (req.method === "POST" && refill) {
-    const medicationId = decodeURIComponent(refill[1]);
-    if (!safeId(medicationId)) {
-      return { status: 400, body: { error: "Unknown medication" } };
-    }
-    const medication = await refillMedication(pool, medicationId);
-    if (!medication) {
-      log("medication.refill_rejected", { requestId, medicationId });
-      return { status: 404, body: { error: "Medication not found" } };
-    }
-    log("medication.refilled", { requestId, medicationId, dosesLeft: medication.dosesLeft });
+    const medication = await refillMedication(pool, auth, decodeURIComponent(refill[1]));
+    if (!medication) return { status: 404, body: { error: "Medication not found" } };
+    log("medication.refilled", { requestId, householdId: auth.householdId, medicationId: medication.id });
     return { status: 200, body: { medication } };
   }
 
-  if (req.method === "POST" && url.pathname === "/v1/billing/plan") {
-    const body = await readJson(req);
-    const plan = await setPlan(pool, body.plan);
-    if (!plan) {
-      log("billing.plan_rejected", { requestId, plan: body.plan ?? null });
-      return { status: 400, body: { error: "Plan must be yearly or monthly" } };
+  if (req.method === "POST" && path === "/v1/logs") {
+    const result = await logDose(pool, auth, await readJson(req));
+    if (result.missing) return { status: 404, body: { error: "Medication not found" } };
+    if (result.conflict !== undefined) {
+      log("dose.already_logged", { requestId, householdId: auth.householdId });
+      return { status: 409, body: { error: "Someone already logged this dose.", log: result.conflict } };
     }
-    log("billing.plan_set", { requestId, plan });
+    log("dose.logged", { requestId, householdId: auth.householdId, outcome: result.log.outcome });
+    return { status: 201, body: result };
+  }
+
+  if (req.method === "POST" && path === "/v1/billing/plan") {
+    const body = await readJson(req);
+    const plan = await setPlan(pool, auth, body.plan);
+    if (!plan) return { status: 400, body: { error: "Plan must be yearly or monthly" } };
     return { status: 200, body: { plan } };
   }
 
-  if (req.method === "POST" && url.pathname === "/v1/billing/trial") {
-    const billing = await startTrial(pool);
-    log("billing.trial_started", { requestId });
-    return { status: 200, body: billing };
+  if (req.method === "POST" && path === "/v1/billing/trial") {
+    return { status: 200, body: await startTrial(pool, auth) };
   }
 
   return { status: 404, body: { error: "Not found" } };
@@ -235,7 +282,6 @@ async function route(req, url, requestId) {
 
 await connectWithRetry();
 await migrate(pool, log);
-await seedIfEmpty(pool, log);
 
 const port = Number(process.env.PORT) || 3000;
 server.listen(port, "0.0.0.0", () => {

@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pawsitive_sync/core/layout/app_art_size.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
+import 'package:pawsitive_sync/core/widgets/story_art.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
+import 'package:pawsitive_sync/domain/models.dart';
 import 'package:provider/provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 /// Summarizes recent doses so they can be shared with a vet.
 class VetReportScreen extends StatefulWidget {
@@ -19,14 +23,65 @@ class VetReportScreen extends StatefulWidget {
 class _VetReportScreenState extends State<VetReportScreen> {
   int _days = 30;
   bool _showWho = true;
+  String? _petId;
 
   @override
   Widget build(BuildContext context) {
     final care = context.watch<CareRepository>();
-    final pet = care.pets.first;
+    final pet =
+        (_petId == null ? null : care.tryPetById(_petId!)) ?? care.primaryPet;
     final scheme = Theme.of(context).colorScheme;
     final tokens = context.paws;
     final text = Theme.of(context).textTheme;
+    final report = pet == null ? null : care.reportFor(pet.id, _days);
+    if (pet == null || report == null || report.lines.isEmpty) {
+      return Scaffold(
+        body: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+            children: [
+              Text('Reports', style: text.displaySmall),
+              Text(
+                'A summary to show your vet',
+                style: text.bodyLarge?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 40),
+              Center(
+                child: StoryArt(
+                  'medicine',
+                  size: appEmptyStateArtSize(context),
+                ),
+              ),
+              const SizedBox(height: 24),
+              Text(
+                'No report yet',
+                textAlign: TextAlign.center,
+                style: text.headlineSmall,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                pet == null
+                    ? 'Add a pet and their medicines. Every dose you log builds the report.'
+                    : 'Add ${pet.name}’s medicines. Every dose you log builds the report.',
+                textAlign: TextAlign.center,
+                style: text.bodyLarge?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 24),
+              FilledButton(
+                onPressed: () => pet == null
+                    ? context.push(AppRoutes.addPet)
+                    : context.push('${AppRoutes.schedule}?pet=${pet.id}'),
+                child: Text(pet == null ? 'Add a pet' : 'Add medicine'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       body: SafeArea(
@@ -36,37 +91,28 @@ class _VetReportScreenState extends State<VetReportScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Row(
-                  children: [
-                    IconButton(
-                      tooltip: 'Back',
-                      onPressed: () {
-                        if (context.canPop()) {
-                          context.pop();
-                        } else {
-                          context.go(AppRoutes.pets);
-                        }
-                      },
-                      icon: StrokeIcon(
-                        StrokeIconKind.chevronLeft,
-                        color: scheme.onSurface,
-                      ),
-                    ),
-                    Expanded(
-                      child: Text(
-                        'Vet report',
-                        textAlign: TextAlign.center,
-                        style: text.titleMedium,
-                      ),
-                    ),
-                    const SizedBox(width: 48),
-                  ],
-                ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 4),
+                Text('Reports', style: text.displaySmall),
                 Text(
-                  "Ready for ${pet.name}'s checkup",
-                  style: text.headlineMedium,
+                  'Ready for ${pet.name}’s checkup',
+                  style: text.bodyLarge?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
                 ),
+                if (care.pets.length > 1) ...[
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      for (final item in care.pets)
+                        ChoiceChip(
+                          label: Text(item.name),
+                          selected: item.id == pet.id,
+                          onSelected: (_) => setState(() => _petId = item.id),
+                        ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 16),
                 DecoratedBox(
                   decoration: BoxDecoration(
@@ -77,7 +123,7 @@ class _VetReportScreenState extends State<VetReportScreen> {
                     padding: const EdgeInsets.all(4),
                     child: Row(
                       children: [
-                        for (final days in [30, 60, 90])
+                        for (final days in [7, 30, 90])
                           Expanded(
                             child: _RangeChip(
                               label: '$days days',
@@ -132,7 +178,7 @@ class _VetReportScreenState extends State<VetReportScreen> {
                                 const SizedBox(width: 8),
                                 Flexible(
                                   child: Text(
-                                    _rangeLabel(),
+                                    _rangeLabel(report),
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     textAlign: TextAlign.end,
@@ -142,8 +188,13 @@ class _VetReportScreenState extends State<VetReportScreen> {
                               ],
                             ),
                             Text(
-                              '${pet.speciesLabel} · ${pet.ageYears} yrs · ${pet.conditions.join(', ')} · [VET CLINIC NAME]',
-                              style: text.bodySmall?.copyWith(fontSize: 10),
+                              [
+                                pet.speciesLabel,
+                                if (pet.ageYears > 0) '${pet.ageYears} yrs',
+                                if (pet.weightKg > 0) '${pet.weightKg} kg',
+                                ...pet.conditions,
+                              ].join(' · '),
+                              style: text.bodySmall?.copyWith(fontSize: 11),
                             ),
                             const SizedBox(height: 12),
                             Text(
@@ -154,34 +205,20 @@ class _VetReportScreenState extends State<VetReportScreen> {
                               ),
                             ),
                             const SizedBox(height: 6),
-                            const _Bar(
-                              label: 'Insulin 2 u',
-                              value: '59/60',
-                              fraction: 0.98,
-                            ),
-                            const _Bar(
-                              label: 'Benazepril',
-                              value: '29/30',
-                              fraction: 0.97,
-                            ),
-                            const _Bar(
-                              label: 'Fluids 100 ml',
-                              value: '28/30',
-                              fraction: 0.93,
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              'WEIGHT',
-                              style: text.labelSmall?.copyWith(
-                                fontSize: 10,
-                                letterSpacing: 0.6,
+                            for (final line in report.lines)
+                              _Bar(
+                                label: line.medication.amount.isEmpty
+                                    ? line.medication.name
+                                    : '${line.medication.name} ${line.medication.amount}',
+                                value: '${line.given}/${line.expected}',
+                                fraction: line.fraction,
                               ),
-                            ),
-                            const SizedBox(
-                              height: 40,
-                              width: double.infinity,
-                              child: _MiniChart(),
-                            ),
+                            if (report.skipped > 0)
+                              Text(
+                                'Skipped on purpose: ${report.skipped}',
+                                style: text.bodySmall?.copyWith(fontSize: 11),
+                              ),
+                            const SizedBox(height: 12),
                             Text(
                               'SYMPTOM NOTES',
                               style: text.labelSmall?.copyWith(
@@ -191,12 +228,38 @@ class _VetReportScreenState extends State<VetReportScreen> {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'Vomited ×4 (2 this week) · Low appetite ×1',
+                              report.notes.isEmpty
+                                  ? 'None logged'
+                                  : [
+                                      for (final entry in report.notes.entries)
+                                        '${entry.key} ×${entry.value}',
+                                    ].join(' · '),
                               style: text.bodySmall?.copyWith(
                                 fontSize: 11,
                                 color: scheme.onSurface,
                               ),
                             ),
+                            if (_showWho) ...[
+                              const SizedBox(height: 12),
+                              Text(
+                                'RECENT DOSES',
+                                style: text.labelSmall?.copyWith(
+                                  fontSize: 10,
+                                  letterSpacing: 0.6,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              for (final line in report.lines)
+                                for (final log in care
+                                    .historyFor(line.medication.id)
+                                    .take(3))
+                                  Text(
+                                    '${line.medication.name} · ${log.when} · ${log.who}',
+                                    style: text.bodySmall?.copyWith(
+                                      fontSize: 11,
+                                    ),
+                                  ),
+                            ],
                           ],
                         ),
                       ),
@@ -259,55 +322,35 @@ class _VetReportScreenState extends State<VetReportScreen> {
                   ),
                 ),
                 const SizedBox(height: 24),
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          textStyle: text.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
+                Builder(
+                  builder: (buttonContext) => FilledButton.icon(
+                    onPressed: () async {
+                      AppLog.event('report.shared', {'days': _days});
+                      final box =
+                          buttonContext.findRenderObject() as RenderBox?;
+                      await SharePlus.instance.share(
+                        ShareParams(
+                          subject: '${pet.name} · care report',
+                          text: _plainReport(care, pet, report),
+                          sharePositionOrigin: box == null
+                              ? null
+                              : box.localToGlobal(Offset.zero) & box.size,
                         ),
-                        onPressed: () {
-                          AppLog.event('report.email_unavailable');
-                          _toast(
-                            context,
-                            'Email isn’t hooked up yet. The report is still here.',
-                          );
-                        },
-                        icon: StrokeIcon(
-                          StrokeIconKind.mail,
-                          size: 18,
-                          color: scheme.onSurface,
-                        ),
-                        label: const Text('Email vet'),
-                      ),
+                      );
+                    },
+                    icon: StrokeIcon(
+                      StrokeIconKind.share,
+                      size: 18,
+                      color: scheme.onPrimary,
                     ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: FilledButton.icon(
-                        style: FilledButton.styleFrom(
-                          textStyle: text.titleMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                            color: scheme.onPrimary,
-                          ),
-                        ),
-                        onPressed: () {
-                          AppLog.event('report.export_unavailable');
-                          _toast(
-                            context,
-                            'Can’t save a PDF yet. You can still read it here.',
-                          );
-                        },
-                        icon: StrokeIcon(
-                          StrokeIconKind.download,
-                          size: 18,
-                          color: scheme.onPrimary,
-                        ),
-                        label: const Text('Export PDF'),
-                      ),
-                    ),
-                  ],
+                    label: const Text('Share with vet'),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Sends this summary by email, message, or any app you pick.',
+                  textAlign: TextAlign.center,
+                  style: text.bodySmall,
                 ),
               ],
             ),
@@ -317,17 +360,44 @@ class _VetReportScreenState extends State<VetReportScreen> {
     );
   }
 
-  String _rangeLabel() {
-    return switch (_days) {
-      60 => 'Aug 4 – Oct 2, 2026',
-      90 => 'Jul 4 – Oct 2, 2026',
-      _ => 'Sep 3 – Oct 2, 2026',
-    };
-  }
+  static const _months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
 
-  void _toast(BuildContext context, String message) {
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+  String _date(DateTime day) => '${_months[day.month - 1]} ${day.day}';
+
+  String _rangeLabel(PetReport report) =>
+      '${_date(report.from)} – ${_date(report.to)}, ${report.to.year}';
+
+  String _plainReport(CareRepository care, Pet pet, PetReport report) {
+    final lines = <String>[
+      '${pet.name} · care report',
+      _rangeLabel(report),
+      [
+        pet.speciesLabel,
+        if (pet.ageYears > 0) '${pet.ageYears} yrs',
+        if (pet.weightKg > 0) '${pet.weightKg} kg',
+        ...pet.conditions,
+      ].join(' · '),
+      '',
+      'Doses given:',
+      for (final line in report.lines)
+        '• ${line.medication.name}${line.medication.amount.isEmpty ? '' : ' ${line.medication.amount}'} (${line.medication.whenLabel.toLowerCase()}): ${line.given} of ${line.expected}',
+      if (report.skipped > 0) 'Skipped on purpose: ${report.skipped}',
+      '',
+      'Symptom notes: ${report.notes.isEmpty ? 'none logged' : [for (final e in report.notes.entries) '${e.key} ×${e.value}'].join(', ')}',
+      if (_showWho) ...[
+        '',
+        'Recent doses:',
+        for (final line in report.lines)
+          for (final log in care.historyFor(line.medication.id).take(5))
+            '• ${line.medication.name} · ${log.when} · ${log.who}',
+      ],
+      '',
+      'Sent from PawsitiveSync',
+    ];
+    return lines.join('\n');
   }
 }
 
@@ -421,45 +491,4 @@ class _Bar extends StatelessWidget {
       ),
     );
   }
-}
-
-class _MiniChart extends StatelessWidget {
-  const _MiniChart();
-
-  @override
-  Widget build(BuildContext context) {
-    return CustomPaint(
-      painter: _LinePainter(color: Theme.of(context).colorScheme.primary),
-    );
-  }
-}
-
-class _LinePainter extends CustomPainter {
-  _LinePainter({required this.color});
-
-  final Color color;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final path = Path()
-      ..moveTo(0, size.height * 0.25)
-      ..lineTo(size.width * 0.17, size.height * 0.3)
-      ..lineTo(size.width * 0.33, size.height * 0.35)
-      ..lineTo(size.width * 0.5, size.height * 0.5)
-      ..lineTo(size.width * 0.67, size.height * 0.6)
-      ..lineTo(size.width * 0.83, size.height * 0.75)
-      ..lineTo(size.width, size.height * 0.85);
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = color
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.75
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round,
-    );
-  }
-
-  @override
-  bool shouldRepaint(_LinePainter oldDelegate) => oldDelegate.color != color;
 }

@@ -319,9 +319,10 @@ class _LogDoseSheetState extends State<_LogDoseSheet> {
                       if (!saved) {
                         if (mounted) setState(() => _busy = false);
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
+                          SnackBar(
                             content: Text(
-                              'Could not save this dose. Try again.',
+                              care.lastError ??
+                                  'Could not save this dose. Try again.',
                             ),
                           ),
                         );
@@ -342,9 +343,10 @@ class _LogDoseSheetState extends State<_LogDoseSheet> {
                         if (!saved) {
                           if (mounted) setState(() => _busy = false);
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
+                            SnackBar(
                               content: Text(
-                                'Could not skip this dose. Try again.',
+                                care.lastError ??
+                                    'Could not skip this dose. Try again.',
                               ),
                             ),
                           );
@@ -391,12 +393,9 @@ class _DoubleDoseSheet extends StatelessWidget {
     final pet = care.petById(dose.petId);
     final who = member?.name ?? 'Someone';
 
-    final detail = dose.id == 'insulin-am'
-        ? "${pet.name}'s morning insulin was logged 6 minutes ago. Giving it again could cause dangerously low blood sugar."
-        : '${pet.name}\'s ${dose.name.toLowerCase()} was already logged. Giving it again could be unsafe.';
-    final when = dose.id == 'insulin-am'
-        ? 'Given by $who · 8:02 AM · with breakfast'
-        : 'Given by $who · ${dose.subtitle}';
+    final detail =
+        '${pet.name}\'s ${dose.name.toLowerCase()} was already logged. Giving it again could be unsafe.';
+    final when = 'Given by $who · ${dose.subtitle}';
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),

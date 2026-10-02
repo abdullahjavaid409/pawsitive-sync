@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pawsitive_sync/core/legal/app_links.dart';
+import 'package:pawsitive_sync/core/legal/subscription_disclosure.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
@@ -9,21 +11,63 @@ import 'package:pawsitive_sync/data/dose_reminders.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 /// Compares Free and Pro. Free is one pet. Pro is the whole household.
-class PaywallScreen extends StatelessWidget {
+class PaywallScreen extends StatefulWidget {
   const PaywallScreen({super.key});
 
-  static const _rows = [
-    ('Today\'s list', true, true),
-    ('I gave this', true, true),
-    ('A reminder', true, true),
-    ('One pet', true, true),
-    ('Every pet', false, true),
-    ('Invite the family', false, true),
-    ('Running low', false, true),
-    ('For the vet', false, true),
+  @override
+  State<PaywallScreen> createState() => _PaywallScreenState();
+}
+
+class _PaywallScreenState extends State<PaywallScreen> {
+  static const _proFeatures = [
+    (
+      'Today\'s dose list',
+      'See every medicine due today — morning, afternoon, and evening — for all your pets in one place.',
+    ),
+    (
+      'One tap to log',
+      'Tap a dose and record who gave it, so the same medicine is never given twice.',
+    ),
+    (
+      'Smart reminders',
+      'Get notified when a dose is due, even when someone else is caring for your pet.',
+    ),
+    (
+      'Every pet',
+      'Track schedules for cats, dogs, rabbits, and more — not just one pet.',
+    ),
+    (
+      'Shared household',
+      'Your partner, sitter, or family see the same list and who already gave each dose.',
+    ),
+    (
+      'Running-low alerts',
+      'We warn you before the bottle runs out so refills do not slip through the cracks.',
+    ),
+    (
+      'Vet reports',
+      'Export a clear week-by-week log to share at checkups or send ahead to the clinic.',
+    ),
+    (
+      'Sync across phones',
+      'Join with an invite code and everyone stays on the same schedule, online or off.',
+    ),
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final care = context.read<CareRepository>();
+      if (care.plan != BillingPlan.yearly) {
+        care.setPlan(BillingPlan.yearly);
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -31,9 +75,7 @@ class PaywallScreen extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final tokens = context.paws;
     final text = Theme.of(context).textTheme;
-    final priceLine = care.plan == BillingPlan.yearly
-        ? 'No charge today. Then \$29.99 per year.'
-        : 'No charge today. Then \$4.99 per month.';
+    final yearly = care.plan == BillingPlan.yearly;
 
     return Scaffold(
       body: SafeArea(
@@ -52,12 +94,11 @@ class PaywallScreen extends StatelessWidget {
                 ),
                 const Spacer(),
                 TextButton(
-                  onPressed: () {
-                    AppLog.event('billing.restore_empty');
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('No purchase on this phone to restore.'),
-                      ),
+                  onPressed: () async {
+                    AppLog.event('billing.restore');
+                    await launchUrl(
+                      Uri.parse(AppLinks.manageAppleSubscriptions),
+                      mode: LaunchMode.externalApplication,
                     );
                   },
                   child: const Text('Restore'),
@@ -68,44 +109,17 @@ class PaywallScreen extends StatelessWidget {
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
                 children: [
-                  Text('Pro vs Free', style: text.displaySmall),
+                  Text('Try Pro free for 7 days', style: text.displaySmall),
                   const SizedBox(height: 8),
                   Text(
-                    'Free is for one pet. Pro is for everyone who helps.',
+                    'Pick a plan. Yearly saves the most.',
                     style: text.bodyLarge?.copyWith(
                       color: scheme.onSurfaceVariant,
                     ),
                   ),
                   const SizedBox(height: 20),
-                  DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: scheme.surfaceContainerLowest,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: tokens.hairline),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
-                      child: Column(
-                        children: [
-                          _CompareRow(
-                            label: '',
-                            free: false,
-                            pro: false,
-                            header: true,
-                          ),
-                          for (final row in _rows)
-                            _CompareRow(
-                              label: row.$1,
-                              free: row.$2,
-                              pro: row.$3,
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 16),
                   _PlanTile(
-                    selected: care.plan == BillingPlan.yearly,
+                    selected: yearly,
                     title: 'Yearly',
                     subtitle: '\$29.99 per year',
                     price: '\$2.50/mo',
@@ -114,10 +128,53 @@ class PaywallScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   _PlanTile(
-                    selected: care.plan == BillingPlan.monthly,
+                    selected: !yearly,
                     title: 'Monthly',
                     price: '\$4.99/mo',
                     onPressed: () => care.setPlan(BillingPlan.monthly),
+                  ),
+                  const SizedBox(height: 24),
+                  Text('What you get with Pro', style: text.titleMedium),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Free covers one pet. Pro unlocks everything below.',
+                    style: text.bodyMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: scheme.surfaceContainerLowest,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: tokens.hairline),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                      child: Column(
+                        children: [
+                          for (final (index, feature) in _proFeatures.indexed)
+                            Padding(
+                              padding: EdgeInsets.only(
+                                bottom: index == _proFeatures.length - 1
+                                    ? 0
+                                    : 16,
+                              ),
+                              child: _FeatureRow(
+                                title: feature.$1,
+                                detail: feature.$2,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Free stays on one pet with local reminders.',
+                    style: text.bodyMedium?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
                   ),
                 ],
               ),
@@ -128,17 +185,49 @@ class PaywallScreen extends StatelessWidget {
                 children: [
                   FilledButton(
                     onPressed: () => _enter(context, trial: true),
-                    child: const Text('Start 7-day free trial'),
+                    child: Text(
+                      yearly
+                          ? 'Start 7-day free trial · Yearly'
+                          : 'Start 7-day free trial · Monthly',
+                    ),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    priceLine,
-                    style: text.bodyMedium,
+                    SubscriptionDisclosure.compactLine(care.plan),
+                    style: text.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
                     textAlign: TextAlign.center,
                   ),
                   TextButton(
                     onPressed: () => _enter(context, trial: false),
                     child: const Text('Continue free with 1 pet'),
+                  ),
+                  Wrap(
+                    alignment: WrapAlignment.center,
+                    spacing: 8,
+                    children: [
+                      TextButton(
+                        onPressed: () => launchUrl(
+                          Uri.parse(AppLinks.terms),
+                          mode: LaunchMode.externalApplication,
+                        ),
+                        child: const Text('Terms'),
+                      ),
+                      Text(
+                        '·',
+                        style: text.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () => launchUrl(
+                          Uri.parse(AppLinks.privacy),
+                          mode: LaunchMode.externalApplication,
+                        ),
+                        child: const Text('Privacy'),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -149,7 +238,7 @@ class PaywallScreen extends StatelessWidget {
     );
   }
 
-  void _enter(BuildContext context, {required bool trial}) {
+  Future<void> _enter(BuildContext context, {required bool trial}) async {
     final care = context.read<CareRepository>();
     final model = context.read<OnboardingViewModel>();
     if (trial) {
@@ -157,7 +246,9 @@ class PaywallScreen extends StatelessWidget {
     } else {
       AppLog.event('billing.continued_free');
     }
-    model.finish(reminders: model.remindersOn);
+    care.applyOnboarding(model);
+    await model.finish(reminders: model.remindersOn);
+    if (!context.mounted) return;
     if (model.remindersOn) {
       DoseReminders.scheduleNext(care);
     } else {
@@ -167,82 +258,44 @@ class PaywallScreen extends StatelessWidget {
   }
 }
 
-class _CompareRow extends StatelessWidget {
-  const _CompareRow({
-    required this.label,
-    required this.free,
-    required this.pro,
-    this.header = false,
-  });
+class _FeatureRow extends StatelessWidget {
+  const _FeatureRow({required this.title, required this.detail});
 
-  final String label;
-  final bool free;
-  final bool pro;
-  final bool header;
+  final String title;
+  final String detail;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              label,
-              style: header ? text.bodyMedium : text.titleSmall,
-            ),
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: StrokeIcon(
+            StrokeIconKind.check,
+            size: 18,
+            color: scheme.primary,
           ),
-          SizedBox(
-            width: 52,
-            child: header
-                ? Text(
-                    'Free',
-                    textAlign: TextAlign.center,
-                    style: text.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  )
-                : _Mark(included: free, color: scheme.onSurfaceVariant),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: text.titleSmall),
+              const SizedBox(height: 2),
+              Text(
+                detail,
+                style: text.bodyMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
           ),
-          SizedBox(
-            width: 52,
-            child: header
-                ? Text(
-                    'Pro',
-                    textAlign: TextAlign.center,
-                    style: text.bodyMedium?.copyWith(
-                      color: scheme.primary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  )
-                : _Mark(included: pro, color: scheme.primary),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _Mark extends StatelessWidget {
-  const _Mark({required this.included, required this.color});
-
-  final bool included;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    if (!included) {
-      return Text(
-        '—',
-        textAlign: TextAlign.center,
-        style: Theme.of(context).textTheme.titleMedium
-            ?.copyWith(color: Theme.of(context).colorScheme.outline),
-      );
-    }
-    return Center(
-      child: StrokeIcon(StrokeIconKind.check, size: 18, color: color),
+        ),
+      ],
     );
   }
 }
@@ -283,7 +336,7 @@ class _PlanTile extends StatelessWidget {
             onTap: onPressed,
             borderRadius: BorderRadius.circular(16),
             child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               child: Row(
                 children: [
                   Container(

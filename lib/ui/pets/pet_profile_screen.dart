@@ -16,7 +16,7 @@ class PetProfileScreen extends StatefulWidget {
 }
 
 class _PetProfileScreenState extends State<PetProfileScreen> {
-  String _petId = 'miso';
+  String? _petId;
 
   @override
   Widget build(BuildContext context) {
@@ -24,7 +24,57 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
     final scheme = Theme.of(context).colorScheme;
     final tokens = context.paws;
     final text = Theme.of(context).textTheme;
-    final pet = care.petById(_petId);
+    final pet =
+        (_petId == null ? null : care.tryPetById(_petId!)) ?? care.primaryPet;
+    if (pet == null) {
+      return Scaffold(
+        body: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Pets', style: text.displaySmall),
+                const SizedBox(height: 8),
+                Text(
+                  'No pet here yet. Add one, or join the household of the person who invited you.',
+                  style: text.bodyLarge?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                FilledButton(
+                  onPressed: () => context.push(AppRoutes.addPet),
+                  child: const Text('Add a pet'),
+                ),
+                if (!care.isConnected)
+                  TextButton(
+                    onPressed: () => context.push(AppRoutes.join),
+                    child: const Text('I have an invite code'),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+    final weightLabel = pet.weightKg > 0 ? '${pet.weightKg} kg' : '—';
+    final meds = care.medicationsFor(pet.id);
+    final week = care.reportFor(pet.id, 7);
+    final weekGiven = week.lines.fold<int>(0, (sum, line) => sum + line.given);
+    final weekExpected = week.lines.fold<int>(
+      0,
+      (sum, line) => sum + line.expected,
+    );
+    final onTime = weekExpected == 0
+        ? '—'
+        : '${(weekGiven * 100 / weekExpected).round()}%';
+    final details = [
+      pet.speciesLabel,
+      if (pet.breed.isNotEmpty) pet.breed,
+      if (pet.ageYears > 0) '${pet.ageYears} yrs',
+      if (pet.sex.isNotEmpty) pet.sex,
+    ].join(' · ');
 
     return Scaffold(
       body: SafeArea(
@@ -32,12 +82,14 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
           children: [
-            Row(
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
               children: [
                 for (final item in care.pets) ...[
                   _PetTab(
                     label: item.name,
-                    selected: item.id == _petId,
+                    selected: item.id == pet.id,
                     onPressed: () => setState(() => _petId = item.id),
                   ),
                   const SizedBox(width: 8),
@@ -46,11 +98,11 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
                   button: true,
                   label: 'Add pet',
                   child: InkWell(
-                    onTap: () => context.go(AppRoutes.pet),
+                    onTap: () => context.push(AppRoutes.addPet),
                     customBorder: const CircleBorder(),
                     child: Container(
-                      width: 36,
-                      height: 36,
+                      width: 44,
+                      height: 44,
                       alignment: Alignment.center,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
@@ -65,6 +117,7 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
                   ),
                 ),
               ],
+            ),
             ),
             const SizedBox(height: 24),
             Row(
@@ -83,7 +136,7 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
                     children: [
                       Text(pet.name, style: text.headlineMedium),
                       Text(
-                        '${pet.breed} · ${pet.ageYears} yrs · ${pet.sex}',
+                        details,
                         style: text.titleSmall?.copyWith(
                           fontWeight: FontWeight.w400,
                           color: scheme.onSurfaceVariant,
@@ -91,6 +144,10 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
                       ),
                     ],
                   ),
+                ),
+                TextButton(
+                  onPressed: () => context.push(AppRoutes.editPet(pet.id)),
+                  child: const Text('Edit'),
                 ),
               ],
             ),
@@ -124,81 +181,93 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
             Row(
               children: [
                 Expanded(
-                  child: _Stat(label: 'Weight', value: '${pet.weightKg} kg'),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _Stat(label: 'Daily meds', value: '${pet.dailyMeds}'),
+                  child: _Stat(label: 'Weight', value: weightLabel),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: _Stat(
-                    label: 'On time',
-                    value: '${pet.onTimePercent}%',
+                    label: 'Doses a day',
+                    value:
+                        '${meds.fold<int>(0, (sum, item) => sum + item.parts.length)}',
                   ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _Stat(label: 'Given (7 days)', value: onTime),
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            SurfaceCard(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'Weight · 90 days',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: text.titleMedium,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        '−0.3 kg',
-                        style: text.bodyMedium?.copyWith(
-                          color: tokens.warning,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
+            const SizedBox(height: 24),
+            Row(
+              children: [
+                Expanded(child: Text('Medicines', style: text.titleMedium)),
+                TextButton.icon(
+                  onPressed: () =>
+                      context.push('${AppRoutes.schedule}?pet=${pet.id}'),
+                  icon: StrokeIcon(
+                    StrokeIconKind.plus,
+                    size: 16,
+                    color: scheme.primary,
                   ),
-                  const SizedBox(height: 12),
-                  Semantics(
-                    label: 'Weight trending down from 4.9 to 4.6 kg',
-                    child: const SizedBox(
-                      height: 72,
-                      width: double.infinity,
-                      child: _WeightChart(),
-                    ),
-                  ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('Jul 4 · 4.9', style: text.bodySmall),
-                      Text('Oct 2 · ${pet.weightKg}', style: text.bodySmall),
-                    ],
-                  ),
-                ],
-              ),
+                  label: const Text('Add'),
+                ),
+              ],
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 4),
             SurfaceCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                    child: Text('This week', style: text.titleMedium),
-                  ),
-                  _WeekRow(
-                    label: 'Vomited',
-                    value: pet.id == 'miso' ? '2 times · last today' : 'None',
-                  ),
-                  _WeekRow(label: 'Appetite', value: 'Normal', divider: false),
-                ],
-              ),
+              child: meds.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'No medicines yet',
+                            style: text.titleSmall,
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Add one and it shows on Today for everyone.',
+                            style: text.bodyMedium?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          FilledButton(
+                            onPressed: () => context.push(
+                              '${AppRoutes.schedule}?pet=${pet.id}',
+                            ),
+                            child: Text('Add ${pet.name}’s medicine'),
+                          ),
+                        ],
+                      ),
+                    )
+                  : Column(
+                      children: [
+                        for (final (index, item) in meds.indexed)
+                          ListTile(
+                            minTileHeight: 60,
+                            title: Text(item.name),
+                            subtitle: Text(item.detail),
+                            trailing: item.isLow
+                                ? Text(
+                                    'Low',
+                                    style: text.bodyMedium?.copyWith(
+                                      color: tokens.warning,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  )
+                                : const Icon(Icons.chevron_right_rounded),
+                            shape: index == meds.length - 1
+                                ? null
+                                : Border(
+                                    bottom: BorderSide(color: tokens.divider),
+                                  ),
+                            onTap: () =>
+                                context.push(AppRoutes.medication(item.id)),
+                          ),
+                      ],
+                    ),
             ),
             const SizedBox(height: 8),
             OutlinedButton.icon(
@@ -286,119 +355,4 @@ class _Stat extends StatelessWidget {
       ),
     );
   }
-}
-
-class _WeekRow extends StatelessWidget {
-  const _WeekRow({
-    required this.label,
-    required this.value,
-    this.divider = true,
-  });
-
-  final String label;
-  final String value;
-  final bool divider;
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.paws;
-    return Container(
-      constraints: const BoxConstraints(minHeight: 44),
-      padding: const EdgeInsets.symmetric(horizontal: 16),
-      decoration: BoxDecoration(
-        border: divider
-            ? Border(bottom: BorderSide(color: tokens.divider))
-            : null,
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.titleSmall
-                  ?.copyWith(fontWeight: FontWeight.w400),
-            ),
-          ),
-          const SizedBox(width: 8),
-          Flexible(
-            child: Text(
-              value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.end,
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _WeightChart extends StatelessWidget {
-  const _WeightChart();
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return CustomPaint(
-      painter: _WeightPainter(line: scheme.primary, grid: context.paws.divider),
-    );
-  }
-}
-
-class _WeightPainter extends CustomPainter {
-  _WeightPainter({required this.line, required this.grid});
-
-  final Color line;
-  final Color grid;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final gridPaint = Paint()
-      ..color = grid
-      ..strokeWidth = 1;
-    canvas.drawLine(
-      Offset(0, size.height * 0.25),
-      Offset(size.width, size.height * 0.25),
-      gridPaint,
-    );
-    canvas.drawLine(
-      Offset(0, size.height * 0.75),
-      Offset(size.width, size.height * 0.75),
-      gridPaint,
-    );
-
-    const samples = [0.18, 0.2, 0.19, 0.28, 0.34, 0.4, 0.48, 0.58, 0.64, 0.78];
-    final path = Path();
-    for (var i = 0; i < samples.length; i++) {
-      final x = size.width * i / (samples.length - 1);
-      final y = size.height * samples[i];
-      if (i == 0) {
-        path.moveTo(x, y);
-      } else {
-        path.lineTo(x, y);
-      }
-    }
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = line
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.25
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round,
-    );
-    canvas.drawCircle(
-      Offset(size.width - 4, size.height * samples.last),
-      4,
-      Paint()..color = line,
-    );
-  }
-
-  @override
-  bool shouldRepaint(_WeightPainter oldDelegate) =>
-      oldDelegate.line != line || oldDelegate.grid != grid;
 }

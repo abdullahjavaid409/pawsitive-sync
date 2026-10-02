@@ -5,10 +5,16 @@ import 'package:pawsitive_sync/domain/models.dart';
 
 /// A simple drawn pet, so a screen has a face and not only words.
 class PetMark extends StatelessWidget {
-  const PetMark({super.key, required this.species, this.size = 72});
+  const PetMark({
+    super.key,
+    required this.species,
+    this.size = 72,
+    this.artScale = 0.7,
+  });
 
   final Species species;
   final double size;
+  final double artScale;
 
   @override
   Widget build(BuildContext context) {
@@ -38,8 +44,8 @@ class PetMark extends StatelessWidget {
         ),
         child: SvgPicture.asset(
           asset,
-          width: size * 0.7,
-          height: size * 0.7,
+          width: size * artScale,
+          height: size * artScale,
           fit: BoxFit.contain,
         ),
       ),

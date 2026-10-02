@@ -7,6 +7,7 @@ import 'package:pawsitive_sync/core/widgets/moment_art.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
+import 'package:pawsitive_sync/domain/models.dart';
 import 'package:provider/provider.dart';
 
 /// Shows one medication's supply, schedule, and recent doses.
@@ -55,9 +56,14 @@ class MedicationScreen extends StatelessWidget {
       );
     }
 
-    final fraction = (medication.dosesLeft / medication.supplyTotal).clamp(
-      0.0,
-      1.0,
+    final fraction = medication.supplyFraction;
+    final pet = care.petById(medication.petId);
+    final history = care.historyFor(medication.id);
+    final week = _week(care, medication);
+    final givenThisWeek = week.fold<int>(0, (sum, day) => sum + day.given);
+    final expectedThisWeek = week.fold<int>(
+      0,
+      (sum, day) => sum + day.expected,
     );
 
     return Scaffold(
@@ -85,14 +91,12 @@ class MedicationScreen extends StatelessWidget {
                 ),
                 const Spacer(),
                 TextButton(
-                  onPressed: () => context.push(AppRoutes.schedule),
+                  onPressed: () => _confirmStop(context, care, medication),
                   style: TextButton.styleFrom(
-                    foregroundColor: scheme.primary,
-                    textStyle: text.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w400,
-                    ),
+                    foregroundColor: scheme.error,
+                    textStyle: text.titleMedium,
                   ),
-                  child: const Text('Edit'),
+                  child: const Text('Stop medicine'),
                 ),
               ],
             ),
@@ -112,9 +116,22 @@ class MedicationScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 24),
+            if (!medication.tracksSupply)
+              SurfaceCard(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  'Supply is not tracked for this medicine. Add the box size when you set up a medicine to get a heads-up before it runs out.',
+                  style: text.bodyMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              )
+            else
             SurfaceCard(
               radius: 18,
-              borderColor: tokens.warningBorder,
+              borderColor: medication.isLow
+                  ? tokens.warningBorder
+                  : scheme.outlineVariant,
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -185,7 +202,7 @@ class MedicationScreen extends StatelessWidget {
                       ),
                       children: [
                         TextSpan(
-                          text: medication.lastsUntil,
+                          text: medication.lastsUntil(care.now),
                           style: const TextStyle(fontWeight: FontWeight.w600),
                         ),
                         const TextSpan(text: ' at this pace'),
@@ -202,9 +219,10 @@ class MedicationScreen extends StatelessWidget {
                             if (!context.mounted) return;
                             if (!saved) {
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
+                                SnackBar(
                                   content: Text(
-                                    'Could not save the refill. Try again.',
+                                    care.lastError ??
+                                        'Could not save the refill. Try again.',
                                   ),
                                 ),
                               );
@@ -267,11 +285,7 @@ class MedicationScreen extends StatelessWidget {
                 children: [
                   _Pair(label: 'Dose', value: medication.doseLabel),
                   _Pair(label: 'When', value: medication.whenLabel),
-                  _Pair(
-                    label: 'If not logged',
-                    value: medication.fallbackLabel,
-                    divider: false,
-                  ),
+                  _Pair(label: 'For', value: pet.name, divider: false),
                 ],
               ),
             ),
@@ -281,7 +295,12 @@ class MedicationScreen extends StatelessWidget {
                 children: [
                   Text('LAST 7 DAYS', style: text.labelSmall),
                   const Spacer(),
-                  Text(medication.onTimeLabel, style: text.bodyMedium),
+                  Text(
+                    expectedThisWeek == 0
+                        ? 'Nothing due yet'
+                        : '$givenThisWeek of $expectedThisWeek given',
+                    style: text.bodyMedium,
+                  ),
                 ],
               ),
             ),
@@ -291,49 +310,60 @@ class MedicationScreen extends StatelessWidget {
                 children: [
                   Row(
                     children: [
-                      for (final day in [
-                        'Sat',
-                        'Sun',
-                        'Mon',
-                        'Tue',
-                        'Wed',
-                        'Thu',
-                        'Fri',
-                      ])
+                      for (final (index, day) in week.indexed)
                         Expanded(
                           child: Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 2),
-                            child: Column(
-                              children: [
-                                Container(
-                                  height: 28,
-                                  decoration: BoxDecoration(
-                                    color: day == 'Wed'
-                                        ? tokens.amber
-                                        : scheme.primary,
-                                    borderRadius: BorderRadius.circular(8),
+                            child: Semantics(
+                              label: day.expected == 0
+                                  ? '${day.label}: nothing due'
+                                  : '${day.label}: ${day.given} of ${day.expected} given',
+                              child: Column(
+                                children: [
+                                  Container(
+                                    height: 28,
+                                    decoration: BoxDecoration(
+                                      color: day.expected == 0
+                                          ? tokens.neutral
+                                          : day.given >= day.expected
+                                          ? scheme.primary
+                                          : day.given > 0
+                                          ? tokens.amber
+                                          : scheme.surfaceContainerLowest,
+                                      border: day.expected > 0 && day.given == 0
+                                          ? Border.all(color: scheme.outline)
+                                          : null,
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  day,
-                                  style: text.bodySmall?.copyWith(
-                                    fontWeight: day == 'Fri'
-                                        ? FontWeight.w600
-                                        : FontWeight.w400,
-                                    color: day == 'Fri'
-                                        ? scheme.onSurface
-                                        : scheme.onSurfaceVariant,
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    day.label,
+                                    style: text.bodySmall?.copyWith(
+                                      fontWeight: index == week.length - 1
+                                          ? FontWeight.w600
+                                          : FontWeight.w400,
+                                      color: index == week.length - 1
+                                          ? scheme.onSurface
+                                          : scheme.onSurfaceVariant,
+                                    ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
                           ),
                         ),
                     ],
                   ),
                   const SizedBox(height: 16),
-                  for (final log in medication.history)
+                  if (history.isEmpty)
+                    Text(
+                      'No doses logged yet. They show up here with who gave them.',
+                      style: text.bodyMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  for (final log in history.take(10))
                     Padding(
                       padding: const EdgeInsets.only(bottom: 8),
                       child: Row(
@@ -370,6 +400,80 @@ class MedicationScreen extends StatelessWidget {
       ),
     );
   }
+
+  List<({String label, int given, int expected})> _week(
+    CareRepository care,
+    Medication medication,
+  ) {
+    const names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final now = care.now;
+    final today = DateTime(now.year, now.month, now.day);
+    final start = DateTime.tryParse(medication.startDay) ?? today;
+    return [
+      for (var offset = 6; offset >= 0; offset--)
+        () {
+          final day = DateTime(today.year, today.month, today.day - offset);
+          final key = dayKey(day);
+          final expected = day.isBefore(start)
+              ? 0
+              : medication.parts
+                    .where((part) => day != today || now.hour >= part.opensAt)
+                    .length;
+          final given = care.logs
+              .where(
+                (log) =>
+                    log.medicationId == medication.id &&
+                    log.day == key &&
+                    log.outcome == LogOutcome.given,
+              )
+              .length;
+          return (
+            label: offset == 0 ? 'Today' : names[day.weekday - 1],
+            given: given,
+            expected: expected,
+          );
+        }(),
+    ];
+  }
+
+  Future<void> _confirmStop(
+    BuildContext context,
+    CareRepository care,
+    Medication medication,
+  ) async {
+    final stop = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Stop ${medication.name}?'),
+        content: const Text(
+          'It leaves Today for everyone in the household. Past doses stay in the vet report.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Keep it'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Stop medicine'),
+          ),
+        ],
+      ),
+    );
+    if (stop != true || !context.mounted) return;
+    final ok = await care.removeMedication(medication.id);
+    if (!context.mounted) return;
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(care.lastError ?? 'Could not stop it. Try again.')),
+      );
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('${medication.name} was stopped.')),
+    );
+    context.go(AppRoutes.today);
+  }
 }
 
 class _Pair extends StatelessWidget {
@@ -397,11 +501,14 @@ class _Pair extends StatelessWidget {
             style: Theme.of(context).textTheme.bodyLarge
                 ?.copyWith(color: scheme.onSurfaceVariant),
           ),
-          const Spacer(),
-          Text(
-            value,
-            style: Theme.of(context).textTheme.bodyLarge
-                ?.copyWith(fontWeight: FontWeight.w500),
+          const SizedBox(width: 16),
+          Expanded(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: Theme.of(context).textTheme.bodyLarge
+                  ?.copyWith(fontWeight: FontWeight.w500),
+            ),
           ),
         ],
       ),
