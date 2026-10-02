@@ -20,5 +20,6 @@ abstract final class SubscriptionDisclosure {
 Payment is charged to your Apple ID at the end of the trial. Subscription renews automatically unless canceled at least 24 hours before the end of the current period. Your account is charged for renewal within 24 hours prior to the end of the period. You can manage or cancel anytime in Settings → Apple ID → Subscriptions after purchase.''';
 
   static const freeTier =
-      'Free includes one pet and local reminders. Pro unlocks every pet, household invites, low-supply alerts, and vet reports.';
+      'Free: one pet, dose logging, double-dose safety, and reminders. '
+      'Pro: up to 10 pets, household invites, low-supply alerts, and vet report export.';
 }

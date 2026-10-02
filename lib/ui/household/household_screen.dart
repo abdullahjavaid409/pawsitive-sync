@@ -9,6 +9,7 @@ import 'package:pawsitive_sync/core/widgets/care_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/domain/models.dart';
+import 'package:pawsitive_sync/domain/paywall_reason.dart';
 import 'package:provider/provider.dart';
 
 /// Lists household members and the doses logged today.
@@ -72,12 +73,16 @@ class HouseholdScreen extends StatelessWidget {
                   const SizedBox(height: 20),
                   FilledButton.icon(
                     onPressed: () {
-                      if (care.isPro) {
+                      if (care.canInviteHousehold) {
                         AppLog.event('invite.opened');
                         context.push(AppRoutes.invite);
                       } else {
                         AppLog.event('invite.blocked');
-                        context.push(AppRoutes.paywall);
+                        context.push(
+                          AppRoutes.paywallWith(
+                            reason: PaywallReason.invite.queryValue,
+                          ),
+                        );
                       }
                     },
                     style: FilledButton.styleFrom(

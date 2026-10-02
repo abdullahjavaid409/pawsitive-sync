@@ -93,7 +93,10 @@ Logs: `data.restored` on launch · `household.sync_skipped` when no unnecessary 
 | Step | Action | Expected log |
 |------|--------|--------------|
 | 6.1 | Invite (Pro) | `invite.opened`, `invite.connect_ready` |
-| 6.2 | Copy code / sitter link | `invite.copied`, `invite.link_copied` |
+| 6.2 | Copy browser sitter link | `invite.web_link_copied`, `sitter.link_ready` |
+| 6.2b | Copy app invite link | `invite.copied`, `invite.link_copied` |
+| 6.2c | Open browser link on phone (no app) | Server: `dose.logged` source=sitter |
+| 6.2d | Partner logs dose → your phone | `push.partner_detected`, `push.partner_logged` |
 | 6.3 | Share | `invite.share_tapped` |
 | 6.4 | Invite (Free) | `invite.blocked` |
 | 6.5 | Join with code | `join.started`, `household.joined`, `join.completed` |
@@ -151,9 +154,11 @@ Repeat **§0** — confirm empty Today, Welcome screen, no pets/meds in logs aft
 ## Automated coverage
 
 ```bash
-flutter test                    # all tests
-flutter test test/full_workflow_test.dart   # delete → full journey → delete
-flutter test test/features_edge_cases_test.dart  # edge cases
+flutter test                                      # all tests (131+)
+flutter test test/live_features_coverage_test.dart  # every live feature + log
+flutter test test/all_features_logs_test.dart     # per-feature log assertions
+flutter test test/full_workflow_test.dart         # delete → full journey → delete
+node scripts/smoke_backend.mjs                    # backend API (needs v4 deploy)
 ```
 
 `full_workflow_test.dart` asserts logs for: reset, onboarding, medication, doses (log/uncertain/skip), care events, Pro, pets, refill, remove.

@@ -19,9 +19,9 @@ abstract final class ReleaseFeatures {
     ),
     ReleaseFeature(
       icon: StrokeIconKind.link,
-      title: 'Sitter link',
+      title: 'Sitter browser link',
       description:
-          'Share a join link from Invite — the code is filled in automatically for partners, family, or sitters.',
+          'Share a browser link from Invite — sitters log doses without installing the app. Partners can still join with the app invite.',
     ),
     ReleaseFeature(
       icon: StrokeIconKind.calendar,
@@ -31,9 +31,9 @@ abstract final class ReleaseFeatures {
     ),
     ReleaseFeature(
       icon: StrokeIconKind.paw,
-      title: 'Pro for every pet',
+      title: 'Free vs Pro — honest split',
       description:
-          'Free includes one pet. Pro unlocks up to 10 pets, household invites, low-supply alerts, and vet report export.',
+          'Free: one pet, dose logging, double-dose safety, reminders. Pro: up to 10 pets, household invites, low-supply alerts, vet export.',
     ),
   ];
 }

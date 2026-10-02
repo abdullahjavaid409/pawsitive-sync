@@ -1,5 +1,8 @@
 import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import {
   InputError,
   addCareEvent,
@@ -10,7 +13,9 @@ import {
   archiveMedication,
   createHousehold,
   createPool,
+  createSitterLink,
   exportHouseholdData,
+  getSitterView,
   handleRevenueCatWebhook,
   joinHousehold,
   leaveHousehold,
@@ -25,9 +30,16 @@ import {
   registerDevice,
   removeCareEvent,
   setPlan,
+  sitterForToken,
+  sitterLogDose,
   startTrial,
   trackAnalytics,
 } from "./db.js";
+
+const sitterPage = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), "web", "sitter.html"),
+  "utf8",
+);
 
 function log(event, fields) {
   process.stdout.write(
@@ -51,6 +63,17 @@ function send(res, status, body) {
     "cache-control": "no-store",
   });
   res.end(payload);
+}
+
+function sendHtml(res, status, html) {
+  res.writeHead(status, {
+    "content-type": "text/html; charset=utf-8",
+    "content-length": Buffer.byteLength(html),
+    "x-content-type-options": "nosniff",
+    "referrer-policy": "no-referrer",
+    "cache-control": "no-store",
+  });
+  res.end(html);
 }
 
 const smallBody = 8 * 1024;
@@ -154,7 +177,11 @@ const server = createServer(async (req, res) => {
 
   try {
     const result = await route(req, url, requestId);
-    send(res, result.status, result.body);
+    if (result.html) {
+      sendHtml(res, result.status, result.html);
+    } else {
+      send(res, result.status, result.body);
+    }
     log("request.completed", {
       requestId,
       method: req.method,
@@ -190,6 +217,12 @@ async function authorize(req) {
   return memberForToken(pool, header.slice(7).trim());
 }
 
+async function authorizeSitter(req) {
+  const header = req.headers.authorization;
+  if (typeof header !== "string" || !header.startsWith("Bearer ")) return null;
+  return sitterForToken(pool, header.slice(7).trim());
+}
+
 async function snapshot(auth) {
   return loadHousehold(pool, auth);
 }
@@ -198,7 +231,41 @@ async function route(req, url, requestId) {
   const path = url.pathname;
   if (req.method === "GET" && path === "/health") {
     await pool.query("SELECT 1");
-    return { status: 200, body: { ok: true, service: "pawsitive-api", version: 2 } };
+    return { status: 200, body: { ok: true, service: "pawsitive-api", version: 4 } };
+  }
+
+  if (req.method === "GET" && (path === "/sitter" || path === "/join")) {
+    return { status: 200, html: sitterPage };
+  }
+
+  if (req.method === "GET" && path === "/v1/sitter/view") {
+    const sitter = await authorizeSitter(req);
+    if (!sitter) return { status: 401, body: { error: "This sitter link expired or is invalid." } };
+    const view = await getSitterView(pool, sitter, {
+      day: url.searchParams.get("day"),
+      hour: url.searchParams.get("hour"),
+    });
+    if (!view) return { status: 404, body: { error: "Household not found." } };
+    return { status: 200, body: view };
+  }
+
+  if (req.method === "POST" && path === "/v1/sitter/logs") {
+    const sitter = await authorizeSitter(req);
+    if (!sitter) return { status: 401, body: { error: "This sitter link expired or is invalid." } };
+    const result = await sitterLogDose(pool, sitter, await readJson(req));
+    if (result.missing) return { status: 404, body: { error: "Medication not found" } };
+    if (result.conflict !== undefined) {
+      log("dose.already_logged", { requestId, householdId: sitter.householdId, source: "sitter" });
+      return { status: 409, body: { error: "Someone already logged this dose.", log: result.conflict } };
+    }
+    log("dose.logged", {
+      requestId,
+      householdId: sitter.householdId,
+      outcome: result.log.outcome,
+      source: "sitter",
+    });
+    await notifyHouseholdOnDose(pool, sitter, result.log, log);
+    return { status: 201, body: result };
   }
 
   if (req.method === "POST" && path === "/v1/households") {
@@ -307,9 +374,26 @@ async function route(req, url, requestId) {
 
   if (req.method === "POST" && path === "/v1/sync/batch") {
     const body = await readJson(req, importBody);
-    const batch = await applyBatch(pool, auth, body);
+    const batch = await applyBatch(pool, auth, body, log);
     log("sync.batch", { requestId, householdId: auth.householdId, count: body.operations?.length ?? 0 });
     return { status: 200, body: batch };
+  }
+
+  if (req.method === "POST" && path === "/v1/sitter-links") {
+    const created = await createSitterLink(pool, auth, await readJson(req));
+    log("sitter.link_created", {
+      requestId,
+      householdId: auth.householdId,
+      linkId: created.linkId,
+    });
+    return {
+      status: 201,
+      body: {
+        token: created.token,
+        expiresAt: created.expiresAt,
+        url: `/sitter?t=${encodeURIComponent(created.token)}`,
+      },
+    };
   }
 
   if (req.method === "POST" && path === "/v1/care-events") {

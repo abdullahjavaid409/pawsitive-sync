@@ -42,13 +42,13 @@ class _VetReportScreenState extends State<VetReportScreen> {
               title: 'Reports',
               subtitle: 'A clearer picture for their next checkup.',
             ),
-            if (!care.isPro) ...[
+            if (!care.canShareVetReport) ...[
               const SizedBox(height: 16),
               SurfaceCard(
                 child: ListTile(
-                  title: Text('Pro feature', style: text.titleSmall),
+                  title: Text('Vet asked for a log?', style: text.titleSmall),
                   subtitle: const Text(
-                    'Export vet reports with Pro. You can still view dose history here.',
+                    'Pro exports week-by-week reports. You can still view dose history here for free.',
                   ),
                   trailing: TextButton(
                     onPressed: () {
@@ -320,7 +320,7 @@ class _VetReportScreenState extends State<VetReportScreen> {
                 builder: (buttonContext) => FilledButton.icon(
                   onPressed: _sharing
                       ? null
-                      : care.isPro
+                      : care.canShareVetReport
                       ? () => _share(buttonContext, care, pet, report)
                       : () {
                           AppLog.event('report.share.blocked');

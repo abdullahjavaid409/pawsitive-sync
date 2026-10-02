@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:characters/characters.dart';
 import 'package:flutter/foundation.dart';
 import 'package:pawsitive_sync/core/constants/pet_limits.dart';
+import 'package:pawsitive_sync/core/legal/app_links.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/data/care_events_store.dart';
 import 'package:pawsitive_sync/data/household_api.dart';
@@ -11,9 +12,11 @@ import 'package:pawsitive_sync/data/household_store.dart';
 import 'package:pawsitive_sync/data/push_service.dart';
 import 'package:pawsitive_sync/data/sync_engine.dart';
 import 'package:pawsitive_sync/data/onboarding_profile.dart';
+import 'package:pawsitive_sync/data/upgrade_nudge_state.dart';
 import 'package:pawsitive_sync/data/revenue_cat_service.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Local calendar day as YYYY-MM-DD.
 String dayKey(DateTime time) =>
@@ -134,6 +137,15 @@ class CareRepository extends ChangeNotifier {
   bool get isPro => _isPro;
 
   BillingPlan get plan => _plan;
+
+  /// Pro-only: invite caregivers to a shared household.
+  bool get canInviteHousehold => _isPro;
+
+  /// Pro-only: export/share vet reports.
+  bool get canShareVetReport => _isPro;
+
+  /// Pro-only: running-low supply alerts on Today and medication detail.
+  bool get canShowLowSupplyAlerts => _isPro;
 
   /// Free tier allows one pet; Pro allows up to [PetLimits.maxPetsPerHousehold].
   bool get canAddPet {
@@ -273,6 +285,10 @@ class CareRepository extends ChangeNotifier {
 
   int get givenCount =>
       doses.where((dose) => dose.status == DoseStatus.given).length;
+
+  /// Total given doses in history — used for post-value upgrade nudge.
+  int get givenDoseLogCount =>
+      _logs.where((log) => log.outcome == LogOutcome.given).length;
 
   Dose? get nextDue {
     for (final dose in doses) {
@@ -495,6 +511,8 @@ class CareRepository extends ChangeNotifier {
   }
 
   void _mergeSnapshot(HouseholdSnapshot house) {
+    final knownLogIds = {for (final log in _logs) log.id};
+    _notifyPartnerLogs(house, knownLogIds);
     _apply(
       token: _api?.token,
       memberId: house.memberId,
@@ -507,6 +525,104 @@ class CareRepository extends ChangeNotifier {
       logs: house.logs,
     );
     _mergeCareEvents(house.careEvents);
+  }
+
+  void _notifyPartnerLogs(HouseholdSnapshot house, Set<String> knownLogIds) {
+    if (!isConnected || _memberId.isEmpty) return;
+    for (final log in house.logs) {
+      if (log.id.isEmpty || knownLogIds.contains(log.id)) continue;
+      if (log.memberId.isEmpty || log.memberId == _memberId) continue;
+      if (log.outcome != LogOutcome.given) continue;
+      final medication = _findMedication(house.medications, log.medicationId);
+      final pet = medication == null
+          ? null
+          : _findPet(house.pets, medication.petId);
+      final member = _findMember(house.members, log.memberId);
+      AppLog.event('push.partner_detected', {
+        'logId': log.id,
+        'who': member?.name ?? 'Someone',
+      });
+      unawaited(
+        PushService.notifyPartnerLogged(
+          logId: log.id,
+          who: member?.name ?? 'Someone',
+          medicationName: medication?.name ?? 'a dose',
+          petName: pet?.name ?? 'your pet',
+        ),
+      );
+    }
+  }
+
+  static Medication? _findMedication(List<Medication> list, String id) {
+    if (id.isEmpty) return null;
+    for (final item in list) {
+      if (item.id == id) return item;
+    }
+    return null;
+  }
+
+  static Pet? _findPet(List<Pet> list, String id) {
+    if (id.isEmpty) return null;
+    for (final item in list) {
+      if (item.id == id) return item;
+    }
+    return null;
+  }
+
+  static Member? _findMember(List<Member> list, String id) {
+    if (id.isEmpty) return null;
+    for (final item in list) {
+      if (item.id == id) return item;
+    }
+    return null;
+  }
+
+  static const _sitterTokenKey = 'sitter_web_token_v1';
+
+  /// Returns a browser sitter link (Pro + connected). Caches the token locally.
+  Future<String?> ensureSitterWebLink({bool force = false}) async {
+    if (!canInviteHousehold) {
+      AppLog.event('sitter.link_skipped', {'reason': 'free_tier'});
+      return null;
+    }
+    if (!isConnected) {
+      AppLog.event('sitter.link_skipped', {'reason': 'not_connected'});
+      return null;
+    }
+    final api = _api;
+    if (api == null) {
+      AppLog.event('sitter.link_skipped', {'reason': 'no_api'});
+      return null;
+    }
+    if (_inviteCode.isEmpty) {
+      AppLog.event('sitter.link_skipped', {'reason': 'no_invite_code'});
+      return null;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    final cacheKey = '$_sitterTokenKey:$_inviteCode';
+    if (!force) {
+      final cached = prefs.getString(cacheKey);
+      if (cached != null && cached.isNotEmpty) {
+        AppLog.event('sitter.link_cached');
+        return AppLinks.sitterWebLink(cached);
+      }
+    }
+    try {
+      final link = await api.createSitterLink();
+      if (link.token.isEmpty) {
+        AppLog.event('sitter.link_failed', {'reason': 'empty_token'});
+        return null;
+      }
+      await prefs.setString(cacheKey, link.token);
+      AppLog.event('sitter.link_ready', {'expiresAt': link.expiresAt.toIso8601String()});
+      return AppLinks.sitterWebLink(link.token);
+    } on HouseholdException catch (error) {
+      AppLog.event('sitter.link_failed', {'kind': error.kind.name});
+      return null;
+    } catch (_) {
+      AppLog.event('sitter.link_failed');
+      return null;
+    }
   }
 
   void _mergeCareEvents(List<CareEvent> remote) {
@@ -1311,6 +1427,7 @@ class CareRepository extends ChangeNotifier {
     _careEvents.clear();
     await _eventsStore.clear();
     await RevenueCatService.logOut();
+    await UpgradeNudgeState.clear();
     _lastSyncedAt = null;
     AppLog.event('household.reset');
     notifyListeners();

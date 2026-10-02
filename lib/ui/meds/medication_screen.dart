@@ -59,7 +59,7 @@ class MedicationScreen extends StatelessWidget {
       );
     }
 
-    final showLowAlert = care.isPro && medication.isLow;
+    final showLowAlert = care.canShowLowSupplyAlerts && medication.isLow;
     final fraction = medication.supplyFraction;
     final pet = care.petById(medication.petId);
     final history = care.historyFor(medication.id);

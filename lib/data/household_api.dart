@@ -254,6 +254,30 @@ class HouseholdApi {
     });
   }
 
+  /// Creates a time-limited browser link for sitters (Pro households).
+  Future<({String token, String url, DateTime expiresAt})> createSitterLink({
+    String? label,
+  }) async {
+    final body = await _send('POST', '/v1/sitter-links', {
+      if (label != null && label.isNotEmpty) 'label': label,
+    });
+    final rawToken = body['token'];
+    if (rawToken is! String || rawToken.isEmpty) {
+      throw const HouseholdException(
+        'The sitter link response was incomplete.',
+        kind: HouseholdErrorKind.invalid,
+      );
+    }
+    final expiresRaw = body['expiresAt'];
+    return (
+      token: rawToken,
+      url: '${body['url'] ?? ''}',
+      expiresAt: expiresRaw is String
+          ? DateTime.tryParse(expiresRaw) ?? DateTime.now()
+          : DateTime.now(),
+    );
+  }
+
   Future<void> leaveHousehold() async {
     await _send('POST', '/v1/members/leave');
   }

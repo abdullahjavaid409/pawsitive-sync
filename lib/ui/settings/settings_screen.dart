@@ -161,8 +161,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     title: Text(care.isPro ? 'Pro' : 'Free'),
                     subtitle: Text(
                       care.isPro
-                          ? 'Invite, low-supply alerts, and vet reports'
-                          : 'One pet · upgrade for the whole household',
+                          ? 'Every pet, invites, refill alerts, vet export'
+                          : 'One pet with full dose tracking · Pro for shared care',
                     ),
                     trailing: care.isPro
                         ? null

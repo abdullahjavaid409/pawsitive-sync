@@ -4,25 +4,20 @@
 
 **Never wonder if someone already gave the dose.**
 
-• **Check before you give** — see when doses are due and confirm with your household before logging  
-• **“Not sure if given”** — mark a dose as uncertain so sitters and partners double-check first  
-• **Shared household** — invite family or a sitter; everyone sees the same schedule and who logged what  
-• **Sitter link** — share a join link with the invite code filled in  
+**Free — one pet, full safety**
+• **Did I already give it?** — one-tap logging and double-dose checks  
+• **Not sure if given** — mark uncertain so the next person checks first  
+• **What's due today** — morning, afternoon, and evening in one list  
+• **Reminders** — local notifications when a dose is due  
+• **Works offline** — log without Wi‑Fi; sync when connected  
 
-**Smarter medicine schedules**
+**Pro — when care is shared or you have multiple pets**
+• **More than one pet on meds** — track up to 10 pets in one household  
+• **Did my partner or sitter dose?** — invite with a code; everyone sees who logged what  
+• **Vet asked for a log** — export week-by-week reports for checkups  
+• **Almost ran out** — low-supply alerts before the bottle is empty  
 
-• **Course length** — set 7, 14, or 30 days for short-term meds; ongoing for daily medicines  
-• **Coming up** — vet visits, vaccines, and refills on your Today list  
-• **Low-supply alerts** (Pro) — know before the bottle runs out  
-
-**Pro unlocks the whole household**
-
-• Up to 10 pets  
-• Invite caregivers  
-• Vet report export  
-• Running-low alerts  
-
-Free includes one pet and full dose tracking for that pet.
+Also: course length for short-term meds, coming-up vet visits, and sitter join links.
 
 ---
 
@@ -34,24 +29,24 @@ Shared pet med schedules — log doses, sync with sitters, never double-dose.
 
 PawsitiveSync helps households stay on the same page for pet medicines.
 
-**Built for real caregiver pain**
-- Log each dose with one tap  
-- See who already gave it — avoid double dosing  
-- Mark “not sure if given” when someone may have already done it  
-- Invite a partner, family member, or sitter with a code or link  
+**Pain: “Did someone already give the dose?”**
+Free: log doses, double-dose checks, and “not sure if given” for one pet.  
+Pro: invite partner, family, or sitter — everyone sees the same list and who logged what.
 
-**Daily care on Today**
-- Progress for the day at a glance  
-- Schedule grouped by morning, afternoon, and evening  
-- Reminders when a dose is due  
-- Upcoming vet visits, vaccines, and refills  
+**Pain: “What's due today?”**
+Today shows morning, afternoon, and evening doses, progress for the day, and local reminders.
 
-**Every pet, one place (Pro)**
-- Track up to 10 pets  
-- Export vet reports for checkups  
-- Low-supply warnings before you run out  
+**Pain: “We have multiple pets on meds” (Pro)**
+Track up to 10 pets in one household.
 
-Free: one pet, full dose tracking. Pro: multi-pet households and sharing.
+**Pain: “The vet wants a clear log” (Pro)**
+Export week-by-week reports. Free still lets you view dose history in the app.
+
+**Pain: “We almost ran out” (Pro)**
+Low-supply alerts before the bottle is empty.
+
+Free: one pet, full dose tracking, safety, reminders, offline logging.  
+Pro: every pet, household invites, vet export, refill warnings.
 
 ---
 

@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#4A7C59" />
+  <title>PawsitiveSync — Sitter</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f8f6;
+      --card: #ffffff;
+      --text: #2c3531;
+      --muted: #6b726e;
+      --brand: #4a7c59;
+      --brand-soft: #e9f1eb;
+      --due: #b45309;
+      --given: #166534;
+      --error: #b42318;
+      --radius: 16px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100dvh;
+    }
+    main {
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 20px 16px 32px;
+    }
+    h1 {
+      font-size: 1.5rem;
+      margin: 0 0 6px;
+      line-height: 1.2;
+    }
+    .sub {
+      color: var(--muted);
+      font-size: 0.95rem;
+      margin: 0 0 20px;
+    }
+    .card {
+      background: var(--card);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 12px;
+      box-shadow: 0 1px 2px rgba(0,0,0,.06);
+    }
+    .dose-name { font-weight: 600; font-size: 1.05rem; }
+    .dose-meta { color: var(--muted); font-size: 0.9rem; margin-top: 4px; }
+    .badge {
+      display: inline-block;
+      font-size: 0.75rem;
+      font-weight: 600;
+      padding: 4px 8px;
+      border-radius: 999px;
+      margin-top: 10px;
+    }
+    .badge.due { background: #fef3c7; color: var(--due); }
+    .badge.given { background: #dcfce7; color: var(--given); }
+    .badge.upcoming { background: #f3f4f6; color: var(--muted); }
+    .badge.uncertain { background: #ffedd5; color: #c2410c; }
+    button {
+      width: 100%;
+      min-height: 48px;
+      border: none;
+      border-radius: 14px;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      margin-top: 12px;
+    }
+    .primary { background: var(--brand); color: #fff; }
+    .secondary { background: var(--brand-soft); color: var(--brand); }
+    button:disabled { opacity: 0.55; cursor: not-allowed; }
+    .error {
+      background: #fef3f2;
+      color: var(--error);
+      padding: 12px 14px;
+      border-radius: 12px;
+      margin-bottom: 16px;
+      font-size: 0.92rem;
+    }
+    .empty { text-align: center; color: var(--muted); padding: 32px 12px; }
+    .footer {
+      text-align: center;
+      color: var(--muted);
+      font-size: 0.8rem;
+      margin-top: 24px;
+    }
+    input {
+      width: 100%;
+      min-height: 48px;
+      border: 1px solid #d1d5db;
+      border-radius: 12px;
+      padding: 0 14px;
+      font: inherit;
+      margin-bottom: 12px;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1 id="title">Today’s doses</h1>
+    <p class="sub" id="subtitle">Log what you gave — no app install needed.</p>
+    <div id="error" class="error" hidden></div>
+    <div id="setup" hidden>
+      <div class="card">
+        <p class="dose-meta">Paste the sitter link you received, or add <code>?t=...</code> to this page’s URL.</p>
+        <input id="tokenInput" type="text" placeholder="Sitter link token" autocomplete="off" />
+        <button class="primary" type="button" id="openBtn">Open schedule</button>
+      </div>
+    </div>
+    <div id="list"></div>
+    <p class="footer">PawsitiveSync · shared pet med log</p>
+  </main>
+  <script>
+    const params = new URLSearchParams(location.search);
+    let token = params.get("t") || "";
+    const list = document.getElementById("list");
+    const errorEl = document.getElementById("error");
+    const setup = document.getElementById("setup");
+    const subtitle = document.getElementById("subtitle");
+
+    function todayKey() {
+      const d = new Date();
+      const p = (n) => String(n).padStart(2, "0");
+      return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    }
+
+    function showError(message) {
+      errorEl.hidden = !message;
+      errorEl.textContent = message || "";
+    }
+
+    function authHeaders() {
+      return { authorization: `Bearer ${token}`, "content-type": "application/json" };
+    }
+
+    async function loadView() {
+      showError("");
+      list.innerHTML = '<div class="empty">Loading…</div>';
+      const day = todayKey();
+      const hour = new Date().getHours();
+      const res = await fetch(`/v1/sitter/view?day=${day}&hour=${hour}`, {
+        headers: authHeaders(),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        list.innerHTML = "";
+        showError(body.error || "Could not load doses. Check the link and try again.");
+        setup.hidden = false;
+        return;
+      }
+      setup.hidden = true;
+      subtitle.textContent = body.label
+        ? `${body.label} · ${day}`
+        : `Today · ${day}`;
+      renderDoses(body.doses || []);
+    }
+
+    function renderDoses(doses) {
+      if (!doses.length) {
+        list.innerHTML = '<div class="card empty">Nothing scheduled for today.</div>';
+        return;
+      }
+      list.innerHTML = "";
+      for (const dose of doses) {
+        const card = document.createElement("div");
+        card.className = "card";
+        const amount = dose.amount ? ` · ${dose.amount}` : "";
+        card.innerHTML = `
+          <div class="dose-name">${dose.petName} — ${dose.name}${amount}</div>
+          <div class="dose-meta">${dose.part} · ${dose.timeLabel}</div>
+        `;
+        const badge = document.createElement("span");
+        if (dose.status === "given") {
+          badge.className = "badge given";
+          badge.textContent = dose.loggedBy ? `Given by ${dose.loggedBy}` : "Given";
+        } else if (dose.uncertain) {
+          badge.className = "badge uncertain";
+          badge.textContent = "Uncertain — check first";
+        } else if (dose.status === "due") {
+          badge.className = "badge due";
+          badge.textContent = "Due now";
+        } else {
+          badge.className = "badge upcoming";
+          badge.textContent = "Upcoming";
+        }
+        card.appendChild(badge);
+
+        if (dose.status !== "given") {
+          const givenBtn = document.createElement("button");
+          givenBtn.className = "primary";
+          givenBtn.type = "button";
+          givenBtn.textContent = "I gave this";
+          givenBtn.onclick = () => logDose(dose, "given", givenBtn);
+          card.appendChild(givenBtn);
+
+          const unsureBtn = document.createElement("button");
+          unsureBtn.className = "secondary";
+          unsureBtn.type = "button";
+          unsureBtn.textContent = "Not sure — check first";
+          unsureBtn.onclick = () => logDose(dose, "uncertain", unsureBtn);
+          card.appendChild(unsureBtn);
+        }
+        list.appendChild(card);
+      }
+    }
+
+    async function logDose(dose, outcome, button) {
+      button.disabled = true;
+      showError("");
+      const day = todayKey();
+      const now = new Date();
+      const hour = now.getHours();
+      const minute = now.getMinutes();
+      const pm = hour >= 12;
+      let h = hour % 12;
+      if (h === 0) h = 12;
+      const timeLabel = `${h}:${String(minute).padStart(2, "0")} ${pm ? "PM" : "AM"}`;
+      const res = await fetch("/v1/sitter/logs", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({
+          id: `log-${crypto.randomUUID().slice(0, 8)}`,
+          medicationId: dose.medicationId,
+          part: dose.part,
+          day,
+          outcome,
+          amount: dose.amount || "",
+          timeLabel,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (res.status === 409) {
+        showError("Someone already logged this dose.");
+        await loadView();
+        return;
+      }
+      if (!res.ok) {
+        showError(body.error || "Could not save. Try again.");
+        button.disabled = false;
+        return;
+      }
+      await loadView();
+    }
+
+    document.getElementById("openBtn").onclick = () => {
+      token = document.getElementById("tokenInput").value.trim();
+      if (!token) {
+        showError("Add the sitter link token.");
+        return;
+      }
+      history.replaceState(null, "", `?t=${encodeURIComponent(token)}`);
+      loadView();
+    };
+
+    if (!token) {
+      setup.hidden = false;
+      list.innerHTML = "";
+    } else {
+      loadView();
+    }
+  </script>
+</body>
+</html>

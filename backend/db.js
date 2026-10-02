@@ -3,7 +3,7 @@ import pg from "pg";
 
 const { Pool } = pg;
 
-const schemaVersion = "3";
+const schemaVersion = "4";
 const parts = ["morning", "afternoon", "evening"];
 const species = ["cat", "dog", "rabbit", "other"];
 const roles = ["owner", "caregiver", "sitter"];
@@ -22,13 +22,11 @@ export async function migrate(pool, log) {
   const started = Date.now();
   await pool.query("CREATE TABLE IF NOT EXISTS meta (key text PRIMARY KEY, value text NOT NULL)");
   const current = await pool.query("SELECT value FROM meta WHERE key = 'schema_version'");
-  if (current.rows[0]?.value !== schemaVersion) {
+  const fromVersion = current.rows[0]?.value ?? null;
+  if (fromVersion === "1" || fromVersion === null) {
     // Version 1 held one shared demo household with no owners; nothing in it is user data.
     await pool.query("DROP TABLE IF EXISTS activity, doses, medications, pets, members, settings CASCADE");
   }
-  await pool.query(`
-    ALTER TABLE medications ADD COLUMN IF NOT EXISTS end_day text NOT NULL DEFAULT '';
-  `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS households (
       id text PRIMARY KEY,
@@ -123,6 +121,20 @@ export async function migrate(pool, log) {
       count integer NOT NULL DEFAULT 0,
       PRIMARY KEY (day, event)
     );
+    CREATE TABLE IF NOT EXISTS sitter_links (
+      household_id text NOT NULL REFERENCES households (id) ON DELETE CASCADE,
+      id text NOT NULL,
+      member_id text NOT NULL,
+      token_hash text NOT NULL UNIQUE,
+      label text NOT NULL DEFAULT 'Sitter',
+      expires_at timestamptz NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (household_id, id)
+    );
+    CREATE INDEX IF NOT EXISTS sitter_links_token_idx ON sitter_links (token_hash);
+  `);
+  await pool.query(`
+    ALTER TABLE medications ADD COLUMN IF NOT EXISTS end_day text NOT NULL DEFAULT '';
   `);
   await pool.query(`
     ALTER TABLE households ADD COLUMN IF NOT EXISTS rc_expires_at timestamptz;
@@ -763,13 +775,16 @@ export async function applyBatchOperation(pool, auth, operation) {
   }
 }
 
-export async function applyBatch(pool, auth, body) {
+export async function applyBatch(pool, auth, body, logFn) {
   const operations = list(body?.operations, 100);
   const results = [];
   for (const operation of operations) {
     const opId = text(operation?.id, "operation.id", { max: 48, required: false }) || newId("op");
     try {
       const result = await applyBatchOperation(pool, auth, operation);
+      if (result.status === "ok" && result.log && operation?.type === "logDose") {
+        await notifyHouseholdOnDose(pool, auth, result.log, logFn);
+      }
       results.push({ id: opId, ...result });
     } catch (error) {
       results.push({
@@ -782,13 +797,150 @@ export async function applyBatch(pool, auth, body) {
   return { results, household: await loadHousehold(pool, auth) };
 }
 
-export async function notifyHouseholdOnDose(pool, auth, logEntry, logFn) {
-  const tokens = await pool.query(
-    `SELECT token, platform FROM device_tokens
-     WHERE household_id = $1 AND member_id <> $2 AND push_enabled = true`,
-    [auth.householdId, auth.memberId],
+const partOpensAt = { morning: 0, afternoon: 12, evening: 17 };
+const partTimeLabel = {
+  morning: "8:00 AM",
+  afternoon: "1:00 PM",
+  evening: "8:00 PM",
+};
+
+function medicationActiveOn(medication, day) {
+  return (
+    medication.startDay <= day &&
+    (medication.endDay === "" || medication.endDay >= day)
   );
+}
+
+function formatTimeLabel(date = new Date()) {
+  let hour = date.getHours();
+  const minute = date.getMinutes();
+  const pm = hour >= 12;
+  if (hour > 12) hour -= 12;
+  if (hour === 0) hour = 12;
+  return `${hour}:${String(minute).padStart(2, "0")} ${pm ? "PM" : "AM"}`;
+}
+
+export async function createSitterLink(pool, auth, body) {
+  const pro = await pool.query("SELECT is_pro FROM households WHERE id = $1", [auth.householdId]);
+  if (!pro.rows[0]?.is_pro) {
+    throw new InputError("Browser sitter links need PawsitiveSync Pro.");
+  }
+  const label = text(body?.label, "label", { max: 40, required: false }) || "Sitter";
+  const linkId = newId("slink");
+  const memberId = newId("sitter");
+  const token = newToken();
+  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  await pool.query(
+    `INSERT INTO members (household_id, id, name, role) VALUES ($1,$2,$3,'sitter')`,
+    [auth.householdId, memberId, label],
+  );
+  await pool.query(
+    `INSERT INTO sitter_links (household_id, id, member_id, token_hash, label, expires_at)
+     VALUES ($1,$2,$3,$4,$5,$6)`,
+    [auth.householdId, linkId, memberId, hashToken(token), label, expiresAt],
+  );
+  return { token, expiresAt: expiresAt.toISOString(), memberId, linkId };
+}
+
+export async function sitterForToken(pool, token) {
+  if (typeof token !== "string" || token.length < 20 || token.length > 100) return null;
+  const result = await pool.query(
+    `SELECT household_id, id, member_id, label FROM sitter_links
+     WHERE token_hash = $1 AND expires_at > now()`,
+    [hashToken(token)],
+  );
+  const row = result.rows[0];
+  return row
+    ? {
+        householdId: row.household_id,
+        memberId: row.member_id,
+        linkId: row.id,
+        label: row.label,
+      }
+    : null;
+}
+
+export async function getSitterView(pool, sitterAuth, query) {
+  const day = day(query?.day, "day");
+  const hour = Math.min(Math.max(Number(query?.hour) || 0, 0), 23);
+  const snapshot = await loadHousehold(pool, sitterAuth);
+  if (!snapshot) return null;
+  const petsById = Object.fromEntries(snapshot.pets.map((pet) => [pet.id, pet]));
+  const logsByKey = {};
+  for (const entry of snapshot.logs) {
+    if (entry.day === day) logsByKey[`${entry.medicationId}:${entry.part}`] = entry;
+  }
+  const membersById = Object.fromEntries(snapshot.members.map((member) => [member.id, member.name]));
+  const doses = [];
+  for (const medication of snapshot.medications) {
+    if (!medicationActiveOn(medication, day)) continue;
+    for (const part of medication.parts) {
+      const log = logsByKey[`${medication.id}:${part}`];
+      if (log?.outcome === "skipped") continue;
+      let status = "upcoming";
+      if (log?.outcome === "given") status = "given";
+      else if (hour >= partOpensAt[part]) status = "due";
+      const pet = petsById[medication.petId];
+      doses.push({
+        id: `${medication.id}-${part}`,
+        medicationId: medication.id,
+        part,
+        petName: pet?.name ?? "Pet",
+        name: medication.name,
+        amount: log?.amount || medication.amount,
+        status,
+        uncertain: log?.outcome === "uncertain",
+        loggedBy: log ? membersById[log.memberId] ?? "Someone" : null,
+        timeLabel: log?.timeLabel ?? partTimeLabel[part],
+      });
+    }
+  }
+  doses.sort((a, b) => parts.indexOf(a.part) - parts.indexOf(b.part));
+  return {
+    day,
+    label: sitterAuth.label,
+    pets: snapshot.pets.map((pet) => ({ id: pet.id, name: pet.name, species: pet.species })),
+    doses,
+  };
+}
+
+export async function sitterLogDose(pool, sitterAuth, body) {
+  const entry = readLog({
+    ...body,
+    memberId: sitterAuth.memberId,
+    timeLabel: body?.timeLabel ?? formatTimeLabel(),
+  });
+  const result = await logDose(pool, sitterAuth, entry);
+  return result;
+}
+
+export async function notifyHouseholdOnDose(pool, auth, logEntry, logFn) {
+  const [tokens, medication, member] = await Promise.all([
+    pool.query(
+      `SELECT token, platform FROM device_tokens
+       WHERE household_id = $1 AND member_id <> $2 AND push_enabled = true`,
+      [auth.householdId, auth.memberId],
+    ),
+    pool.query("SELECT name FROM medications WHERE household_id = $1 AND id = $2", [
+      auth.householdId,
+      logEntry.medicationId,
+    ]),
+    pool.query("SELECT name FROM members WHERE household_id = $1 AND id = $2", [
+      auth.householdId,
+      auth.memberId,
+    ]),
+  ]);
   if (tokens.rowCount === 0) return;
+  const medName = medication.rows[0]?.name ?? "a dose";
+  const who = member.rows[0]?.name ?? "Someone";
+  const outcomeLabel =
+    logEntry.outcome === "given"
+      ? "gave"
+      : logEntry.outcome === "skipped"
+        ? "skipped"
+        : "marked uncertain for";
+  const title = logEntry.outcome === "given" ? "Dose logged" : "Dose update";
+  const body = `${who} ${outcomeLabel} ${medName}`;
   const fcmKey = process.env.FCM_SERVER_KEY;
   for (const row of tokens.rows) {
     logFn("push.queued", {
@@ -806,10 +958,7 @@ export async function notifyHouseholdOnDose(pool, auth, logEntry, logFn) {
         },
         body: JSON.stringify({
           to: row.token.slice(4),
-          notification: {
-            title: "Dose logged",
-            body: `A caregiver logged ${logEntry.outcome} for today.`,
-          },
+          notification: { title, body },
           data: { type: "dose_logged", logId: logEntry.id },
         }),
       });

@@ -133,7 +133,7 @@ class _TodayScreenState extends State<TodayScreen> {
                         context.push(AppRoutes.medication(next.medicationId)),
                   ),
                 ],
-                if (care.isPro && low != null) ...[
+                if (care.canShowLowSupplyAlerts && low != null) ...[
                   const SizedBox(height: 16),
                   _LowSupply(
                     medication: low,

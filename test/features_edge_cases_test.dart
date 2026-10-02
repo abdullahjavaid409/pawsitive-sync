@@ -6,6 +6,8 @@ import 'package:pawsitive_sync/data/household_api.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'test_log_helpers.dart';
+
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
@@ -27,6 +29,7 @@ void main() {
       await care.startTrial();
       expect(care.isPro, isTrue);
       expect(care.canAddPet, isTrue);
+      expectLogged('billing.pro.unlocked', fields: {'source': 'trial'});
     });
 
     test('pro tier respects household pet cap', () async {
@@ -128,6 +131,7 @@ void main() {
       );
       expect(second, isFalse);
       expect(care.lastError, isNotNull);
+      expectLogged('dose.log.rejected', fields: {'reason': 'already_logged'});
     });
 
     test('skip removes dose from today list', () async {
@@ -138,6 +142,7 @@ void main() {
       final ok = await care.skipDose(dose.id);
       expect(ok, isTrue);
       expect(care.doseById(dose.id), isNull);
+      expectLogged('dose.skip.completed');
     });
   });
 
@@ -156,6 +161,7 @@ void main() {
       expect(upcoming, hasLength(1));
       expect(upcoming.first.title, 'Rabies booster');
       expect(upcoming.first.kind, CareEventKind.vaccine);
+      expectLogged('care_event.added', fields: {'kind': 'vaccine'});
     });
 
     test('rejects care event without pet', () async {
@@ -167,6 +173,7 @@ void main() {
         dueDate: DateTime(2026, 11, 1),
       );
       expect(ok, isFalse);
+      expectLogged('care_event.rejected', fields: {'reason': 'missing_pet'});
     });
 
     test('removeCareEvent drops item from upcoming list', () async {
@@ -180,6 +187,7 @@ void main() {
       final event = care.careEvents.single;
       await care.removeCareEvent(event.id);
       expect(care.upcomingCareEvents(), isEmpty);
+      expectLogged('care_event.removed');
     });
   });
 
@@ -188,12 +196,14 @@ void main() {
       final care = CareRepository.sample();
       final error = await care.join(code: 'ABC', name: 'Alex');
       expect(error, isNotNull);
+      expectLogged('household.join_rejected', fields: {'reason': 'short_code'});
     });
 
     test('rejects empty name', () async {
       final care = CareRepository.sample();
       final error = await care.join(code: 'ABCDEF', name: '  ');
       expect(error, isNotNull);
+      expectLogged('household.join_rejected', fields: {'reason': 'missing_name'});
     });
   });
 
@@ -245,6 +255,7 @@ void main() {
         parts: [DayPart.morning],
       );
       expect(ok, isFalse);
+      expectLogged('medication.add_rejected', fields: {'reason': 'missing_name'});
     });
 
     test('rejects empty schedule parts', () async {
@@ -256,6 +267,7 @@ void main() {
         parts: [],
       );
       expect(ok, isFalse);
+      expectLogged('medication.add_rejected', fields: {'reason': 'missing_parts'});
     });
 
     test('refill restores supply count', () async {
@@ -264,6 +276,7 @@ void main() {
       final ok = await care.refill(med.id);
       expect(ok, isTrue);
       expect(care.medicationById(med.id)!.dosesLeft, med.supplyTotal);
+      expectLogged('medication.refill.completed');
     });
   });
 }

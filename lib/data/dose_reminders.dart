@@ -103,10 +103,11 @@ class DoseReminders {
   }
 
   /// Reminds again after snoozing from the lock screen.
-  static Future<void> snoozeMinutes(CareRepository care, int minutes) async {
+  static Future<bool> snoozeMinutes(CareRepository care, int minutes, {Dose? target}) async {
+    try {
     await prepare();
-    final dose = care.nextDue;
-    if (dose == null) return;
+    final dose = target ?? care.nextDue;
+    if (dose == null || dose.status != DoseStatus.due) return false;
     Pet? pet;
     for (final item in care.pets) {
       if (item.id == dose.petId) pet = item;
@@ -116,7 +117,6 @@ class DoseReminders {
     final amount = dose.amount.isEmpty
         ? dose.name
         : '${dose.name}, ${dose.amount}';
-    try {
       await _plugin.zonedSchedule(
         1,
         'Time for $petName',
@@ -139,8 +139,10 @@ class DoseReminders {
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
       );
       AppLog.event('lock.snoozed', {'minutes': minutes, 'doseId': dose.id});
+      return true;
     } catch (_) {
-      AppLog.event('lock.snooze_failed', {'doseId': dose.id});
+      AppLog.event('lock.snooze_failed');
+      return false;
     }
   }
 }

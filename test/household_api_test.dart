@@ -194,6 +194,40 @@ void main() {
     expect(adapter.requests, hasLength(1));
   });
 
+  test('creates a sitter browser link', () async {
+    final adapter = _FakeAdapter([
+      (
+        201,
+        {
+          'token': 'sitter-token-abc',
+          'expiresAt': '2026-11-03T00:00:00.000Z',
+          'url': '/sitter?t=sitter-token-abc',
+        },
+      ),
+    ]);
+    final api = _api(adapter);
+    final link = await api.createSitterLink(label: 'Weekend sitter');
+    expect(link.token, 'sitter-token-abc');
+    expect(adapter.requests.single.path, '/v1/sitter-links');
+    expect(adapter.requests.single.data, {'label': 'Weekend sitter'});
+  });
+
+  test('empty sitter token response is invalid', () async {
+    final adapter = _FakeAdapter([
+      (201, {'token': '', 'expiresAt': '2026-11-03T00:00:00.000Z'}),
+    ]);
+    await expectLater(
+      _api(adapter).createSitterLink(),
+      throwsA(
+        isA<HouseholdException>().having(
+          (e) => e.kind,
+          'kind',
+          HouseholdErrorKind.invalid,
+        ),
+      ),
+    );
+  });
+
   test('a wrong invite code reads as not found', () async {
     final adapter = _FakeAdapter([
       (404, {'error': 'That invite code was not found. Check it and try again.'}),

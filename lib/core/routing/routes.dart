@@ -8,6 +8,9 @@ abstract final class AppRoutes {
   static const caregivers = '/onboarding/caregivers';
   static const notifications = '/onboarding/notifications';
   static const paywall = '/paywall';
+
+  static String paywallWith({String? reason}) =>
+      reason == null || reason.isEmpty ? paywall : '$paywall?reason=$reason';
   static const today = '/today';
   static const pets = '/pets';
   static const household = '/household';

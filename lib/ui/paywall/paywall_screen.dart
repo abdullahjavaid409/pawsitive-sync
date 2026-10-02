@@ -10,52 +10,57 @@ import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/data/dose_reminders.dart';
 import 'package:pawsitive_sync/data/revenue_cat_service.dart';
 import 'package:pawsitive_sync/domain/models.dart';
+import 'package:pawsitive_sync/domain/paywall_reason.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-/// Compares Free and Pro. Free is one pet. Pro is the whole household.
+/// Compares Free and Pro. Free solves solo care; Pro solves shared / multi-pet pain.
 class PaywallScreen extends StatefulWidget {
-  const PaywallScreen({super.key});
+  const PaywallScreen({super.key, this.reason});
+
+  /// Query param from [AppRoutes.paywallWith] — contextual upgrade moment.
+  final String? reason;
 
   @override
   State<PaywallScreen> createState() => _PaywallScreenState();
 }
 
 class _PaywallScreenState extends State<PaywallScreen> {
+  /// Pain → solution. Always free — never paywall safety.
+  static const _freeFeatures = [
+    (
+      'Did I already give it?',
+      'One-tap logging, double-dose checks, and “not sure if given” for one pet.',
+    ),
+    (
+      'What\'s due today?',
+      'Morning, afternoon, and evening doses in one Today list with reminders.',
+    ),
+    (
+      'Works without Wi‑Fi',
+      'Log doses offline. Sync when you connect — safety is never locked behind Pro.',
+    ),
+  ];
+
+  /// Pain → solution. Pro gates only — multi-pet, household, export, supply.
   static const _proFeatures = [
     (
-      'Today\'s dose list',
-      'See every medicine due today — morning, afternoon, and evening — for all your pets in one place.',
+      'We have more than one pet on meds',
+      'Track up to 10 pets — cats, dogs, rabbits, and more — in one household.',
     ),
     (
-      'One tap to log',
-      'Tap a dose and record who gave it, so the same medicine is never given twice.',
+      'Did my partner or sitter already dose?',
+      'Invite with a code. Everyone sees the same list and who logged each dose.',
     ),
     (
-      'Smart reminders',
-      'Get notified when a dose is due, even when someone else is caring for your pet.',
+      'The vet asked for a clear log',
+      'Export a week-by-week report to share at checkups or send ahead to the clinic.',
     ),
     (
-      'Every pet',
-      'Track schedules for cats, dogs, rabbits, and more — not just one pet.',
-    ),
-    (
-      'Shared household',
-      'Your partner, sitter, or family see the same list and who already gave each dose.',
-    ),
-    (
-      'Running-low alerts',
-      'We warn you before the bottle runs out so refills do not slip through the cracks.',
-    ),
-    (
-      'Vet reports',
-      'Export a clear week-by-week log to share at checkups or send ahead to the clinic.',
-    ),
-    (
-      'Sync across phones',
-      'Join with an invite code and everyone stays on the same schedule, online or off.',
+      'We almost ran out without noticing',
+      'Running-low alerts before the bottle is empty so refills do not slip by.',
     ),
   ];
 
@@ -63,11 +68,23 @@ class _PaywallScreenState extends State<PaywallScreen> {
   bool _restoring = false;
   String? _error;
   List<Package> _packages = const [];
+  late final PaywallReason? _moment = PaywallReasonQuery.fromQuery(widget.reason);
+
+  bool get _isUpgradeFlow {
+    final model = context.read<OnboardingViewModel>();
+    final care = context.read<CareRepository>();
+    return model.isComplete || care.hasHousehold;
+  }
 
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _bootstrap());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      AppLog.event('billing.paywall.opened', {
+        'reason': widget.reason ?? 'default',
+      });
+      _bootstrap();
+    });
   }
 
   Future<void> _bootstrap() async {
@@ -141,22 +158,45 @@ class _PaywallScreenState extends State<PaywallScreen> {
 
   Future<void> _continueFree() async {
     if (_busy) return;
-    AppLog.event('billing.continued_free');
+    AppLog.event('billing.continued_free', {
+      'reason': widget.reason ?? 'default',
+    });
     await _finishSetup();
+  }
+
+  void _dismissPaywall() {
+    AppLog.event('billing.paywall.dismissed', {
+      'reason': widget.reason ?? 'default',
+    });
+    if (context.canPop()) {
+      context.pop();
+    } else {
+      context.go(AppRoutes.today);
+    }
   }
 
   Future<void> _finishSetup() async {
     final care = context.read<CareRepository>();
     final model = context.read<OnboardingViewModel>();
-    care.applyOnboarding(model);
-    await model.finish(reminders: model.remindersOn);
-    if (!mounted) return;
-    if (model.remindersOn) {
-      DoseReminders.scheduleNext(care);
-    } else {
-      DoseReminders.cancel();
+    if (!_isUpgradeFlow && model.hasValidPetName) {
+      care.applyOnboarding(model);
+      await model.finish(reminders: model.remindersOn);
+      if (!mounted) return;
+      if (model.remindersOn) {
+        DoseReminders.scheduleNext(care);
+      } else {
+        DoseReminders.cancel();
+      }
     }
-    AppLog.event('billing.paywall.complete', {'isPro': care.isPro});
+    if (!mounted) return;
+    AppLog.event('billing.paywall.complete', {
+      'isPro': care.isPro,
+      'reason': widget.reason ?? 'default',
+    });
+    if (_isUpgradeFlow && context.canPop()) {
+      context.pop();
+      return;
+    }
     context.go(AppRoutes.today);
   }
 
@@ -168,6 +208,8 @@ class _PaywallScreenState extends State<PaywallScreen> {
     final text = Theme.of(context).textTheme;
     final yearly = care.plan == BillingPlan.yearly;
     final locked = _busy || _restoring;
+    final upgradeFlow = _isUpgradeFlow;
+    final copy = (_moment ?? PaywallReason.onboarding).copy;
 
     return PopScope(
       canPop: !locked,
@@ -179,8 +221,10 @@ class _PaywallScreenState extends State<PaywallScreen> {
               Row(
                 children: [
                   IconButton(
-                    tooltip: 'Continue free',
-                    onPressed: locked ? null : () => _continueFree(),
+                    tooltip: upgradeFlow ? 'Close' : 'Continue free',
+                    onPressed: locked
+                        ? null
+                        : () => upgradeFlow ? _dismissPaywall() : _continueFree(),
                     icon: StrokeIcon(
                       StrokeIconKind.close,
                       color: scheme.onSurfaceVariant,
@@ -197,11 +241,21 @@ class _PaywallScreenState extends State<PaywallScreen> {
                 child: ListView(
                   padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
                   children: [
-                    Text('Try Pro free for 7 days', style: text.displaySmall),
+                    Text(copy.$1, style: text.displaySmall),
+                    if (copy.$2 != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        copy.$2!,
+                        style: text.bodyLarge?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 8),
                     Text(
-                      'Pick a plan. Yearly saves the most.',
-                      style: text.bodyLarge?.copyWith(
+                      'Pick a plan — yearly saves the most.',
+                      style: text.bodyMedium?.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),
                     ),
@@ -227,40 +281,57 @@ class _PaywallScreenState extends State<PaywallScreen> {
                           : () => care.setPlan(BillingPlan.monthly),
                     ),
                     const SizedBox(height: 24),
-                    Text('What you get with Pro', style: text.titleMedium),
+                    Text('Always free', style: text.titleMedium),
                     const SizedBox(height: 4),
                     Text(
-                      'Free covers one pet. Pro unlocks everything below.',
+                      'One pet · dose logging · double-dose safety · reminders',
                       style: text.bodyMedium?.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),
                     ),
                     const SizedBox(height: 12),
-                    DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: scheme.surfaceContainerLowest,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: tokens.hairline),
+                    _FeatureCard(
+                      hairline: tokens.hairline,
+                      children: [
+                        for (final (index, feature) in _freeFeatures.indexed)
+                          Padding(
+                            padding: EdgeInsets.only(
+                              bottom: index == _freeFeatures.length - 1 ? 0 : 16,
+                            ),
+                            child: _FeatureRow(
+                              title: feature.$1,
+                              detail: feature.$2,
+                              accent: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    Text('Pro unlocks', style: text.titleMedium),
+                    const SizedBox(height: 4),
+                    Text(
+                      'When care is shared or you have multiple pets',
+                      style: text.bodyMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
                       ),
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-                        child: Column(
-                          children: [
-                            for (final (index, feature) in _proFeatures.indexed)
-                              Padding(
-                                padding: EdgeInsets.only(
-                                  bottom: index == _proFeatures.length - 1
-                                      ? 0
-                                      : 16,
-                                ),
-                                child: _FeatureRow(
-                                  title: feature.$1,
-                                  detail: feature.$2,
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    _FeatureCard(
+                      hairline: scheme.primary.withValues(alpha: 0.35),
+                      background: scheme.primaryContainer.withValues(alpha: 0.25),
+                      children: [
+                        for (final (index, feature) in _proFeatures.indexed)
+                          Padding(
+                            padding: EdgeInsets.only(
+                              bottom: index == _proFeatures.length - 1 ? 0 : 16,
+                            ),
+                            child: _FeatureRow(
+                              title: feature.$1,
+                              detail: feature.$2,
+                              accent: scheme.primary,
+                            ),
+                          ),
+                      ],
                     ),
                   ],
                 ),
@@ -298,10 +369,11 @@ class _PaywallScreenState extends State<PaywallScreen> {
                       ),
                       textAlign: TextAlign.center,
                     ),
-                    TextButton(
-                      onPressed: locked ? null : _continueFree,
-                      child: const Text('Continue free with 1 pet'),
-                    ),
+                    if (!upgradeFlow)
+                      TextButton(
+                        onPressed: locked ? null : _continueFree,
+                        child: const Text('Continue free with 1 pet'),
+                      ),
                     Wrap(
                       alignment: WrapAlignment.center,
                       spacing: 8,
@@ -339,11 +411,44 @@ class _PaywallScreenState extends State<PaywallScreen> {
   }
 }
 
+class _FeatureCard extends StatelessWidget {
+  const _FeatureCard({
+    required this.hairline,
+    required this.children,
+    this.background,
+  });
+
+  final Color hairline;
+  final Color? background;
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: background ?? scheme.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: hairline),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        child: Column(children: children),
+      ),
+    );
+  }
+}
+
 class _FeatureRow extends StatelessWidget {
-  const _FeatureRow({required this.title, required this.detail});
+  const _FeatureRow({
+    required this.title,
+    required this.detail,
+    required this.accent,
+  });
 
   final String title;
   final String detail;
+  final Color accent;
 
   @override
   Widget build(BuildContext context) {
@@ -357,7 +462,7 @@ class _FeatureRow extends StatelessWidget {
           child: StrokeIcon(
             StrokeIconKind.check,
             size: 18,
-            color: scheme.primary,
+            color: accent,
           ),
         ),
         const SizedBox(width: 12),

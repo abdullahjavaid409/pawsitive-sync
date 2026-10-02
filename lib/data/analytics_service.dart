@@ -49,6 +49,7 @@ abstract final class AnalyticsService {
       AppLog.event('analytics.flushed', {'count': events.length});
     } catch (_) {
       _buffer.insertAll(0, events);
+      AppLog.event('analytics.flush_failed', {'count': events.length});
     }
   }
 }

@@ -21,8 +21,11 @@ class InviteScreen extends StatefulWidget {
 class _InviteScreenState extends State<InviteScreen> {
   bool _copied = false;
   bool _linkCopied = false;
+  bool _webLinkCopied = false;
   bool _connecting = false;
+  bool _loadingWebLink = false;
   String? _error;
+  String? _webLink;
 
   @override
   void initState() {
@@ -47,7 +50,20 @@ class _InviteScreenState extends State<InviteScreen> {
       AppLog.event('invite.connect_failed', {'error': error});
     } else {
       AppLog.event('invite.connect_ready');
+      await _loadWebLink();
     }
+  }
+
+  Future<void> _loadWebLink() async {
+    final care = context.read<CareRepository>();
+    if (!care.canInviteHousehold || !care.isConnected) return;
+    setState(() => _loadingWebLink = true);
+    final link = await care.ensureSitterWebLink();
+    if (!mounted) return;
+    setState(() {
+      _loadingWebLink = false;
+      _webLink = link;
+    });
   }
 
   String _message(CareRepository care) {
@@ -57,7 +73,11 @@ class _InviteScreenState extends State<InviteScreen> {
         : pets.length == 1
         ? pets.first
         : '${pets.sublist(0, pets.length - 1).join(', ')} and ${pets.last}';
-    final link = AppLinks.sitterJoinLink(care.inviteCode);
+    final web = _webLink;
+    if (web != null && web.isNotEmpty) {
+      return 'Help me with $who’s medicine today — log doses here (no app needed):\n\n$web';
+    }
+    final link = AppLinks.householdJoinLink(care.inviteCode);
     return 'Help me with $who’s medicine on PawsitiveSync, so no dose is missed or given twice.\n\n'
         'Tap to join: $link\n\n'
         'Or open the app, tap “I have an invite code”, and enter: ${care.inviteCode}';
@@ -201,10 +221,72 @@ class _InviteScreenState extends State<InviteScreen> {
                     ),
                     if (ready) ...[
                       const SizedBox(height: 24),
-                      Text('Link for sitters', style: text.titleMedium),
+                      Text('Browser link for sitters', style: text.titleMedium),
                       const SizedBox(height: 8),
                       Text(
-                        'Send this link — the invite code is filled in automatically.',
+                        'No app install — open in Safari or Chrome, see today’s doses, tap I gave this.',
+                        style: text.bodyMedium?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      SurfaceCard(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (_loadingWebLink)
+                              const Center(child: CircularProgressIndicator())
+                            else if (_webLink != null)
+                              SelectableText(
+                                _webLink!,
+                                style: text.bodyMedium?.copyWith(
+                                  color: tokens.brandDark,
+                                ),
+                              )
+                            else
+                              Text(
+                                'Could not create a browser link. Try again.',
+                                style: text.bodyMedium?.copyWith(
+                                  color: scheme.error,
+                                ),
+                              ),
+                            const SizedBox(height: 12),
+                            OutlinedButton.icon(
+                              onPressed: _webLink == null && !_loadingWebLink
+                                  ? _loadWebLink
+                                  : _webLink == null
+                                  ? null
+                                  : () async {
+                                      await Clipboard.setData(
+                                        ClipboardData(text: _webLink!),
+                                      );
+                                      if (!mounted) return;
+                                      AppLog.event('invite.web_link_copied');
+                                      setState(() => _webLinkCopied = true);
+                                    },
+                              icon: Icon(
+                                _webLinkCopied
+                                    ? Icons.check_rounded
+                                    : Icons.link_rounded,
+                                size: 18,
+                              ),
+                              label: Text(
+                                _webLink == null && !_loadingWebLink
+                                    ? 'Try again'
+                                    : _webLinkCopied
+                                    ? 'Link copied'
+                                    : 'Copy browser link',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      Text('App invite (partner / family)', style: text.titleMedium),
+                      const SizedBox(height: 8),
+                      Text(
+                        'For people who will install the app — code is prefilled.',
                         style: text.bodyMedium?.copyWith(
                           color: scheme.onSurfaceVariant,
                         ),
@@ -216,7 +298,7 @@ class _InviteScreenState extends State<InviteScreen> {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             SelectableText(
-                              AppLinks.sitterJoinLink(code),
+                              AppLinks.householdJoinLink(code),
                               style: text.bodyMedium?.copyWith(
                                 color: tokens.brandDark,
                               ),
@@ -224,7 +306,7 @@ class _InviteScreenState extends State<InviteScreen> {
                             const SizedBox(height: 12),
                             OutlinedButton.icon(
                               onPressed: () async {
-                                final link = AppLinks.sitterJoinLink(code);
+                                final link = AppLinks.householdJoinLink(code);
                                 await Clipboard.setData(
                                   ClipboardData(text: link),
                                 );
@@ -239,7 +321,7 @@ class _InviteScreenState extends State<InviteScreen> {
                                 size: 18,
                               ),
                               label: Text(
-                                _linkCopied ? 'Link copied' : 'Copy sitter link',
+                                _linkCopied ? 'Link copied' : 'Copy app link',
                               ),
                             ),
                           ],
@@ -255,17 +337,15 @@ class _InviteScreenState extends State<InviteScreen> {
                         children: [
                           const _Step(
                             number: 1,
-                            text: 'They install PawsitiveSync.',
+                            text: 'Sitter: open the browser link. Partner: install the app.',
                           ),
                           const _Step(
                             number: 2,
-                            text: 'They tap “I have an invite code”.',
+                            text: 'They see today’s doses and who already logged.',
                           ),
-                          _Step(
+                          const _Step(
                             number: 3,
-                            text: ready
-                                ? 'They enter $code and their name.'
-                                : 'They enter your code and their name.',
+                            text: 'They tap I gave this — everyone stays in sync.',
                             last: true,
                           ),
                         ],

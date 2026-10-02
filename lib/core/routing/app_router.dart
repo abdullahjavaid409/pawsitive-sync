@@ -98,12 +98,19 @@ GoRouter createRouter(OnboardingViewModel onboarding) {
       GoRoute(
         path: AppRoutes.paywall,
         parentNavigatorKey: rootNavigatorKey,
-        builder: (context, state) => const AdaptivePage(child: PaywallScreen()),
+        builder: (context, state) => AdaptivePage(
+          child: PaywallScreen(
+            reason: state.uri.queryParameters['reason'],
+          ),
+        ),
       ),
       GoRoute(
         path: AppRoutes.lock,
         parentNavigatorKey: rootNavigatorKey,
-        builder: (context, state) => const AdaptivePage(child: LockScreen()),
+        builder: (context, state) => AdaptivePage(child: LockScreen(
+          doseId: state.uri.queryParameters['dose'],
+          day: state.uri.queryParameters['day'],
+        )),
       ),
       StatefulShellRoute.indexedStack(
         builder: (context, state, navigationShell) =>
