@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:pawsitive_sync/core/layout/adaptive.dart';
 import 'package:pawsitive_sync/core/motion/app_motion.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
+import 'package:pawsitive_sync/core/widgets/moment_art.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
@@ -54,6 +55,14 @@ class _LogDoseSheetState extends State<_LogDoseSheet> {
   String _memberId = 'you';
   bool _now = true;
   DoseOutcome _outcome = DoseOutcome.smooth;
+  String? _moment;
+
+  Future<void> _finish(String moment) async {
+    setState(() => _moment = moment);
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    if (!mounted) return;
+    Navigator.of(context).pop();
+  }
 
   @override
   void initState() {
@@ -91,6 +100,37 @@ class _LogDoseSheetState extends State<_LogDoseSheet> {
     final text = Theme.of(context).textTheme;
     final pet = care.petById(widget.dose.petId);
     final amountLabel = _unit.isEmpty ? '$_amount' : '$_amount $_unit';
+
+    if (_moment != null) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: scheme.outlineVariant,
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            MomentArt(_moment!, size: 140),
+            const SizedBox(height: 12),
+            Text(
+              _moment == 'dose.logged'
+                  ? 'Saved. Everyone can see it.'
+                  : 'Skipped for today.',
+              textAlign: TextAlign.center,
+              style: text.titleMedium,
+            ),
+          ],
+        ),
+      );
+    }
 
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
@@ -276,7 +316,7 @@ class _LogDoseSheetState extends State<_LogDoseSheet> {
                   );
                   return;
                 }
-                Navigator.of(context).pop();
+                await _finish('dose.logged');
               },
               child: const Text('Log dose'),
             ),
@@ -293,7 +333,7 @@ class _LogDoseSheetState extends State<_LogDoseSheet> {
                     );
                     return;
                   }
-                  Navigator.of(context).pop();
+                  await _finish('dose.skipped');
                 },
                 child: const Text('Skip this dose'),
               ),
@@ -357,21 +397,8 @@ class _DoubleDoseSheet extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(height: 24),
-          Container(
-            width: 56,
-            height: 56,
-            alignment: Alignment.center,
-            decoration: BoxDecoration(
-              color: tokens.warningBg,
-              shape: BoxShape.circle,
-            ),
-            child: StrokeIcon(
-              StrokeIconKind.alert,
-              size: 28,
-              color: tokens.warningIcon,
-            ),
-          ),
+          const SizedBox(height: 16),
+          const MomentArt('dose.already', size: 120),
           const SizedBox(height: 16),
           Text(
             '$who already gave this dose',

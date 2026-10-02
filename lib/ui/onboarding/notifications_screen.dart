@@ -4,7 +4,7 @@ import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/motion/app_motion.dart';
-import 'package:pawsitive_sync/core/widgets/story_art.dart';
+import 'package:pawsitive_sync/core/widgets/moment_art.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/dose_reminders.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
@@ -18,6 +18,12 @@ class NotificationsScreen extends StatelessWidget {
     final model = context.read<OnboardingViewModel>();
     if (!ask) {
       model.chooseReminders(false);
+      await showMoment(
+        context,
+        name: 'reminders.off',
+        message: 'Reminders stay off. You can allow them later in Settings.',
+      );
+      if (!context.mounted) return;
       context.go(AppRoutes.paywall);
       return;
     }
@@ -25,13 +31,12 @@ class NotificationsScreen extends StatelessWidget {
     if (!context.mounted) return;
     model.chooseReminders(allowed);
     if (!allowed) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Reminders stay off. You can allow them later in Settings.',
-          ),
-        ),
+      await showMoment(
+        context,
+        name: 'reminders.off',
+        message: 'Reminders stay off. You can allow them later in Settings.',
       );
+      if (!context.mounted) return;
     }
     context.go(AppRoutes.paywall);
   }
@@ -66,7 +71,7 @@ class NotificationsScreen extends StatelessWidget {
                     const SizedBox(height: 16),
                     const Center(
                       child: SoftEnter(
-                        child: StoryArt('reminder', size: 140),
+                        child: MomentArt('reminders.on', size: 140),
                       ),
                     ),
                     const SizedBox(height: 16),
