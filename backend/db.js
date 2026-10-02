@@ -861,19 +861,19 @@ export async function sitterForToken(pool, token) {
 }
 
 export async function getSitterView(pool, sitterAuth, query) {
-  const day = day(query?.day, "day");
+  const viewDay = day(query?.day, "day");
   const hour = Math.min(Math.max(Number(query?.hour) || 0, 0), 23);
   const snapshot = await loadHousehold(pool, sitterAuth);
   if (!snapshot) return null;
   const petsById = Object.fromEntries(snapshot.pets.map((pet) => [pet.id, pet]));
   const logsByKey = {};
   for (const entry of snapshot.logs) {
-    if (entry.day === day) logsByKey[`${entry.medicationId}:${entry.part}`] = entry;
+    if (entry.day === viewDay) logsByKey[`${entry.medicationId}:${entry.part}`] = entry;
   }
   const membersById = Object.fromEntries(snapshot.members.map((member) => [member.id, member.name]));
   const doses = [];
   for (const medication of snapshot.medications) {
-    if (!medicationActiveOn(medication, day)) continue;
+    if (!medicationActiveOn(medication, viewDay)) continue;
     for (const part of medication.parts) {
       const log = logsByKey[`${medication.id}:${part}`];
       if (log?.outcome === "skipped") continue;
@@ -897,7 +897,7 @@ export async function getSitterView(pool, sitterAuth, query) {
   }
   doses.sort((a, b) => parts.indexOf(a.part) - parts.indexOf(b.part));
   return {
-    day,
+    day: viewDay,
     label: sitterAuth.label,
     pets: snapshot.pets.map((pet) => ({ id: pet.id, name: pet.name, species: pet.species })),
     doses,
