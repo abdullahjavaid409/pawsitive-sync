@@ -9,6 +9,7 @@ import 'package:pawsitive_sync/core/motion/app_motion.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
+import 'package:pawsitive_sync/core/widgets/story_art.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
@@ -47,7 +48,11 @@ class PetDetailsScreen extends StatelessWidget {
                         color: scheme.onSurfaceVariant,
                       ),
                     ),
-                    const SizedBox(height: 28),
+                    const SizedBox(height: 20),
+                    const Center(
+                      child: SoftEnter(child: StoryArt('pet', size: 120)),
+                    ),
+                    const SizedBox(height: 24),
                     InkWell(
                       onTap: () => _choosePhoto(context, model),
                       borderRadius: BorderRadius.circular(16),

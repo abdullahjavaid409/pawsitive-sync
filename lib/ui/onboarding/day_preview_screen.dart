@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pawsitive_sync/core/motion/app_motion.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
+import 'package:pawsitive_sync/core/widgets/story_art.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
@@ -35,7 +37,15 @@ class DayPreviewScreen extends StatelessWidget {
                   ),
                 ),
               ),
-              const Spacer(),
+              Expanded(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+              const Center(
+                child: SoftEnter(child: StoryArt('medicine', size: 132)),
+              ),
+              const SizedBox(height: 16),
               Text('A morning', style: text.headlineMedium),
               const SizedBox(height: 8),
               Text(
@@ -83,7 +93,7 @@ class DayPreviewScreen extends StatelessWidget {
                   ],
                 ),
               ),
-              const Spacer(),
+              const SizedBox(height: 24),
               FilledButton(
                 onPressed: () => context.go(AppRoutes.pet),
                 child: const Text('Get started'),
@@ -95,6 +105,9 @@ class DayPreviewScreen extends StatelessWidget {
                   context.go(AppRoutes.household);
                 },
                 child: const Text('I was invited to a household'),
+              ),
+                  ],
+                ),
               ),
             ],
           ),

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/motion/app_motion.dart';
-import 'package:pawsitive_sync/core/widgets/pet_mark.dart';
+import 'package:pawsitive_sync/core/widgets/story_art.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
@@ -50,7 +50,7 @@ class ConditionsScreen extends StatelessWidget {
                       child: SoftEnter(
                         child: Column(
                           children: [
-                            PetMark(species: model.species, size: 72),
+                            const StoryArt('conditions', size: 140),
                             const SizedBox(height: 8),
                             Text(
                               name,

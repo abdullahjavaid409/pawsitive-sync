@@ -5,6 +5,7 @@ import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/pet_mark.dart';
+import 'package:pawsitive_sync/core/widgets/story_art.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
@@ -34,7 +35,7 @@ class PetBasicsScreen extends StatelessWidget {
                       children: [
                         OnboardingHeader(
                           step: 1,
-                          onBack: () => context.go(AppRoutes.day),
+                          onBack: () => context.go(AppRoutes.welcome),
                         ),
                         Padding(
                           padding: const EdgeInsets.only(left: 12),
@@ -54,13 +55,17 @@ class PetBasicsScreen extends StatelessWidget {
                                 ),
                               ),
                               const SizedBox(height: 20),
+                              const Center(
+                                child: SoftEnter(child: StoryArt('pet', size: 140)),
+                              ),
+                              const SizedBox(height: 12),
                               Center(
                                 child: SoftEnter(
                                   child: Column(
                                     children: [
                                       PetMark(
                                         species: model.species,
-                                        size: 88,
+                                        size: 56,
                                       ),
                                       const SizedBox(height: 8),
                                       Text(

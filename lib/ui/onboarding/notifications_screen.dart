@@ -4,7 +4,7 @@ import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/motion/app_motion.dart';
-import 'package:pawsitive_sync/core/widgets/step_picture.dart';
+import 'package:pawsitive_sync/core/widgets/story_art.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/dose_reminders.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
@@ -66,10 +66,7 @@ class NotificationsScreen extends StatelessWidget {
                     const SizedBox(height: 16),
                     const Center(
                       child: SoftEnter(
-                        child: StepPicture(
-                          icon: StrokeIconKind.bell,
-                          caption: 'A reminder',
-                        ),
+                        child: StoryArt('reminder', size: 140),
                       ),
                     ),
                     const SizedBox(height: 16),

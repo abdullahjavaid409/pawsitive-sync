@@ -22,14 +22,9 @@ void main() {
     );
     await tester.pump();
 
-    expect(
-      find.text('Every dose, seen by everyone who cares for them.'),
-      findsOneWidget,
-    );
+    expect(find.text('See who already gave it.'), findsOneWidget);
+    expect(find.text('Morning insulin'), findsOneWidget);
 
-    await tester.ensureVisible(find.text('Next'));
-    await tester.tap(find.text('Next'));
-    await tester.pumpAndSettle();
     await tester.ensureVisible(find.text('Get started'));
     await tester.tap(find.text('Get started'));
     await tester.pumpAndSettle();
