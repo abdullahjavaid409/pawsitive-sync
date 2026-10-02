@@ -2,20 +2,31 @@ import { createServer } from "node:http";
 import { randomUUID } from "node:crypto";
 import {
   InputError,
+  addCareEvent,
   addMedication,
   addPet,
   updatePet,
+  applyBatch,
   archiveMedication,
   createHousehold,
   createPool,
+  exportHouseholdData,
+  handleRevenueCatWebhook,
   joinHousehold,
+  leaveHousehold,
+  linkAppleAccount,
   loadHousehold,
   logDose,
   memberForToken,
   migrate,
+  notifyHouseholdOnDose,
+  recoverFromApple,
   refillMedication,
+  registerDevice,
+  removeCareEvent,
   setPlan,
   startTrial,
+  trackAnalytics,
 } from "./db.js";
 
 function log(event, fields) {
@@ -208,6 +219,33 @@ async function route(req, url, requestId) {
     return { status: 201, body: { token: joined.token, ...(await snapshot(joined)) } };
   }
 
+  if (req.method === "POST" && path === "/v1/auth/apple/recover") {
+    const body = await readJson(req);
+    const recovered = await recoverFromApple(pool, body.appleUserId);
+    if (!recovered) {
+      return { status: 404, body: { error: "No household is linked to this Apple ID yet." } };
+    }
+    log("auth.apple_recovered", { requestId, householdId: recovered.householdId });
+    return { status: 200, body: { token: recovered.token, ...(await snapshot(recovered)) } };
+  }
+
+  if (req.method === "POST" && path === "/v1/webhooks/revenuecat") {
+    const body = await readJson(req, importBody);
+    const headerSecret = req.headers.authorization?.replace(/^Bearer\s+/i, "");
+    const result = await handleRevenueCatWebhook(
+      pool,
+      { ...body, authorization: headerSecret ?? body?.authorization },
+      log,
+    );
+    if (result.status === "unauthorized") return { status: 401, body: { error: "Invalid webhook secret" } };
+    return { status: 200, body: result };
+  }
+
+  if (req.method === "POST" && path === "/v1/analytics/batch") {
+    const body = await readJson(req);
+    return { status: 202, body: await trackAnalytics(pool, body.events) };
+  }
+
   if (!path.startsWith("/v1/")) return { status: 404, body: { error: "Not found" } };
 
   const auth = await authorize(req);
@@ -263,7 +301,55 @@ async function route(req, url, requestId) {
       return { status: 409, body: { error: "Someone already logged this dose.", log: result.conflict } };
     }
     log("dose.logged", { requestId, householdId: auth.householdId, outcome: result.log.outcome });
+    await notifyHouseholdOnDose(pool, auth, result.log, log);
     return { status: 201, body: result };
+  }
+
+  if (req.method === "POST" && path === "/v1/sync/batch") {
+    const body = await readJson(req, importBody);
+    const batch = await applyBatch(pool, auth, body);
+    log("sync.batch", { requestId, householdId: auth.householdId, count: body.operations?.length ?? 0 });
+    return { status: 200, body: batch };
+  }
+
+  if (req.method === "POST" && path === "/v1/care-events") {
+    const event = await addCareEvent(pool, auth, await readJson(req));
+    log("care_event.added", { requestId, householdId: auth.householdId, eventId: event.id });
+    return { status: 201, body: { careEvent: event } };
+  }
+
+  const careEventPath = path.match(/^\/v1\/care-events\/([^/]+)$/);
+  if (req.method === "DELETE" && careEventPath) {
+    const removed = await removeCareEvent(pool, auth, decodeURIComponent(careEventPath[1]));
+    if (!removed) return { status: 404, body: { error: "Care event not found" } };
+    log("care_event.removed", { requestId, householdId: auth.householdId });
+    return { status: 200, body: { ok: true } };
+  }
+
+  if (req.method === "POST" && path === "/v1/auth/apple/link") {
+    const body = await readJson(req);
+    const linked = await linkAppleAccount(pool, auth, body.appleUserId);
+    log("auth.apple_linked", { requestId, householdId: auth.householdId });
+    return { status: 200, body: linked };
+  }
+
+  if (req.method === "POST" && path === "/v1/devices/register") {
+    const registered = await registerDevice(pool, auth, await readJson(req));
+    log("device.registered", { requestId, householdId: auth.householdId });
+    return { status: 200, body: registered };
+  }
+
+  if (req.method === "POST" && path === "/v1/members/leave") {
+    const left = await leaveHousehold(pool, auth);
+    log("member.left", { requestId, householdId: auth.householdId, memberId: auth.memberId });
+    return { status: 200, body: left };
+  }
+
+  if (req.method === "GET" && path === "/v1/export") {
+    const data = await exportHouseholdData(pool, auth);
+    if (!data) return { status: 404, body: { error: "Household not found" } };
+    log("export.completed", { requestId, householdId: auth.householdId });
+    return { status: 200, body: data };
   }
 
   if (req.method === "POST" && path === "/v1/billing/plan") {

@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pawsitive_sync/core/format/pet_names.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
+import 'package:pawsitive_sync/core/widgets/care_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/domain/models.dart';
@@ -19,97 +21,138 @@ class HouseholdScreen extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final tokens = context.paws;
     final text = Theme.of(context).textTheme;
-    final names = care.pets.map((pet) => pet.name).join(' and ');
-
     return Scaffold(
       body: SafeArea(
         bottom: false,
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          padding: carePagePadding,
           children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Household', style: text.displaySmall),
-                        Text(
-                          names.isEmpty
-                              ? 'Everyone who helps with medicine'
-                              : 'Everyone caring for $names',
-                          style: text.bodyLarge?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: 'Settings',
-                    onPressed: () => context.push(AppRoutes.settings),
-                    icon: Icon(
-                      Icons.settings_outlined,
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
+            CarePageHeader(
+              title: 'Household',
+              subtitle: householdPetSubtitle(care.pets),
+              action: IconButton(
+                tooltip: 'Settings',
+                onPressed: () => context.push(AppRoutes.settings),
+                style: IconButton.styleFrom(
+                  backgroundColor: scheme.surfaceContainerLowest,
+                  side: BorderSide(color: scheme.outlineVariant),
+                  minimumSize: const Size(44, 44),
+                ),
+                icon: StrokeIcon(
+                  StrokeIconKind.settings,
+                  size: 21,
+                  color: scheme.onSurface,
+                ),
               ),
             ),
-            const SizedBox(height: 16),
-            SurfaceCard(
+            const SizedBox(height: 24),
+            Container(
+              padding: const EdgeInsets.all(22),
+              decoration: BoxDecoration(
+                color: tokens.brandSoft,
+                borderRadius: BorderRadius.circular(28),
+              ),
               child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  for (var i = 0; i < care.members.length; i++)
-                    _MemberRow(
-                      member: care.members[i],
-                      showDivider: i != care.members.length - 1,
+                  const CareIllustration('onboarding-care', height: 112),
+                  const SizedBox(height: 16),
+                  Text(
+                    'One team. One shared routine.',
+                    style: text.headlineSmall,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Everyone sees who gave each dose, so handovers feel simple.',
+                    style: text.bodyLarge?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                      height: 1.45,
                     ),
+                  ),
+                  const SizedBox(height: 20),
+                  FilledButton.icon(
+                    onPressed: () {
+                      if (care.isPro) {
+                        AppLog.event('invite.opened');
+                        context.push(AppRoutes.invite);
+                      } else {
+                        AppLog.event('invite.blocked');
+                        context.push(AppRoutes.paywall);
+                      }
+                    },
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(52),
+                    ),
+                    icon: StrokeIcon(
+                      StrokeIconKind.plus,
+                      size: 18,
+                      color: scheme.onPrimary,
+                    ),
+                    label: const Text('Invite someone'),
+                  ),
                 ],
               ),
             ),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(
-              onPressed: () {
-                if (care.isPro) {
-                  AppLog.event('invite.opened');
-                  context.push(AppRoutes.invite);
-                } else {
-                  AppLog.event('invite.blocked');
-                  context.push(AppRoutes.paywall);
-                }
-              },
-              style: OutlinedButton.styleFrom(
-                minimumSize: const Size.fromHeight(48),
-                foregroundColor: tokens.brandDark,
-              ),
-              icon: StrokeIcon(
-                StrokeIconKind.plus,
-                size: 18,
-                color: tokens.brandDark,
-              ),
-              label: const Text('Invite someone'),
+            const SizedBox(height: 28),
+            CareSectionHeader(
+              'Your care circle',
+              action:
+                  '${care.members.length} ${care.members.length == 1 ? 'person' : 'people'}',
             ),
-            if (!care.isConnected)
+            const SizedBox(height: 12),
+            if (care.members.isNotEmpty)
+              SurfaceCard(
+                radius: 20,
+                child: Column(
+                  children: [
+                    for (var i = 0; i < care.members.length; i++)
+                      _MemberRow(
+                        member: care.members[i],
+                        showDivider: i != care.members.length - 1,
+                      ),
+                  ],
+                ),
+              ),
+            if (!care.isConnected) ...[
+              const SizedBox(height: 8),
               TextButton(
                 onPressed: () => context.push(AppRoutes.join),
                 child: const Text('Have an invite code? Join a household'),
               ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(8, 24, 8, 8),
-              child: Text('RECENT ACTIVITY', style: text.labelSmall),
-            ),
+            ],
+            const SizedBox(height: 24),
+            const CareSectionHeader('Recent activity'),
+            const SizedBox(height: 16),
             if (care.activity.isEmpty)
-              Padding(
-                padding: const EdgeInsets.all(24),
-                child: Text(
-                  'Doses logged today will show up here.',
-                  style: text.bodyLarge?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
+              SurfaceCard(
+                radius: 20,
+                padding: const EdgeInsets.all(20),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    StrokeIcon(
+                      StrokeIconKind.clock,
+                      size: 24,
+                      color: tokens.brandDark,
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Your shared story starts here',
+                            style: text.titleMedium,
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'Logged doses and care notes will appear here for everyone.',
+                            style: text.bodyMedium,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               )
             else
@@ -138,7 +181,7 @@ class _MemberRow extends StatelessWidget {
       AvatarTone.neutral => (tokens.neutral, scheme.onSurface),
     };
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
       decoration: BoxDecoration(
         border: showDivider
             ? Border(bottom: BorderSide(color: tokens.divider))
@@ -148,7 +191,7 @@ class _MemberRow extends StatelessWidget {
         children: [
           InitialsAvatar(
             label: member.initials,
-            size: 36,
+            size: 42,
             fontSize: member.isYou ? 12 : 15,
             background: background,
             foreground: foreground,
@@ -219,7 +262,7 @@ class _ActivityRow extends StatelessWidget {
       AvatarTone.neutral => (tokens.neutral, scheme.onSurface),
     };
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 12),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

@@ -4,6 +4,7 @@ import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/moment_art.dart';
+import 'package:pawsitive_sync/core/widgets/care_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
@@ -34,7 +35,9 @@ class MedicationScreen extends StatelessWidget {
               children: [
                 IconButton(
                   tooltip: 'Back',
-                  onPressed: () => context.pop(),
+                  onPressed: () => context.canPop()
+                      ? context.pop()
+                      : context.go(AppRoutes.today),
                   icon: StrokeIcon(
                     StrokeIconKind.chevronLeft,
                     color: scheme.primary,
@@ -56,6 +59,7 @@ class MedicationScreen extends StatelessWidget {
       );
     }
 
+    final showLowAlert = care.isPro && medication.isLow;
     final fraction = medication.supplyFraction;
     final pet = care.petById(medication.petId);
     final history = care.historyFor(medication.id);
@@ -69,12 +73,14 @@ class MedicationScreen extends StatelessWidget {
     return Scaffold(
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          padding: const EdgeInsets.fromLTRB(24, 8, 24, 28),
           children: [
             Row(
               children: [
                 TextButton.icon(
-                  onPressed: () => context.pop(),
+                  onPressed: () => context.canPop()
+                      ? context.pop()
+                      : context.go(AppRoutes.today),
                   style: TextButton.styleFrom(
                     foregroundColor: scheme.primary,
                     textStyle: text.titleLarge?.copyWith(
@@ -87,11 +93,16 @@ class MedicationScreen extends StatelessWidget {
                     size: 22,
                     color: scheme.primary,
                   ),
-                  label: const Text('Today'),
+                  label: const Text('Back'),
                 ),
                 const Spacer(),
                 TextButton(
-                  onPressed: () => _confirmStop(context, care, medication),
+                  onPressed: () {
+                    AppLog.event('medication.stop_tapped', {
+                      'medicationId': medication.id,
+                    });
+                    _confirmStop(context, care, medication);
+                  },
                   style: TextButton.styleFrom(
                     foregroundColor: scheme.error,
                     textStyle: text.titleMedium,
@@ -100,192 +111,162 @@ class MedicationScreen extends StatelessWidget {
                 ),
               ],
             ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(medication.name, style: text.headlineMedium),
-                  Text(
-                    medication.detail,
-                    style: text.bodyLarge?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
+            const SizedBox(height: 12),
+            CarePageHeader(
+              title: medication.name,
+              subtitle: '${pet.name} · ${medication.detail}',
+              action: PetPortrait(pet, size: 56),
             ),
             const SizedBox(height: 24),
             if (!medication.tracksSupply)
               SurfaceCard(
                 padding: const EdgeInsets.all(16),
                 child: Text(
-                  'Supply is not tracked for this medicine. Add the box size when you set up a medicine to get a heads-up before it runs out.',
+                  'Supply tracking is off for this medicine. Your daily schedule and dose history are still saved.',
                   style: text.bodyMedium?.copyWith(
                     color: scheme.onSurfaceVariant,
                   ),
                 ),
               )
             else
-            SurfaceCard(
-              radius: 18,
-              borderColor: medication.isLow
-                  ? tokens.warningBorder
-                  : scheme.outlineVariant,
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Text(
-                        medication.isLow ? 'SUPPLY · LOW' : 'SUPPLY',
-                        style: text.labelSmall?.copyWith(
-                          color: medication.isLow
-                              ? tokens.warning
-                              : scheme.onSurfaceVariant,
-                        ),
-                      ),
-                      const Spacer(),
-                      Text(
-                        'of ${medication.supplyTotal}',
-                        style: text.bodyMedium,
-                      ),
-                    ],
-                  ),
-                  if (medication.isLow) ...[
-                    const SizedBox(height: 12),
-                    const MomentArt(
-                      'medication.low',
-                      size: 72,
-                      announce: false,
-                    ),
-                  ],
-                  const SizedBox(height: 8),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.baseline,
-                    textBaseline: TextBaseline.alphabetic,
-                    children: [
-                      Text(
-                        '${medication.dosesLeft}',
-                        style: text.displaySmall?.copyWith(
-                          fontSize: 32,
-                          height: 1,
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Text(
-                        'doses left',
-                        style: text.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w400,
-                          color: scheme.onSurface,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(4),
-                    child: LinearProgressIndicator(
-                      value: fraction,
-                      minHeight: 8,
-                      backgroundColor: tokens.neutral,
-                      color: medication.isLow ? tokens.amber : scheme.primary,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text.rich(
-                    TextSpan(
-                      text: 'Last dose ',
-                      style: text.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w400,
-                      ),
+              SurfaceCard(
+                radius: 18,
+                borderColor: showLowAlert
+                    ? tokens.warningBorder
+                    : scheme.outlineVariant,
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
                       children: [
-                        TextSpan(
-                          text: medication.lastsUntil(care.now),
-                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        Text(
+                          showLowAlert ? 'SUPPLY · LOW' : 'SUPPLY',
+                          style: text.labelSmall?.copyWith(
+                            color: showLowAlert
+                                ? tokens.warning
+                                : scheme.onSurfaceVariant,
+                          ),
                         ),
-                        const TextSpan(text: ' at this pace'),
+                        const Spacer(),
+                        Text(
+                          'of ${medication.supplyTotal}',
+                          style: text.bodyMedium,
+                        ),
                       ],
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: FilledButton(
-                          onPressed: () async {
-                            final saved = await care.refill(medication.id);
-                            if (!context.mounted) return;
-                            if (!saved) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    care.lastError ??
-                                        'Could not save the refill. Try again.',
-                                  ),
-                                ),
-                              );
-                              return;
-                            }
-                            await showMoment(
-                              context,
-                              name: 'medication.refilled',
-                              message: 'The box is full again.',
-                            );
-                          },
-                          style: FilledButton.styleFrom(
-                            minimumSize: const Size.fromHeight(48),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            textStyle: text.titleMedium,
-                          ),
-                          child: const Text('I refilled it'),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: () {
-                            AppLog.event('clinic.unavailable');
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'Can’t dial from here. Call the clinic on your phone.',
-                                ),
-                              ),
-                            );
-                          },
-                          style: OutlinedButton.styleFrom(
-                            minimumSize: const Size.fromHeight(48),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            textStyle: text.bodyLarge?.copyWith(
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          icon: StrokeIcon(
-                            StrokeIconKind.phone,
-                            size: 18,
-                            color: scheme.onSurface,
-                          ),
-                          label: const Text('Call vet'),
-                        ),
+                    if (showLowAlert) ...[
+                      const SizedBox(height: 12),
+                      const MomentArt(
+                        'medication.low',
+                        size: 72,
+                        announce: false,
                       ),
                     ],
-                  ),
-                ],
+                    const SizedBox(height: 8),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.baseline,
+                      textBaseline: TextBaseline.alphabetic,
+                      children: [
+                        Text(
+                          '${medication.dosesLeft}',
+                          style: text.displaySmall?.copyWith(
+                            fontSize: 32,
+                            height: 1,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'doses left',
+                          style: text.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w400,
+                            color: scheme.onSurface,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(4),
+                      child: LinearProgressIndicator(
+                        value: fraction,
+                        minHeight: 8,
+                        backgroundColor: tokens.neutral,
+                        color: showLowAlert ? tokens.amber : scheme.primary,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text.rich(
+                      TextSpan(
+                        text: 'Last dose ',
+                        style: text.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w400,
+                        ),
+                        children: [
+                          TextSpan(
+                            text: medication.lastsUntil(care.now),
+                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          ),
+                          const TextSpan(text: ' at this pace'),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: FilledButton(
+                            onPressed: () async {
+                              AppLog.event('medication.refill_tapped', {
+                                'medicationId': medication.id,
+                              });
+                              final saved = await care.refill(medication.id);
+                              if (!context.mounted) return;
+                              if (!saved) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      care.lastError ?? 'Could not save the refill. Try again.',
+                                    ),
+                                  ),
+                                );
+                                return;
+                              }
+                              await showMoment(
+                                context,
+                                name: 'medication.refilled',
+                                message: 'The box is full again.',
+                              );
+                            },
+                            style: FilledButton.styleFrom(
+                              minimumSize: const Size.fromHeight(48),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              textStyle: text.titleMedium,
+                            ),
+                            child: const Text('I refilled it'),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
             const SectionLabel('SCHEDULE'),
             SurfaceCard(
               child: Column(
                 children: [
                   _Pair(label: 'Dose', value: medication.doseLabel),
                   _Pair(label: 'When', value: medication.whenLabel),
-                  _Pair(label: 'For', value: pet.name, divider: false),
+                  _Pair(label: 'For', value: pet.name),
+                  _Pair(
+                    label: 'Course',
+                    value: medication.endDay.isEmpty
+                        ? 'Ongoing'
+                        : '${medication.endDay.compareTo(dayKey(care.now)) < 0 ? 'Completed' : 'Through'} ${MaterialLocalizations.of(context).formatMediumDate(DateTime.parse(medication.endDay))}',
+                    divider: false,
+                  ),
                 ],
               ),
             ),
@@ -408,13 +389,13 @@ class MedicationScreen extends StatelessWidget {
     const names = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     final now = care.now;
     final today = DateTime(now.year, now.month, now.day);
-    final start = DateTime.tryParse(medication.startDay) ?? today;
+
     return [
       for (var offset = 6; offset >= 0; offset--)
         () {
           final day = DateTime(today.year, today.month, today.day - offset);
           final key = dayKey(day);
-          final expected = day.isBefore(start)
+          final expected = !medication.isActiveOn(key)
               ? 0
               : medication.parts
                     .where((part) => day != today || now.hour >= part.opensAt)
@@ -461,17 +442,20 @@ class MedicationScreen extends StatelessWidget {
       ),
     );
     if (stop != true || !context.mounted) return;
+    AppLog.event('medication.stop_confirmed', {'medicationId': medication.id});
     final ok = await care.removeMedication(medication.id);
     if (!context.mounted) return;
     if (!ok) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(care.lastError ?? 'Could not stop it. Try again.')),
+        SnackBar(
+          content: Text(care.lastError ?? 'Could not stop it. Try again.'),
+        ),
       );
       return;
     }
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('${medication.name} was stopped.')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text('${medication.name} was stopped.')));
     context.go(AppRoutes.today);
   }
 }

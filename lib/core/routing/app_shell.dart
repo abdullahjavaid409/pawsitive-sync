@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/layout/adaptive.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
+import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 
 /// Keeps each tab stack alive behind one bottom bar or side rail.
 class AppShell extends StatelessWidget {
@@ -53,61 +54,78 @@ class _CompactShell extends StatelessWidget {
     return Scaffold(
       body: navigationShell,
       bottomNavigationBar: DecoratedBox(
-              decoration: BoxDecoration(
-                color: scheme.surface,
-                border: Border(top: BorderSide(color: scheme.outlineVariant)),
-              ),
-              child: SafeArea(
-                top: false,
-                child: SizedBox(
-                  height: 56,
-                  child: Row(
-                    children: [
-                      for (var i = 0; i < AppShell._tabs.length; i++)
-                        Expanded(
-                          child: Semantics(
-                            button: true,
-                            selected: i == navigationShell.currentIndex,
-                            label: AppShell._tabs[i].$2,
-                            child: InkWell(
-                              onTap: () => onTap(i),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  StrokeIcon(
-                                    AppShell._tabs[i].$1,
-                                    color: i == navigationShell.currentIndex
-                                        ? scheme.primary
-                                        : scheme.onSurfaceVariant,
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    AppShell._tabs[i].$2,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: Theme.of(context).textTheme.bodySmall
-                                        ?.copyWith(
-                                          fontSize: 11,
-                                          fontWeight:
-                                              i == navigationShell.currentIndex
-                                              ? FontWeight.w600
-                                              : FontWeight.w500,
-                                          color:
-                                              i == navigationShell.currentIndex
-                                              ? scheme.primary
-                                              : scheme.onSurfaceVariant,
-                                        ),
-                                  ),
-                                ],
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerLowest,
+          border: Border(top: BorderSide(color: scheme.outlineVariant)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (var i = 0; i < AppShell._tabs.length; i++)
+                  Expanded(
+                    child: Semantics(
+                      button: true,
+                      selected: i == navigationShell.currentIndex,
+                      label: AppShell._tabs[i].$2,
+                      excludeSemantics: true,
+                      child: InkWell(
+                        onTap: () => onTap(i),
+                        borderRadius: BorderRadius.circular(16),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 58,
+                                height: 32,
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
+                                  color: i == navigationShell.currentIndex
+                                      ? scheme.primaryContainer
+                                      : Colors.transparent,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: StrokeIcon(
+                                  AppShell._tabs[i].$1,
+                                  size: 22,
+                                  color: i == navigationShell.currentIndex
+                                      ? context.paws.brandDark
+                                      : scheme.onSurfaceVariant,
+                                ),
                               ),
-                            ),
+                              const SizedBox(height: 5),
+                              Text(
+                                AppShell._tabs[i].$2,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(
+                                      fontSize: 11,
+                                      fontWeight:
+                                          i == navigationShell.currentIndex
+                                          ? FontWeight.w600
+                                          : FontWeight.w500,
+                                      color: i == navigationShell.currentIndex
+                                          ? context.paws.brandDark
+                                          : scheme.onSurfaceVariant,
+                                    ),
+                              ),
+                            ],
                           ),
                         ),
-                    ],
+                      ),
+                    ),
                   ),
-                ),
-              ),
+              ],
             ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -139,7 +157,7 @@ class _WideShell extends StatelessWidget {
                   ? NavigationRailLabelType.none
                   : NavigationRailLabelType.all,
               backgroundColor: scheme.surface,
-              indicatorColor: Colors.transparent,
+              indicatorColor: scheme.primaryContainer,
               destinations: [
                 for (final tab in AppShell._tabs)
                   NavigationRailDestination(

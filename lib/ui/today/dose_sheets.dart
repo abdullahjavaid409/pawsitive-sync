@@ -4,6 +4,7 @@ import 'package:pawsitive_sync/core/layout/adaptive.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/motion/app_motion.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
+import 'package:pawsitive_sync/core/widgets/care_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/moment_art.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
@@ -11,371 +12,167 @@ import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:provider/provider.dart';
 
-/// Opens the sheet for logging one due dose.
 Future<void> showLogDoseSheet(BuildContext context, Dose dose) {
   AppLog.event('dose.opened', {'doseId': dose.id, 'part': dose.part.name});
   return showModalBottomSheet<void>(
-    context: context,
-    sheetAnimationStyle: AppMotion.sheet(context),
-    isScrollControlled: true,
-    useRootNavigator: true,
+    context: context, sheetAnimationStyle: AppMotion.sheet(context),
+    isScrollControlled: true, useSafeArea: true, useRootNavigator: true,
     constraints: AdaptiveLayout.sheetConstraints,
-    backgroundColor: Theme.of(context).colorScheme.surfaceContainerLowest,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-    ),
+    backgroundColor: Theme.of(context).colorScheme.surface,
+    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
     builder: (context) => _LogDoseSheet(dose: dose),
   );
 }
 
-/// Opens the warning shown when that dose was already given.
 Future<void> showDoubleDoseGuard(BuildContext context, Dose dose) {
   AppLog.event('dose.already', {'doseId': dose.id});
   return showModalBottomSheet<void>(
-    context: context,
-    useRootNavigator: true,
-    sheetAnimationStyle: AppMotion.sheet(context),
-    constraints: AdaptiveLayout.sheetConstraints,
-    backgroundColor: Theme.of(context).colorScheme.surfaceContainerLowest,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-    ),
-    builder: (context) => _DoubleDoseSheet(dose: dose),
+    context: context, useRootNavigator: true, isScrollControlled: true, useSafeArea: true,
+    sheetAnimationStyle: AppMotion.sheet(context), constraints: AdaptiveLayout.sheetConstraints,
+    backgroundColor: Theme.of(context).colorScheme.surface,
+    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
+    builder: (context) => SafeArea(top: false, child: SingleChildScrollView(child: _DoubleDoseSheet(dose: dose))),
   );
 }
 
 class _LogDoseSheet extends StatefulWidget {
   const _LogDoseSheet({required this.dose});
-
   final Dose dose;
-
   @override
   State<_LogDoseSheet> createState() => _LogDoseSheetState();
 }
 
 class _LogDoseSheetState extends State<_LogDoseSheet> {
-  late int _amount;
-  String _memberId = 'you';
-  bool _now = true;
+  late final TextEditingController _amount;
+  late String _memberId;
+  TimeOfDay? _givenAt;
   DoseOutcome _outcome = DoseOutcome.smooth;
-  String? _moment;
-  var _busy = false;
-
-  Future<void> _finish(String moment) async {
-    if (_moment != null) return;
-    setState(() => _moment = moment);
-    await Future<void>.delayed(const Duration(milliseconds: 1200));
-    if (!mounted) return;
-    Navigator.of(context).pop();
-  }
+  LogOutcome? _saved;
+  String? _error;
+  bool _busy = false;
 
   @override
   void initState() {
     super.initState();
-    _amount =
-        int.tryParse(
-          RegExp(r'\d+').firstMatch(widget.dose.amount)?.group(0) ?? '',
-        ) ??
-        1;
+    _amount = TextEditingController(text: widget.dose.amount);
+    _memberId = context.read<CareRepository>().you.id;
   }
 
-  String get _unit {
-    if (widget.dose.amount.contains('ml')) return 'ml';
-    if (widget.dose.amount.contains('unit')) return 'units';
-    if (widget.dose.amount.contains('mg')) return 'mg';
-    if (widget.dose.amount.contains('drop')) return 'drop';
-    return '';
+  @override
+  void dispose() { _amount.dispose(); super.dispose(); }
+
+  Future<void> _pickTime() async {
+    final now = TimeOfDay.fromDateTime(context.read<CareRepository>().now);
+    final chosen = await showTimePicker(context: context, initialTime: _givenAt ?? now);
+    if (chosen == null || !mounted) return;
+    if (chosen.hour * 60 + chosen.minute > now.hour * 60 + now.minute) {
+      setState(() => _error = 'Choose a time earlier today, or use Now.');
+      return;
+    }
+    setState(() { _givenAt = chosen; _error = null; });
   }
 
-  int get _step => _unit == 'ml' ? 10 : 1;
-
-  String _clockNow() {
-    final now = DateTime.now();
-    final hour = now.hour % 12 == 0 ? 12 : now.hour % 12;
-    final minute = now.minute.toString().padLeft(2, '0');
-    final suffix = now.hour >= 12 ? 'PM' : 'AM';
-    return '$hour:$minute $suffix';
+  Future<void> _save(LogOutcome outcome) async {
+    if (_busy) return;
+    final care = context.read<CareRepository>();
+    if (outcome == LogOutcome.given && widget.dose.amount.isNotEmpty && _amount.text.trim().isEmpty) {
+      setState(() => _error = 'Enter the amount that was given.');
+      return;
+    }
+    FocusScope.of(context).unfocus();
+    setState(() { _busy = true; _error = null; });
+    HapticFeedback.lightImpact();
+    final when = _givenAt ?? TimeOfDay.fromDateTime(care.now);
+    final timeLabel = MaterialLocalizations.of(context).formatTimeOfDay(when, alwaysUse24HourFormat: false);
+    final saved = switch (outcome) {
+      LogOutcome.given => await care.logDose(doseId: widget.dose.id, memberId: _memberId, amount: _amount.text.trim(), timeLabel: timeLabel, outcome: _outcome),
+      LogOutcome.skipped => await care.skipDose(widget.dose.id),
+      LogOutcome.uncertain => await care.markDoseUncertain(widget.dose.id),
+    };
+    if (!mounted) return;
+    if (!saved) {
+      AppLog.event('dose.log.ui_failed', {'doseId': widget.dose.id, 'error': care.lastError ?? 'unknown'});
+      setState(() { _busy = false; _error = care.lastError ?? 'Could not save. Try again.'; });
+      return;
+    }
+    AppLog.event('dose.log.saved', {'outcome': outcome.name});
+    setState(() => _saved = outcome);
+    await Future<void>.delayed(const Duration(milliseconds: 900));
+    if (mounted) Navigator.of(context).pop();
   }
 
   @override
   Widget build(BuildContext context) {
     final care = context.watch<CareRepository>();
     final scheme = Theme.of(context).colorScheme;
-    final tokens = context.paws;
     final text = Theme.of(context).textTheme;
     final pet = care.petById(widget.dose.petId);
-    final amountLabel = _unit.isEmpty ? '$_amount' : '$_amount $_unit';
-
-    if (_moment != null) {
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 5,
-                decoration: BoxDecoration(
-                  color: scheme.outlineVariant,
-                  borderRadius: BorderRadius.circular(3),
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            MomentArt(_moment!, size: 140),
-            const SizedBox(height: 12),
-            Text(
-              _moment == 'dose.logged'
-                  ? 'Saved. Everyone can see it.'
-                  : 'Skipped for today.',
-              textAlign: TextAlign.center,
-              style: text.titleMedium,
-            ),
-          ],
-        ),
-      );
+    final members = {care.you.id: care.you, for (final member in care.members.where((m) => m.joined)) member.id: member}.values.toList();
+    if (_saved != null) {
+      return SafeArea(top: false, child: Padding(padding: const EdgeInsets.all(32), child: Column(mainAxisSize: MainAxisSize.min, children: [
+        CircleAvatar(radius: 32, backgroundColor: context.paws.brandSoft,
+          child: StrokeIcon(_saved == LogOutcome.uncertain ? StrokeIconKind.alert : StrokeIconKind.check, size: 28, color: context.paws.brandDark)),
+        const SizedBox(height: 20),
+        Text(switch (_saved!) { LogOutcome.given => 'Dose saved.', LogOutcome.skipped => 'Skipped for today.', LogOutcome.uncertain => 'Marked for a check.' }, style: text.headlineSmall, textAlign: TextAlign.center),
+        const SizedBox(height: 8),
+        Text(_saved == LogOutcome.uncertain ? 'It stays on Today until someone confirms.' : '${pet.name}’s care record is up to date.', style: text.bodyLarge, textAlign: TextAlign.center),
+      ])));
     }
-
-    return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 36,
-                height: 5,
-                decoration: BoxDecoration(
-                  color: scheme.outlineVariant,
-                  borderRadius: BorderRadius.circular(3),
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Log ${widget.dose.name.toLowerCase()}',
-                        style: text.headlineSmall,
-                      ),
-                      Text(
-                        '${pet.name} · due ${_due(widget.dose)}',
-                        style: text.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w400,
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  tooltip: 'Close',
-                  onPressed: () => Navigator.of(context).pop(),
-                  icon: StrokeIcon(
-                    StrokeIconKind.close,
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Text(
-                  'Amount',
-                  style: text.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
-                ),
-                const Spacer(),
-                _StepButton(
-                  label: 'Less',
-                  icon: '−',
-                  onPressed: () => setState(
-                    () => _amount = (_amount - _step).clamp(_step, 500),
-                  ),
-                ),
-                SizedBox(
-                  width: 88,
-                  child: Text(
-                    amountLabel,
-                    textAlign: TextAlign.center,
-                    style: text.headlineSmall?.copyWith(fontSize: 20),
-                  ),
-                ),
-                _StepButton(
-                  label: 'More',
-                  icon: '+',
-                  onPressed: () => setState(
-                    () => _amount = (_amount + _step).clamp(_step, 500),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 24),
-            Text(
-              'When',
-              style: text.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
-            ),
-            const SizedBox(height: 8),
-            DecoratedBox(
-              decoration: BoxDecoration(
-                color: tokens.neutral,
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(4),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: _WhenChip(
-                        label: 'Now · 1:06 PM',
-                        selected: _now,
-                        onPressed: () => setState(() => _now = true),
-                      ),
-                    ),
-                    Expanded(
-                      child: _WhenChip(
-                        label: 'Earlier…',
-                        selected: !_now,
-                        onPressed: () => setState(() => _now = false),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              'Given by',
-              style: text.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                for (final member in care.members.where(
-                  (member) => member.role != MemberRole.sitter,
-                ))
-                  Padding(
-                    padding: const EdgeInsets.only(right: 16),
-                    child: _Giver(
-                      member: member,
-                      selected: _memberId == member.id,
-                      onPressed: () => setState(() => _memberId = member.id),
-                    ),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 24),
-            Text.rich(
-              TextSpan(
-                text: 'How did it go? ',
-                style: text.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
-                children: [
-                  TextSpan(
-                    text: 'Optional',
-                    style: text.bodyLarge?.copyWith(
-                      fontWeight: FontWeight.w400,
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final outcome in DoseOutcome.values)
-                  _OutcomeChip(
-                    label: _outcomeLabel(outcome),
-                    selected: _outcome == outcome,
-                    onPressed: () => setState(() => _outcome = outcome),
-                  ),
-              ],
-            ),
-            const SizedBox(height: 32),
-            FilledButton(
-              onPressed: _busy
-                  ? null
-                  : () async {
-                      setState(() => _busy = true);
-                      HapticFeedback.lightImpact();
-                      final saved = await care.logDose(
-                        doseId: widget.dose.id,
-                        memberId: _memberId,
-                        amount: amountLabel,
-                        timeLabel: _clockNow(),
-                        outcome: _outcome,
-                      );
-                      if (!context.mounted) return;
-                      if (!saved) {
-                        if (mounted) setState(() => _busy = false);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              care.lastError ??
-                                  'Could not save this dose. Try again.',
-                            ),
-                          ),
-                        );
-                        return;
-                      }
-                      await _finish('dose.logged');
-                    },
-              child: const Text('Log dose'),
-            ),
-            Center(
-              child: TextButton(
-                onPressed: _busy
-                    ? null
-                    : () async {
-                        setState(() => _busy = true);
-                        final saved = await care.skipDose(widget.dose.id);
-                        if (!context.mounted) return;
-                        if (!saved) {
-                          if (mounted) setState(() => _busy = false);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                care.lastError ??
-                                    'Could not skip this dose. Try again.',
-                              ),
-                            ),
-                          );
-                          return;
-                        }
-                        await _finish('dose.skipped');
-                      },
-                child: const Text('Skip this dose'),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
+    return Padding(padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom), child: SafeArea(top: false, child: Column(
+      mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const SizedBox(height: 10),
+        Center(child: Container(width: 36, height: 4, decoration: BoxDecoration(color: scheme.outlineVariant, borderRadius: BorderRadius.circular(3)))),
+        Padding(padding: const EdgeInsets.fromLTRB(24, 12, 12, 12), child: Row(children: [
+          PetPortrait(pet, size: 48), const SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Log ${widget.dose.name.toLowerCase()}', style: text.headlineSmall),
+            const SizedBox(height: 4), Text('${pet.name} · ${widget.dose.part.timeLabel}', style: text.bodyMedium),
+          ])),
+          IconButton(tooltip: 'Close', onPressed: _busy ? null : () => Navigator.pop(context), icon: const StrokeIcon(StrokeIconKind.close, size: 20)),
+        ])),
+        Flexible(child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(24, 4, 24, 20), keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          child: AbsorbPointer(absorbing: _busy, child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            if (widget.dose.status == DoseStatus.due && widget.dose.givenById != null) ...[
+              Container(padding: const EdgeInsets.all(16), decoration: BoxDecoration(color: context.paws.warningBg, borderRadius: BorderRadius.circular(16)),
+                child: Text('${widget.dose.subtitle}. Confirm with your household before logging.', style: text.bodyLarge)),
+              const SizedBox(height: 20),
+            ],
+            Text('Amount given', style: text.titleSmall), const SizedBox(height: 8),
+            TextField(controller: _amount, maxLength: 60, textInputAction: TextInputAction.done,
+              decoration: const InputDecoration(hintText: 'e.g. ½ tablet or 0.5 ml', counterText: '', helperText: 'Record the amount actually given.', helperMaxLines: 2)),
+            const SizedBox(height: 22),
+            Text('When was it given?', style: text.titleSmall), const SizedBox(height: 10),
+            Wrap(spacing: 8, runSpacing: 8, children: [
+              _OutcomeChip(label: 'Now · ${TimeOfDay.fromDateTime(care.now).format(context)}', selected: _givenAt == null, onPressed: () => setState(() => _givenAt = null)),
+              _OutcomeChip(label: _givenAt == null ? 'Earlier today' : _givenAt!.format(context), selected: _givenAt != null, onPressed: _pickTime),
+            ]),
+            const SizedBox(height: 22),
+            Text('Given by', style: text.titleSmall), const SizedBox(height: 10),
+            Wrap(spacing: 8, runSpacing: 8, children: [for(final member in members)
+              _OutcomeChip(label: member.isYou ? 'You' : member.name, selected: _memberId == member.id, onPressed: () => setState(() => _memberId = member.id))]),
+            const SizedBox(height: 22),
+            Text('How did it go? · optional', style: text.titleSmall), const SizedBox(height: 10),
+            Wrap(spacing: 8, runSpacing: 8, children: [for(final outcome in DoseOutcome.values)
+              _OutcomeChip(label: switch(outcome) {DoseOutcome.smooth => 'Went smoothly', DoseOutcome.partial => 'Partial dose', DoseOutcome.vomited => 'Vomited', DoseOutcome.lowAppetite => 'Low appetite'}, selected: _outcome == outcome, onPressed: () => setState(() => _outcome = outcome))]),
+          ])),
+        )),
+        Container(padding: const EdgeInsets.fromLTRB(24, 12, 24, 12), decoration: BoxDecoration(border: Border(top: BorderSide(color: scheme.outlineVariant))),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            if (_error != null) ...[Semantics(liveRegion: true, child: Text(_error!, style: text.bodyMedium?.copyWith(color: scheme.error))), const SizedBox(height: 8)],
+            FilledButton(onPressed: _busy ? null : () => _save(LogOutcome.given), style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(52)),
+              child: _busy ? SizedBox.square(dimension: 20, child: CircularProgressIndicator(strokeWidth: 2, color: scheme.onPrimary, semanticsLabel: 'Saving dose')) : const Text('Log dose')),
+            const SizedBox(height: 4),
+            Wrap(alignment: WrapAlignment.spaceBetween, children: [
+              TextButton(onPressed: _busy ? null : () => _save(LogOutcome.uncertain), child: const Text('Not sure if given')),
+              TextButton(onPressed: _busy ? null : () => _save(LogOutcome.skipped), child: const Text('Skip today')),
+            ]),
+          ])),
+      ],
+    )));
   }
-
-  String _due(Dose dose) {
-    final match = RegExp(r'\d{1,2}:\d{2} [AP]M').firstMatch(dose.subtitle);
-    return match?.group(0) ?? 'now';
-  }
-
-  String _outcomeLabel(DoseOutcome outcome) => switch (outcome) {
-    DoseOutcome.smooth => 'Went smoothly',
-    DoseOutcome.partial => 'Partial dose',
-    DoseOutcome.vomited => 'Vomited',
-    DoseOutcome.lowAppetite => 'Low appetite',
-  };
 }
-
 class _DoubleDoseSheet extends StatelessWidget {
   const _DoubleDoseSheet({required this.dose});
 
@@ -473,158 +270,6 @@ class _DoubleDoseSheet extends StatelessWidget {
             ),
             onPressed: () => Navigator.of(context).pop(),
             child: const Text("Got it, don't log"),
-          ),
-          const SizedBox(height: 8),
-          OutlinedButton(
-            style: OutlinedButton.styleFrom(
-              minimumSize: const Size.fromHeight(52),
-            ),
-            onPressed: () {
-              final navigator = Navigator.of(context);
-              navigator.pop();
-              showLogDoseSheet(navigator.context, dose);
-            },
-            child: const Text('This is a separate dose'),
-          ),
-          const SizedBox(height: 12),
-          Center(
-            child: Text(
-              'Only log a second dose if your vet told you to.',
-              style: text.bodyMedium,
-              textAlign: TextAlign.center,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StepButton extends StatelessWidget {
-  const _StepButton({
-    required this.label,
-    required this.icon,
-    required this.onPressed,
-  });
-
-  final String label;
-  final String icon;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Semantics(
-      button: true,
-      label: label,
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(12),
-        child: Ink(
-          width: 44,
-          height: 44,
-          decoration: BoxDecoration(
-            color: scheme.surface,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: scheme.outlineVariant),
-          ),
-          child: Center(
-            child: Text(icon, style: const TextStyle(fontSize: 20)),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _WhenChip extends StatelessWidget {
-  const _WhenChip({
-    required this.label,
-    required this.selected,
-    required this.onPressed,
-  });
-
-  final String label;
-  final bool selected;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Material(
-      color: selected ? scheme.surfaceContainerLowest : Colors.transparent,
-      elevation: selected ? 1 : 0,
-      shadowColor: scheme.shadow.withValues(alpha: 0.12),
-      borderRadius: BorderRadius.circular(9),
-      child: InkWell(
-        onTap: onPressed,
-        borderRadius: BorderRadius.circular(9),
-        child: SizedBox(
-          height: 40,
-          child: Center(
-            child: Text(
-              label,
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-                color: selected ? scheme.onSurface : scheme.onSurfaceVariant,
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _Giver extends StatelessWidget {
-  const _Giver({
-    required this.member,
-    required this.selected,
-    required this.onPressed,
-  });
-
-  final Member member;
-  final bool selected;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final tokens = context.paws;
-    final (background, foreground) = switch (member.avatarTone) {
-      AvatarTone.brand => (scheme.primary, scheme.onPrimary),
-      AvatarTone.soft => (tokens.brandSoft, tokens.brandDark),
-      AvatarTone.neutral => (tokens.neutral, scheme.onSurface),
-    };
-    return InkWell(
-      onTap: onPressed,
-      borderRadius: BorderRadius.circular(28),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(2),
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: selected ? scheme.primary : Colors.transparent,
-                width: 2,
-              ),
-            ),
-            child: InitialsAvatar(
-              label: member.initials,
-              size: 48,
-              fontSize: member.isYou ? 14 : 16,
-              background: background,
-              foreground: foreground,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            member.name,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-              color: selected ? scheme.onSurface : scheme.onSurfaceVariant,
-            ),
           ),
         ],
       ),

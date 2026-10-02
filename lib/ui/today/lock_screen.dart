@@ -7,11 +7,81 @@ import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
+import 'package:pawsitive_sync/data/dose_reminders.dart';
+import 'package:pawsitive_sync/domain/models.dart';
+import 'package:pawsitive_sync/ui/today/dose_sheets.dart';
 import 'package:provider/provider.dart';
 
 /// Lock-screen preview of a due dose, with quick actions.
-class LockScreen extends StatelessWidget {
+class LockScreen extends StatefulWidget {
   const LockScreen({super.key});
+
+  @override
+  State<LockScreen> createState() => _LockScreenState();
+}
+
+class _LockScreenState extends State<LockScreen> {
+  bool _busy = false;
+
+  String _clockNow() {
+    final now = DateTime.now();
+    final hour = now.hour % 12 == 0 ? 12 : now.hour % 12;
+    final minute = now.minute.toString().padLeft(2, '0');
+    final suffix = now.hour >= 12 ? 'PM' : 'AM';
+    return '$hour:$minute $suffix';
+  }
+
+  Future<void> _markGiven(BuildContext context, CareRepository care, Dose due) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final saved = await care.logDose(
+      doseId: due.id,
+      memberId: care.you.id,
+      amount: due.amount,
+      timeLabel: _clockNow(),
+    );
+    if (!context.mounted) return;
+    setState(() => _busy = false);
+    if (!saved) {
+      final error = care.lastError ?? '';
+      AppLog.event('lock.given.failed', {'doseId': due.id, 'error': error});
+      if (error.contains('already logged')) {
+        await showDoubleDoseGuard(context, due);
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(error.isEmpty ? 'Could not save this dose.' : error)),
+      );
+      return;
+    }
+    AppLog.event('lock.given', {'doseId': due.id, 'saved': true});
+    await DoseReminders.scheduleNext(care);
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Dose logged from the lock screen.')),
+    );
+    context.pop();
+  }
+
+  Future<void> _snooze(BuildContext context, CareRepository care) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    await DoseReminders.snoozeMinutes(care, 15);
+    if (!context.mounted) return;
+    setState(() => _busy = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Reminder snoozed for 15 minutes.')),
+    );
+    context.pop();
+  }
+
+  void _defer(BuildContext context, Dose? due) {
+    AppLog.event('lock.deferred', {'doseId': due?.id ?? 'none'});
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Left for the person on duty.')),
+    );
+    context.pop();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -112,32 +182,24 @@ class LockScreen extends StatelessWidget {
                       color: tokens.brandDark,
                       icon: StrokeIconKind.check,
                       iconColor: tokens.brandDark,
-                      onPressed: () => _done(
-                        context,
-                        'lock.given',
-                        'Marked given from the lock screen.',
-                      ),
+                      onPressed: due == null || _busy
+                          ? null
+                          : () => _markGiven(context, care, due),
                     ),
                     _Action(
                       label: 'Snooze 15 minutes',
                       icon: StrokeIconKind.clock,
                       iconColor: scheme.onSurfaceVariant,
-                      onPressed: () => _done(
-                        context,
-                        'lock.snoozed',
-                        'Snoozed for 15 minutes.',
-                      ),
+                      onPressed: due == null || _busy
+                          ? null
+                          : () => _snooze(context, care),
                     ),
                     _Action(
                       label: 'Someone else gave it',
                       icon: StrokeIconKind.people,
                       iconColor: scheme.onSurfaceVariant,
                       divider: false,
-                      onPressed: () => _done(
-                        context,
-                        'lock.left',
-                        'Left for the person on duty.',
-                      ),
+                      onPressed: _busy ? null : () => _defer(context, due),
                     ),
                   ],
                 ),
@@ -213,12 +275,6 @@ class LockScreen extends StatelessWidget {
     );
   }
 
-  void _done(BuildContext context, String event, String message) {
-    AppLog.event(event, {'saved': false});
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
-    context.pop();
-  }
 }
 
 class _Action extends StatelessWidget {
@@ -234,7 +290,7 @@ class _Action extends StatelessWidget {
   final String label;
   final StrokeIconKind icon;
   final Color iconColor;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
   final Color? color;
   final bool divider;
 

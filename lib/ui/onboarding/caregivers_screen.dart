@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
@@ -95,7 +96,10 @@ class _CaregiversScreenState extends State<CaregiversScreen> {
         footer: FilledButton(
           onPressed: model.caregivers.isEmpty
               ? null
-              : () => context.go(AppRoutes.notifications),
+              : () {
+                  AppLog.event('onboarding.step', {'step': 'caregivers'});
+                  context.go(AppRoutes.notifications);
+                },
           child: const Text('Continue'),
         ),
       ),

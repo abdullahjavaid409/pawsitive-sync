@@ -1,6 +1,8 @@
 /// Shared limits for pet names, age, and household size.
 abstract final class PetLimits {
   static const maxNameLength = 40;
+  /// Free tier: one pet. Pro unlocks up to [maxPetsPerHousehold].
+  static const maxPetsFree = 1;
   static const maxPetsPerHousehold = 10;
   static const maxAgeYears = 30;
   static const maxConditions = 12;

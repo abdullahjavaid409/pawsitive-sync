@@ -22,10 +22,35 @@
 	<string>$(FLUTTER_BUILD_NAME)</string>
 	<key>CFBundleSignature</key>
 	<string>????</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.pawsitivesync.widgets</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>pawsitivesync</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>FlutterDeepLinkingEnabled</key>
+	<true/>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSCameraUsageDescription</key>
+	<string>PawsitiveSync uses the camera so you can add a photo of your pet to their profile.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>PawsitiveSync can save a pet photo you choose to your library when you export or share.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>PawsitiveSync uses your photo library so you can choose a picture of your pet for their profile.</string>
+	<key>NSUserNotificationsUsageDescription</key>
+	<string>PawsitiveSync sends reminders when your pet's medicine is due, so doses are not missed.</string>
+	<key>PawsitiveAppGroup</key>
+	<string>group.com.pawsitivesync.pawsitiveSync</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -47,16 +72,6 @@
 			</array>
 		</dict>
 	</dict>
-	<key>NSCameraUsageDescription</key>
-	<string>PawsitiveSync uses the camera so you can add a photo of your pet to their profile.</string>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>PawsitiveSync uses your photo library so you can choose a picture of your pet for their profile.</string>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>PawsitiveSync can save a pet photo you choose to your library when you export or share.</string>
-	<key>NSUserNotificationsUsageDescription</key>
-	<string>PawsitiveSync sends reminders when your pet's medicine is due, so doses are not missed.</string>
-	<key>ITSAppUsesNonExemptEncryption</key>
-	<false/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

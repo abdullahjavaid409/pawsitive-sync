@@ -179,6 +179,7 @@ class Medication {
     required this.supplyTotal,
     required this.dosesLeft,
     required this.startDay,
+    this.endDay = '',
   });
 
   final String id;
@@ -193,6 +194,24 @@ class Medication {
 
   /// Local calendar day the schedule started, as YYYY-MM-DD.
   final String startDay;
+
+  /// Last day to give this medicine, or empty when ongoing.
+  final String endDay;
+
+  bool isActiveOn(String day) =>
+      startDay.compareTo(day) <= 0 &&
+      (endDay.isEmpty || endDay.compareTo(day) >= 0);
+
+  bool get endsSoon {
+    if (endDay.isEmpty) return false;
+    final end = DateTime.tryParse(endDay);
+    if (end == null) return false;
+    final today = DateTime.now();
+    final diff = end.difference(
+      DateTime(today.year, today.month, today.day),
+    ).inDays;
+    return diff >= 0 && diff <= 3;
+  }
 
   bool get tracksSupply => supplyTotal > 0;
 
@@ -227,7 +246,7 @@ class Medication {
     return '${weekdays[end.weekday - 1]}, ${months[end.month - 1]} ${end.day}';
   }
 
-  Medication copyWith({int? dosesLeft}) {
+  Medication copyWith({int? dosesLeft, String? endDay}) {
     return Medication(
       id: id,
       petId: petId,
@@ -237,6 +256,7 @@ class Medication {
       supplyTotal: supplyTotal,
       dosesLeft: dosesLeft ?? this.dosesLeft,
       startDay: startDay,
+      endDay: endDay ?? this.endDay,
     );
   }
 
@@ -249,10 +269,64 @@ class Medication {
     'supplyTotal': supplyTotal,
     'dosesLeft': dosesLeft,
     'startDay': startDay,
+    if (endDay.isNotEmpty) 'endDay': endDay,
   };
 }
 
-enum LogOutcome { given, skipped }
+enum LogOutcome { given, skipped, uncertain }
+
+enum CareEventKind { vaccine, vetVisit, refill, other }
+
+extension CareEventKindLabel on CareEventKind {
+  String get kindLabel => switch (this) {
+    CareEventKind.vaccine => 'Vaccine',
+    CareEventKind.vetVisit => 'Vet visit',
+    CareEventKind.refill => 'Refill',
+    CareEventKind.other => 'Care',
+  };
+}
+
+/// A vet visit, vaccine due date, or other care milestone.
+class CareEvent {
+  const CareEvent({
+    required this.id,
+    required this.petId,
+    required this.title,
+    required this.kind,
+    required this.dueDay,
+    this.note = '',
+  });
+
+  final String id;
+  final String petId;
+  final String title;
+  final CareEventKind kind;
+  final String dueDay;
+  final String note;
+
+  String get kindLabel => kind.kindLabel;
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'petId': petId,
+    'title': title,
+    'kind': kind.name,
+    'dueDay': dueDay,
+    'note': note,
+  };
+
+  static CareEvent fromJson(Map<String, dynamic> json) => CareEvent(
+    id: '${json['id']}',
+    petId: '${json['petId']}',
+    title: '${json['title']}',
+    kind: CareEventKind.values.firstWhere(
+      (k) => k.name == json['kind'],
+      orElse: () => CareEventKind.other,
+    ),
+    dueDay: '${json['dueDay']}',
+    note: '${json['note'] ?? ''}',
+  );
+}
 
 /// One saved dose: who gave (or skipped) which medicine, on which day and time of day.
 class DoseRecord {

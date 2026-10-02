@@ -101,6 +101,48 @@ class DoseReminders {
       AppLog.event('reminders.schedule_failed', {'doseId': dose.id});
     }
   }
+
+  /// Reminds again after snoozing from the lock screen.
+  static Future<void> snoozeMinutes(CareRepository care, int minutes) async {
+    await prepare();
+    final dose = care.nextDue;
+    if (dose == null) return;
+    Pet? pet;
+    for (final item in care.pets) {
+      if (item.id == dose.petId) pet = item;
+    }
+    final when = tz.TZDateTime.now(tz.local).add(Duration(minutes: minutes));
+    final petName = pet?.name ?? 'Your pet';
+    final amount = dose.amount.isEmpty
+        ? dose.name
+        : '${dose.name}, ${dose.amount}';
+    try {
+      await _plugin.zonedSchedule(
+        1,
+        'Time for $petName',
+        '$amount is due. Open the app and tap I gave this.',
+        when,
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'doses',
+            'Medicine reminders',
+            channelDescription: 'A reminder when a dose is due.',
+            importance: Importance.high,
+            priority: Priority.high,
+          ),
+          iOS: DarwinNotificationDetails(
+            presentAlert: true,
+            presentBadge: false,
+            presentSound: true,
+          ),
+        ),
+        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
+      );
+      AppLog.event('lock.snoozed', {'minutes': minutes, 'doseId': dose.id});
+    } catch (_) {
+      AppLog.event('lock.snooze_failed', {'doseId': dose.id});
+    }
+  }
 }
 
 tz.TZDateTime _next(Dose dose) {

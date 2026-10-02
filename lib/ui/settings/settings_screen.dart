@@ -43,7 +43,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _restorePurchases(CareRepository care) async {
+    setState(() => _busy = true);
+    AppLog.event('billing.restore.settings');
+    final ok = await care.restoreBilling();
+    if (!mounted) return;
+    setState(() => _busy = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok
+              ? 'Pro restored on this account.'
+              : care.lastError ?? 'No subscription found.',
+        ),
+      ),
+    );
+  }
+
   Future<void> _toggleReminders(bool on) async {
+    AppLog.event('settings.reminders_toggled', {'on': on});
     setState(() => _remindersOn = on);
     await context.read<OnboardingViewModel>().saveReminders(on);
     final care = context.read<CareRepository>();
@@ -137,19 +155,41 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Text('YOUR PLAN', style: text.labelSmall),
             const SizedBox(height: 8),
             SurfaceCard(
-              child: ListTile(
-                title: Text(care.isPro ? 'Pro' : 'Free'),
-                subtitle: Text(
-                  care.isPro
-                      ? 'Invite, low-supply alerts, and vet reports'
-                      : 'One pet · upgrade for the whole household',
-                ),
-                trailing: care.isPro
-                    ? null
-                    : TextButton(
-                        onPressed: () => context.push(AppRoutes.paywall),
-                        child: const Text('Upgrade'),
-                      ),
+              child: Column(
+                children: [
+                  ListTile(
+                    title: Text(care.isPro ? 'Pro' : 'Free'),
+                    subtitle: Text(
+                      care.isPro
+                          ? 'Invite, low-supply alerts, and vet reports'
+                          : 'One pet · upgrade for the whole household',
+                    ),
+                    trailing: care.isPro
+                        ? null
+                        : TextButton(
+                            onPressed: () => context.push(AppRoutes.paywall),
+                            child: const Text('Upgrade'),
+                          ),
+                  ),
+                  Divider(height: 1, color: scheme.outlineVariant),
+                  ListTile(
+                    title: const Text('Restore purchases'),
+                    subtitle: const Text(
+                      'Already subscribed? Restore Pro on this phone.',
+                    ),
+                    onTap: _busy ? null : () => _restorePurchases(care),
+                  ),
+                  Divider(height: 1, color: scheme.outlineVariant),
+                  ListTile(
+                    title: const Text('Manage subscription'),
+                    trailing: Icon(
+                      Icons.open_in_new,
+                      size: 18,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                    onTap: () => _open(Uri.parse(AppLinks.manageAppleSubscriptions)),
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 24),

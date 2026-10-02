@@ -5,9 +5,13 @@ import 'package:characters/characters.dart';
 import 'package:flutter/foundation.dart';
 import 'package:pawsitive_sync/core/constants/pet_limits.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
+import 'package:pawsitive_sync/data/care_events_store.dart';
 import 'package:pawsitive_sync/data/household_api.dart';
 import 'package:pawsitive_sync/data/household_store.dart';
+import 'package:pawsitive_sync/data/push_service.dart';
+import 'package:pawsitive_sync/data/sync_engine.dart';
 import 'package:pawsitive_sync/data/onboarding_profile.dart';
+import 'package:pawsitive_sync/data/revenue_cat_service.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 
@@ -70,10 +74,14 @@ class CareRepository extends ChangeNotifier {
   CareRepository({
     HouseholdApi? api,
     HouseholdStore? store,
+    CareEventsStore? eventsStore,
+    SyncEngine? syncEngine,
     DateTime Function()? clock,
     bool sample = false,
   }) : _api = api,
        _store = store,
+       _eventsStore = eventsStore ?? CareEventsStore(),
+       _syncEngine = syncEngine ?? SyncEngine(),
        _clock = clock ?? DateTime.now {
     if (sample) loadSampleData();
   }
@@ -87,6 +95,8 @@ class CareRepository extends ChangeNotifier {
 
   final HouseholdApi? _api;
   final HouseholdStore? _store;
+  final CareEventsStore _eventsStore;
+  final SyncEngine _syncEngine;
   final DateTime Function() _clock;
 
   bool syncing = false;
@@ -101,15 +111,18 @@ class CareRepository extends ChangeNotifier {
   final List<Pet> _pets = [];
   final List<Medication> _medications = [];
   final List<DoseRecord> _logs = [];
+  final List<CareEvent> _careEvents = [];
   bool _isPro = false;
   BillingPlan _plan = BillingPlan.yearly;
   Future<String?>? _connecting;
+  DateTime? _lastSyncedAt;
+  static const _syncMinInterval = Duration(seconds: 45);
 
   DateTime get now => _clock();
 
   bool get hasApi => _api != null;
 
-  /// This phone holds a token for a shared household on the server.
+  /// This phone is linked to a shared household on the server.
   bool get isConnected => _api?.token != null;
 
   bool get canSync => isConnected;
@@ -121,6 +134,14 @@ class CareRepository extends ChangeNotifier {
   bool get isPro => _isPro;
 
   BillingPlan get plan => _plan;
+
+  /// Free tier allows one pet; Pro allows up to [PetLimits.maxPetsPerHousehold].
+  bool get canAddPet {
+    if (_pets.length >= PetLimits.maxPetsPerHousehold) return false;
+    return _isPro || _pets.length < PetLimits.maxPetsFree;
+  }
+
+  String get memberId => _memberId;
 
   List<Member> get members => List.unmodifiable(_members);
   List<Pet> get pets => List.unmodifiable(_pets);
@@ -206,11 +227,12 @@ class CareRepository extends ChangeNotifier {
     for (final part in DayPart.values) {
       for (final medication in _medications) {
         if (!medication.parts.contains(part)) continue;
-        if (medication.startDay.compareTo(today) > 0) continue;
+        if (!medication.isActiveOn(today)) continue;
         final log = _logFor(medication.id, part, today);
         if (log?.outcome == LogOutcome.skipped) continue;
         final pet = petById(medication.petId);
-        final status = log != null
+        final uncertain = log?.outcome == LogOutcome.uncertain;
+        final status = log?.outcome == LogOutcome.given
             ? DoseStatus.given
             : time.hour >= part.opensAt
             ? DoseStatus.due
@@ -229,6 +251,8 @@ class CareRepository extends ChangeNotifier {
             subtitle: switch (status) {
               DoseStatus.given =>
                 '${pet.name} · ${_who(log!.memberId)}, ${log.timeLabel}',
+              DoseStatus.due when uncertain =>
+                '${pet.name} · ${_who(log!.memberId)} is not sure — check first',
               DoseStatus.due => '${pet.name} · due ${part.timeLabel}',
               DoseStatus.upcoming => '${pet.name} · ${part.timeLabel}',
             },
@@ -298,9 +322,11 @@ class CareRepository extends ChangeNotifier {
           return ActivityItem(
             memberId: log.memberId,
             actor: _who(log.memberId),
-            action: log.outcome == LogOutcome.given
-                ? 'gave $petName'
-                : 'skipped for $petName',
+            action: switch (log.outcome) {
+              LogOutcome.given => 'gave $petName',
+              LogOutcome.skipped => 'skipped for $petName',
+              LogOutcome.uncertain => 'is not sure about $petName',
+            },
             emphasis: amount.isEmpty ? name : '$name · $amount',
             timeLabel: day == 'Today' ? log.timeLabel : '$day · ${log.timeLabel}',
             note: log.note,
@@ -338,6 +364,7 @@ class CareRepository extends ChangeNotifier {
         !day.isAfter(today);
         day = DateTime(day.year, day.month, day.day + 1)
       ) {
+        if (!medication.isActiveOn(dayKey(day))) continue;
         for (final part in medication.parts) {
           if (day == today && time.hour < part.opensAt) continue;
           expected++;
@@ -378,7 +405,26 @@ class CareRepository extends ChangeNotifier {
   // Loading and syncing
 
   /// Reads what this phone saved last time. Call once at launch.
+  List<CareEvent> get careEvents => List.unmodifiable(_careEvents);
+
+  /// Upcoming vet visits, vaccines, and refills within the next 60 days.
+  List<CareEvent> upcomingCareEvents({int withinDays = 60}) {
+    final today = dayKey(now);
+    final limit = now.add(Duration(days: withinDays));
+    final limitKey = dayKey(limit);
+    final items = [
+      for (final event in _careEvents)
+        if (event.dueDay.compareTo(today) >= 0 &&
+            event.dueDay.compareTo(limitKey) <= 0)
+          event,
+    ]..sort((a, b) => a.dueDay.compareTo(b.dueDay));
+    return items;
+  }
+
   Future<void> restore() async {
+    _careEvents
+      ..clear()
+      ..addAll(await _eventsStore.read());
     final saved = await _store?.read();
     if (saved == null) return;
     _apply(
@@ -392,6 +438,13 @@ class CareRepository extends ChangeNotifier {
       medications: saved.medications,
       logs: saved.logs,
     );
+    AppLog.event('data.restored', {
+      'pets': _pets.length,
+      'medications': _medications.length,
+      'logs': _logs.length,
+      'careEvents': _careEvents.length,
+      'connected': isConnected,
+    });
     notifyListeners();
   }
 
@@ -438,6 +491,34 @@ class CareRepository extends ChangeNotifier {
       medications: house.medications,
       logs: house.logs,
     );
+    _mergeCareEvents(house.careEvents);
+  }
+
+  void _mergeSnapshot(HouseholdSnapshot house) {
+    _apply(
+      token: _api?.token,
+      memberId: house.memberId,
+      inviteCode: house.inviteCode,
+      isPro: house.isPro,
+      plan: house.plan,
+      members: house.members,
+      pets: house.pets,
+      medications: house.medications,
+      logs: house.logs,
+    );
+    _mergeCareEvents(house.careEvents);
+  }
+
+  void _mergeCareEvents(List<CareEvent> remote) {
+    if (remote.isEmpty || !isConnected) return;
+    _careEvents
+      ..clear()
+      ..addAll(remote);
+    _persistEvents();
+  }
+
+  void _persistEvents() {
+    unawaited(_eventsStore.write(_careEvents));
   }
 
   void _persist() {
@@ -474,10 +555,14 @@ class CareRepository extends ChangeNotifier {
   Future<String?> _connect() async {
     final api = _api;
     if (api == null) {
+      AppLog.event('household.connect_skipped', {'reason': 'no_api'});
       return 'Sharing needs the online version of the app.';
     }
     if (isConnected) return null;
-    if (!hasHousehold) return 'Set up your pet first.';
+    if (!hasHousehold) {
+      AppLog.event('household.connect_skipped', {'reason': 'no_household'});
+      return 'Set up your pet first.';
+    }
     try {
       final session = await AppLog.trace(
         'household.create',
@@ -491,7 +576,7 @@ class CareRepository extends ChangeNotifier {
       );
       _applySession(session);
       syncError = null;
-      _changed();
+      await _afterConnected();
       AppLog.event('household.connected');
       return null;
     } on HouseholdException catch (error) {
@@ -504,9 +589,18 @@ class CareRepository extends ChangeNotifier {
   Future<String?> join({required String code, required String name}) async {
     final api = _api;
     final cleanCode = code.toUpperCase().replaceAll(RegExp('[^A-Z0-9]'), '');
-    if (cleanCode.length < 6) return 'Enter the 6-letter code you were sent.';
-    if (name.trim().isEmpty) return 'Add your name so others know who gave it.';
-    if (api == null) return 'Joining needs the online version of the app.';
+    if (cleanCode.length < 6) {
+      AppLog.event('household.join_rejected', {'reason': 'short_code'});
+      return 'Enter the 6-letter code you were sent.';
+    }
+    if (name.trim().isEmpty) {
+      AppLog.event('household.join_rejected', {'reason': 'missing_name'});
+      return 'Add your name so others know who gave it.';
+    }
+    if (api == null) {
+      AppLog.event('household.join_skipped', {'reason': 'no_api'});
+      return 'Joining needs the online version of the app.';
+    }
     try {
       final session = await AppLog.trace(
         'household.join',
@@ -514,7 +608,7 @@ class CareRepository extends ChangeNotifier {
       );
       _applySession(session);
       syncError = null;
-      _changed();
+      await _afterConnected();
       AppLog.event('household.joined');
       return null;
     } on HouseholdException catch (error) {
@@ -523,32 +617,42 @@ class CareRepository extends ChangeNotifier {
     }
   }
 
-  /// Fetches the latest household. Uploads a phone-only household first.
-  Future<void> sync() async {
+  /// Pulls server state when already connected. Skips if synced recently.
+  Future<void> syncIfStale() => sync();
+
+  /// [force] bypasses the recent-sync window (e.g. pull-to-refresh).
+  Future<void> sync({bool force = false}) async {
     final api = _api;
-    if (api == null) return;
+    if (api == null) {
+      AppLog.event('household.sync_skipped', {'reason': 'no_api'});
+      return;
+    }
+    if (!isConnected) {
+      AppLog.event('household.sync_skipped', {'reason': 'not_connected'});
+      return;
+    }
+    if (syncing) {
+      AppLog.event('household.sync_skipped', {'reason': 'in_progress'});
+      return;
+    }
+    if (!force &&
+        _lastSyncedAt != null &&
+        now.difference(_lastSyncedAt!) < _syncMinInterval) {
+      AppLog.event('household.sync_skipped', {
+        'reason': 'recent',
+        'secondsAgo': now.difference(_lastSyncedAt!).inSeconds,
+      });
+      return;
+    }
     syncing = true;
     syncError = null;
     notifyListeners();
     try {
-      if (!isConnected) {
-        if (!hasHousehold) return;
-        syncError = await connect();
-        return;
-      }
+      await _flushOutbox(silent: true);
       final house = await AppLog.trace('household.sync', api.fetchHousehold);
-      _apply(
-        token: api.token,
-        memberId: house.memberId,
-        inviteCode: house.inviteCode,
-        isPro: house.isPro,
-        plan: house.plan,
-        members: house.members,
-        pets: house.pets,
-        medications: house.medications,
-        logs: house.logs,
-      );
+      _mergeSnapshot(house);
       _persist();
+      _lastSyncedAt = now;
       AppLog.event('household.synced', {'doses': doses.length});
     } on HouseholdException catch (error) {
       syncError = error.message;
@@ -562,27 +666,62 @@ class CareRepository extends ChangeNotifier {
   // ---------------------------------------------------------------------------
   // Writes
 
+  Future<void> _afterConnected() async {
+    _changed();
+    await PushService.registerIfConnected(_api);
+    await _flushOutbox(silent: true);
+  }
+
+  Future<void> _flushOutbox({bool silent = false}) async {
+    final api = _api;
+    if (api == null || !isConnected) return;
+    try {
+      final result = await AppLog.trace(
+        'sync.batch',
+        () => _syncEngine.flush(api),
+      );
+      if (result.household != null) _mergeSnapshot(result.household!);
+      if (!silent && result.conflictMessage != null) {
+        lastError = result.conflictMessage;
+      }
+      _changed();
+    } on HouseholdException catch (error) {
+      if (!silent) {
+        lastError = error.message;
+        notifyListeners();
+      }
+    }
+  }
+
   Future<bool> _write(
     String event,
     Future<void> Function(HouseholdApi api) online,
-    bool Function() offline,
-  ) async {
+    bool Function() offline, {
+    Map<String, Object?> fields = const {},
+  }) async {
     lastError = null;
     final api = _api;
     if (api != null && isConnected) {
       try {
         await AppLog.trace(event, () => online(api));
         _changed();
+        AppLog.event('$event.completed', fields);
         return true;
       } on HouseholdException catch (error) {
         lastError = error.message;
-        AppLog.event('$event.failed', {'kind': error.kind.name});
+        AppLog.event('$event.failed', {
+          ...fields,
+          'kind': error.kind.name,
+        });
         notifyListeners();
         return false;
       }
     }
     final ok = offline();
-    if (ok) _changed();
+    if (ok) {
+      AppLog.event('$event.completed', {...fields, 'offline': true});
+      _changed();
+    }
     return ok;
   }
 
@@ -602,16 +741,42 @@ class CareRepository extends ChangeNotifier {
     );
     final medication = medicationById(medicationId);
     final today = dayKey(now);
+    final event = switch (outcome) {
+      LogOutcome.given => 'dose.log',
+      LogOutcome.skipped => 'dose.skip',
+      LogOutcome.uncertain => 'dose.uncertain',
+    };
+    final fields = {
+      'doseId': doseId,
+      'medicationId': medicationId,
+      'part': part.name,
+      'memberId': memberId,
+      if (detail != null) 'detail': detail.name,
+    };
     if (medication == null) {
       lastError = 'This medicine is no longer on the schedule.';
+      AppLog.event('$event.rejected', {
+        ...fields,
+        'reason': 'missing_medication',
+      });
       return Future.value(false);
     }
     final existing = _logFor(medicationId, part, today);
     if (existing != null) {
-      lastError =
-          '${_who(existing.memberId)} already logged this at ${existing.timeLabel}.';
-      notifyListeners();
-      return Future.value(false);
+      if (existing.outcome == LogOutcome.uncertain &&
+          outcome == LogOutcome.given) {
+        _logs.remove(existing);
+      } else {
+        lastError =
+            '${_who(existing.memberId)} already logged this at ${existing.timeLabel}.';
+        AppLog.event('$event.rejected', {
+          ...fields,
+          'reason': 'already_logged',
+          'existingMemberId': existing.memberId,
+        });
+        notifyListeners();
+        return Future.value(false);
+      }
     }
     final record = DoseRecord(
       id: newId('log'),
@@ -636,7 +801,7 @@ class CareRepository extends ChangeNotifier {
     }
 
     return _write(
-      outcome == LogOutcome.given ? 'dose.log' : 'dose.skip',
+      event,
       (api) async {
         try {
           final saved = await api.logDose(record);
@@ -661,6 +826,7 @@ class CareRepository extends ChangeNotifier {
         keep(record, medication.copyWith(dosesLeft: left));
         return true;
       },
+      fields: fields,
     );
   }
 
@@ -689,6 +855,61 @@ class CareRepository extends ChangeNotifier {
     );
   }
 
+  /// Marks a dose as uncertain so the household checks before giving again.
+  Future<bool> markDoseUncertain(String doseId) {
+    return _record(
+      doseId: doseId,
+      memberId: you.id,
+      outcome: LogOutcome.uncertain,
+    );
+  }
+
+  Future<bool> addCareEvent({
+    required String petId,
+    required String title,
+    required CareEventKind kind,
+    required DateTime dueDate,
+    String note = '',
+  }) async {
+    if (tryPetById(petId) == null) {
+      lastError = 'Pick which pet this is for.';
+      AppLog.event('care_event.rejected', {
+        'reason': 'missing_pet',
+        'kind': kind.name,
+      });
+      return false;
+    }
+    if (title.trim().isEmpty) {
+      lastError = 'Add a title for this appointment.';
+      AppLog.event('care_event.rejected', {
+        'reason': 'missing_title',
+        'kind': kind.name,
+      });
+      return false;
+    }
+    _careEvents.add(
+      CareEvent(
+        id: newId('event'),
+        petId: petId,
+        title: title.trim(),
+        kind: kind,
+        dueDay: dayKey(dueDate),
+        note: note.trim(),
+      ),
+    );
+    _persistEvents();
+    notifyListeners();
+    AppLog.event('care_event.added', {'kind': kind.name, 'petId': petId});
+    return true;
+  }
+
+  Future<void> removeCareEvent(String eventId) async {
+    _careEvents.removeWhere((event) => event.id == eventId);
+    _persistEvents();
+    notifyListeners();
+    AppLog.event('care_event.removed', {'eventId': eventId});
+  }
+
   void _replaceMedication(Medication medication) {
     final index = _medications.indexWhere((item) => item.id == medication.id);
     if (index >= 0) {
@@ -710,6 +931,7 @@ class CareRepository extends ChangeNotifier {
         );
         return true;
       },
+      fields: {'medicationId': medicationId},
     );
   }
 
@@ -720,18 +942,25 @@ class CareRepository extends ChangeNotifier {
     required String amount,
     required List<DayPart> parts,
     int supplyTotal = 0,
+    String endDay = '',
   }) {
     lastError = null;
     if (name.trim().isEmpty) {
       lastError = 'Add the medicine name.';
+      AppLog.event('medication.add_rejected', {'reason': 'missing_name'});
       return Future.value(false);
     }
     if (parts.isEmpty) {
       lastError = 'Pick at least one time of day.';
+      AppLog.event('medication.add_rejected', {'reason': 'missing_parts'});
       return Future.value(false);
     }
     if (tryPetById(petId) == null) {
       lastError = 'Pick which pet this is for.';
+      AppLog.event('medication.add_rejected', {
+        'reason': 'missing_pet',
+        'petId': petId,
+      });
       return Future.value(false);
     }
     final medication = Medication(
@@ -743,6 +972,7 @@ class CareRepository extends ChangeNotifier {
       supplyTotal: supplyTotal,
       dosesLeft: supplyTotal,
       startDay: dayKey(now),
+      endDay: endDay,
     );
     return _write(
       'medication.add',
@@ -750,6 +980,13 @@ class CareRepository extends ChangeNotifier {
       () {
         _replaceMedication(medication);
         return true;
+      },
+      fields: {
+        'medicationId': medication.id,
+        'petId': petId,
+        'parts': parts.length,
+        if (endDay.isNotEmpty) 'endDay': endDay,
+        if (supplyTotal > 0) 'tracksSupply': true,
       },
     );
   }
@@ -765,6 +1002,7 @@ class CareRepository extends ChangeNotifier {
         _medications.removeWhere((item) => item.id == medicationId);
         return true;
       },
+      fields: {'medicationId': medicationId},
     );
   }
 
@@ -778,11 +1016,17 @@ class CareRepository extends ChangeNotifier {
     lastError = null;
     if (name.trim().isEmpty) {
       lastError = "Add your pet's name.";
+      AppLog.event('pet.add_rejected', {'reason': 'missing_name'});
       return null;
     }
-    if (_pets.length >= PetLimits.maxPetsPerHousehold) {
-      lastError =
-          'A household can have up to ${PetLimits.maxPetsPerHousehold} pets.';
+    if (!canAddPet) {
+      lastError = _isPro
+          ? 'A household can have up to ${PetLimits.maxPetsPerHousehold} pets.'
+          : 'Free includes one pet. Upgrade to Pro for every pet in your household.';
+      AppLog.event('pet.add.blocked', {
+        'reason': _isPro ? 'household_limit' : 'free_tier',
+        'count': _pets.length,
+      });
       return null;
     }
     if (_members.isEmpty) _members.add(_youMember);
@@ -805,6 +1049,7 @@ class CareRepository extends ChangeNotifier {
         _pets.add(pet);
         return true;
       },
+      fields: {'petId': pet.id, 'species': species.name},
     );
     return ok ? pet.id : null;
   }
@@ -877,13 +1122,13 @@ class CareRepository extends ChangeNotifier {
         if (index >= 0) _pets[index] = updated;
         return true;
       },
+      fields: {
+        'petId': petId,
+        'conditions': updated.conditions.length,
+      },
     );
 
     if (ok) {
-      AppLog.event('pet.updated', {
-        'petId': petId,
-        'conditions': updated.conditions.length,
-      });
       if (primaryPet?.id == petId) {
         unawaited(OnboardingProfile.syncFromPet(updated));
       }
@@ -900,13 +1145,13 @@ class CareRepository extends ChangeNotifier {
 
   Future<void> setPlan(BillingPlan value) async {
     if (_plan == value) return;
+    _plan = value;
+    notifyListeners();
+    AppLog.event('billing.plan.changed', {'plan': value.name});
     await _write(
       'billing.plan',
       (api) async => _plan = await api.setPlan(value),
-      () {
-        _plan = value;
-        return true;
-      },
+      () => true,
     );
   }
 
@@ -923,6 +1168,89 @@ class CareRepository extends ChangeNotifier {
         return true;
       },
     );
+    AppLog.event('billing.pro.unlocked', {
+      'plan': _plan.name,
+      'source': 'trial',
+    });
+  }
+
+  /// Buys the selected plan through RevenueCat, then unlocks Pro locally.
+  Future<PurchaseResult> purchasePlan() async {
+    AppLog.event('billing.purchase.requested', {'plan': _plan.name});
+    final result = await RevenueCatService.purchasePlan(_plan);
+    if (result.success) {
+      await startTrial();
+      AppLog.event('billing.purchase.completed', {
+        'plan': _plan.name,
+        'isPro': _isPro,
+      });
+    } else {
+      lastError = result.message;
+      AppLog.event('billing.purchase.failed', {
+        'kind': result.kind?.name ?? 'unknown',
+      });
+      notifyListeners();
+    }
+    return result;
+  }
+
+  /// Restores an App Store / Play subscription and syncs Pro status.
+  Future<bool> restoreBilling() async {
+    AppLog.event('billing.restore.requested');
+    lastError = null;
+    if (!RevenueCatService.isReady) {
+      lastError = 'Purchases are not set up on this build yet.';
+      AppLog.event('billing.restore.skipped', {'reason': 'not_configured'});
+      notifyListeners();
+      return false;
+    }
+    final restored = await RevenueCatService.restorePurchases();
+    if (!restored) {
+      lastError = 'No active subscription found for this account.';
+      AppLog.event('billing.restore.empty');
+      notifyListeners();
+      return false;
+    }
+    final status = await RevenueCatService.currentStatus();
+    if (status.isPro) {
+      await startTrial();
+      final storePlan = status.plan;
+      if (storePlan != null && storePlan != _plan) {
+        await setPlan(storePlan);
+      }
+      AppLog.event('billing.restore.completed', {'plan': _plan.name});
+      return true;
+    }
+    lastError = 'No active subscription found for this account.';
+    AppLog.event('billing.restore.inactive');
+    notifyListeners();
+    return false;
+  }
+
+  /// Pulls Pro status from RevenueCat on app start or resume.
+  Future<void> syncBillingFromStore() async {
+    if (!RevenueCatService.isReady) {
+      AppLog.event('billing.sync.skipped', {'reason': 'not_configured'});
+      return;
+    }
+    await RevenueCatService.identifyMember(_memberId);
+    final status = await RevenueCatService.currentStatus();
+    if (status.isPro && !_isPro) {
+      await startTrial();
+      if (status.plan != null && status.plan != _plan) {
+        await setPlan(status.plan!);
+      }
+      AppLog.event('billing.sync.pro_unlocked', {'plan': _plan.name});
+    } else if (!status.isPro && _isPro) {
+      _isPro = false;
+      _changed();
+      AppLog.event('billing.sync.pro_revoked');
+    } else {
+      AppLog.event('billing.sync.unchanged', {
+        'isPro': _isPro,
+        'plan': _plan.name,
+      });
+    }
   }
 
   /// Builds the household from onboarding answers, then shares it in the background.
@@ -962,8 +1290,8 @@ class CareRepository extends ChangeNotifier {
     AppLog.event('household.created_from_onboarding', {
       'conditions': model.conditions.length,
       'caregivers': model.caregivers.length,
+      'localOnly': _api != null && !isConnected,
     });
-    if (_api != null) unawaited(connect());
   }
 
   /// Forgets this phone's household, for sign-out or a fresh start.
@@ -980,6 +1308,11 @@ class CareRepository extends ChangeNotifier {
       logs: const [],
     );
     await _store?.clear();
+    _careEvents.clear();
+    await _eventsStore.clear();
+    await RevenueCatService.logOut();
+    _lastSyncedAt = null;
+    AppLog.event('household.reset');
     notifyListeners();
   }
 

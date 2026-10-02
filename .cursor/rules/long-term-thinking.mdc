@@ -1,0 +1,59 @@
+---
+description: Long-term scale, low cost, and best user quality for every PawsitiveSync change
+alwaysApply: true
+---
+
+# Product principles (PawsitiveSync)
+
+**Always on.** Every task — features, bugs, refactors, advice — must pass three checks:
+
+1. **Long-term** — still works at 10k+ households?
+2. **Cost** — cheapest path that doesn’t hurt users (infra, API, ops)?
+3. **User quality** — core flows fast, safe, clear; no dark patterns?
+
+Full plan: `docs/LONG_TERM_ROADMAP.md` · Agent entry: `AGENTS.md`
+
+## North star
+
+Local-first pet care ledger + optional household sync. Own **“did anyone give the dose?”** — not social, not vet EMR.
+
+## Default choices
+
+| Area | Prefer | Avoid |
+|------|--------|-------|
+| Data | Phone source of truth; offline-first; sync when connected | Server-required for core dose logging |
+| API | Batched/outbox sync; throttle; force only on user refresh | Per-tap network calls; auto-connect on launch |
+| Auth | Device token + invite; Apple Sign-In later for **owner recovery** | Email/password; login before first dose |
+| Billing | RevenueCat; never paywall dose logging or double-dose safety | Client-only Pro checks at scale |
+| Storage | Path to Drift/SQLite; migrations | SharedPreferences for unbounded log history |
+| Conflicts | Server timestamp + last-write-wins; show who logged when | Realtime WebSocket sync |
+
+## Cost (yours + users’)
+
+| Prefer | Avoid |
+|--------|-------|
+| Local compute; sync only when needed | Background polling, WebSockets for doses |
+| One Railway Postgres until traffic demands more | Redis, multi-region, microservices early |
+| RevenueCat / store billing | Custom payment stack |
+| Batch API writes | Per-tap server calls |
+| Free tier that scales cheaply (local-first) | Server-heavy features for free users |
+
+## User quality (non-negotiable)
+
+- **Instant core flows** — log a dose in one tap; no spinner for local writes
+- **Safety free** — double-dose guard, “check before you give,” offline logging
+- **Clear UX** — big touch targets, dismiss keyboard, honest paywall copy
+- **Reliable** — test dose/onboarding/household paths; `AppLog` for support
+- **No dark patterns** — no fake urgency, no hiding delete, no paywall before first value
+
+## Before shipping
+
+1. Offline + `{event}.completed` with `offline: true` when applicable?
+2. Fewer or batched API calls?
+3. Stable IDs + sync story for new data?
+4. Pro gate only multi-pet / invite / export — not safety?
+5. User-visible regression? Run/analyze tests on touched flows.
+
+## Shortcuts
+
+State **debt**, **Phase 2/3 fix**, and **any cost or UX tradeoff** (one line each).

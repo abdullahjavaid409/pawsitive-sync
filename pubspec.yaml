@@ -46,6 +46,11 @@ dependencies:
   characters: ^1.4.1
   share_plus: ^13.3.1
   url_launcher: ^6.3.3
+  purchases_flutter: ^9.0.0
+  sqflite: ^2.4.2
+  path_provider: ^2.1.5
+  path: ^1.9.1
+  pdf: ^3.11.3
 dev_dependencies:
   flutter_test:
     sdk: flutter

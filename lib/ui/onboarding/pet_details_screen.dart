@@ -132,6 +132,7 @@ class PetDetailsScreen extends StatelessWidget {
         footer: FilledButton(
           onPressed: model.hasValidWeight
               ? () {
+                  AppLog.event('onboarding.step', {'step': 'pet_details'});
                   FocusScope.of(context).unfocus();
                   context.go(AppRoutes.conditions);
                 }

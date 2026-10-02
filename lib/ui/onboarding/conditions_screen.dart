@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
@@ -76,7 +77,15 @@ class ConditionsScreen extends StatelessWidget {
           ],
         ),
         footer: FilledButton(
-          onPressed: count == 0 ? null : () => context.go(AppRoutes.caregivers),
+          onPressed: count == 0
+              ? null
+              : () {
+                  AppLog.event('onboarding.step', {
+                    'step': 'conditions',
+                    'count': count,
+                  });
+                  context.go(AppRoutes.caregivers);
+                },
           child: Text(
             count == 0
                 ? 'Select at least one'

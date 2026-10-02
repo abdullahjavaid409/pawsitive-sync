@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pawsitive_sync/core/legal/app_links.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
@@ -19,6 +20,7 @@ class InviteScreen extends StatefulWidget {
 
 class _InviteScreenState extends State<InviteScreen> {
   bool _copied = false;
+  bool _linkCopied = false;
   bool _connecting = false;
   String? _error;
 
@@ -41,6 +43,11 @@ class _InviteScreenState extends State<InviteScreen> {
       _connecting = false;
       _error = error;
     });
+    if (error != null) {
+      AppLog.event('invite.connect_failed', {'error': error});
+    } else {
+      AppLog.event('invite.connect_ready');
+    }
   }
 
   String _message(CareRepository care) {
@@ -50,8 +57,10 @@ class _InviteScreenState extends State<InviteScreen> {
         : pets.length == 1
         ? pets.first
         : '${pets.sublist(0, pets.length - 1).join(', ')} and ${pets.last}';
+    final link = AppLinks.sitterJoinLink(care.inviteCode);
     return 'Help me with $who’s medicine on PawsitiveSync, so no dose is missed or given twice.\n\n'
-        'Open the app, tap “I have an invite code”, and enter: ${care.inviteCode}';
+        'Tap to join: $link\n\n'
+        'Or open the app, tap “I have an invite code”, and enter: ${care.inviteCode}';
   }
 
   Future<void> _share(BuildContext buttonContext, CareRepository care) async {
@@ -190,6 +199,53 @@ class _InviteScreenState extends State<InviteScreen> {
                         ),
                       ),
                     ),
+                    if (ready) ...[
+                      const SizedBox(height: 24),
+                      Text('Link for sitters', style: text.titleMedium),
+                      const SizedBox(height: 8),
+                      Text(
+                        'Send this link — the invite code is filled in automatically.',
+                        style: text.bodyMedium?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      SurfaceCard(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            SelectableText(
+                              AppLinks.sitterJoinLink(code),
+                              style: text.bodyMedium?.copyWith(
+                                color: tokens.brandDark,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            OutlinedButton.icon(
+                              onPressed: () async {
+                                final link = AppLinks.sitterJoinLink(code);
+                                await Clipboard.setData(
+                                  ClipboardData(text: link),
+                                );
+                                if (!mounted) return;
+                                AppLog.event('invite.link_copied');
+                                setState(() => _linkCopied = true);
+                              },
+                              icon: Icon(
+                                _linkCopied
+                                    ? Icons.check_rounded
+                                    : Icons.link_rounded,
+                                size: 18,
+                              ),
+                              label: Text(
+                                _linkCopied ? 'Link copied' : 'Copy sitter link',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 24),
                     Text('How they join', style: text.titleMedium),
                     const SizedBox(height: 8),

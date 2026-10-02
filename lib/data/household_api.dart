@@ -2,6 +2,7 @@ import 'package:characters/characters.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
+import 'package:pawsitive_sync/data/sync_outbox.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 
 /// Everything the household API knows, from GET /v1/household.
@@ -15,6 +16,7 @@ class HouseholdSnapshot {
     required this.pets,
     required this.medications,
     required this.logs,
+    this.careEvents = const [],
   });
 
   final String inviteCode;
@@ -25,12 +27,38 @@ class HouseholdSnapshot {
   final List<Pet> pets;
   final List<Medication> medications;
   final List<DoseRecord> logs;
+  final List<CareEvent> careEvents;
 }
 
-/// A device's access to one household. The token is private to this device.
+class BatchOpResult {
+  const BatchOpResult({
+    required this.id,
+    required this.status,
+    this.log,
+    this.message,
+  });
+
+  final String id;
+  final String status;
+  final DoseRecord? log;
+  final String? message;
+}
+
+class BatchSyncResponse {
+  const BatchSyncResponse({
+    required this.results,
+    this.household,
+  });
+
+  final List<BatchOpResult> results;
+  final HouseholdSnapshot? household;
+}
+
+/// This device's link to one household (stored privately on the phone).
 class HouseholdSession {
   const HouseholdSession({required this.token, required this.snapshot});
 
+  /// Private household link — not shown to the user.
   final String token;
   final HouseholdSnapshot snapshot;
 }
@@ -179,6 +207,61 @@ class HouseholdApi {
     return (isPro: body['isPro'] == true, plan: _plan(body['plan']));
   }
 
+  Future<BatchSyncResponse> syncBatch(List<SyncBatchOp> operations) async {
+    final body = await _send('POST', '/v1/sync/batch', {
+      'operations': [
+        for (final op in operations)
+          {'id': op.id, 'type': op.type, 'payload': op.payload},
+      ],
+    });
+    final results = [
+      for (final item in body['results'] is List ? body['results'] as List : const [])
+        if (item is Map<String, dynamic>)
+          BatchOpResult(
+            id: '${item['id']}',
+            status: '${item['status']}',
+            log: item['log'] is Map<String, dynamic>
+                ? _log(_map(item['log']))
+                : null,
+            message: item['message'] as String?,
+          ),
+    ];
+    final house = body['household'];
+    return BatchSyncResponse(
+      results: results,
+      household: house is Map<String, dynamic> ? _snapshot(house) : null,
+    );
+  }
+
+  Future<CareEvent> addCareEvent(CareEvent event) async {
+    final body = await _send('POST', '/v1/care-events', event.toJson());
+    return CareEvent.fromJson(_map(body['careEvent']));
+  }
+
+  Future<void> removeCareEventRemote(String eventId) async {
+    await _send('DELETE', '/v1/care-events/${Uri.encodeComponent(eventId)}');
+  }
+
+  Future<void> registerDevice({
+    required String platform,
+    required String token,
+    required bool pushEnabled,
+  }) async {
+    await _send('POST', '/v1/devices/register', {
+      'platform': platform,
+      'token': token,
+      'pushEnabled': pushEnabled,
+    });
+  }
+
+  Future<void> leaveHousehold() async {
+    await _send('POST', '/v1/members/leave');
+  }
+
+  Future<Map<String, dynamic>> exportHousehold() async {
+    return _send('GET', '/v1/export');
+  }
+
   Future<Map<String, dynamic>> _send(
     String method,
     String path, [
@@ -310,6 +393,7 @@ HouseholdSnapshot _snapshot(Map<String, dynamic> body) {
     pets: _list(body['pets'], _pet),
     medications: _list(body['medications'], _medication),
     logs: _list(body['logs'], _log),
+    careEvents: _list(body['careEvents'], CareEvent.fromJson),
   );
 }
 
@@ -387,6 +471,7 @@ Medication _medication(Map<String, dynamic> json) {
     supplyTotal: _int(json['supplyTotal']),
     dosesLeft: _int(json['dosesLeft']),
     startDay: '${json['startDay'] ?? ''}',
+    endDay: '${json['endDay'] ?? ''}',
   );
 }
 

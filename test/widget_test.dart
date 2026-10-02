@@ -172,13 +172,24 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('How it works'), findsOneWidget);
-    expect(find.text('Turn on'), findsOneWidget);
+    expect(find.text('Add first medicine'), findsOneWidget);
 
     for (final label in ['My pet', 'Family & helpers', 'Vet report']) {
       final router = GoRouter.of(tester.element(find.byType(Scaffold).first));
       router.go(AppRoutes.today);
       await tester.pumpAndSettle();
+      final scrollable = find
+          .descendant(
+            of: find.byType(ListView).first,
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      tester.state<ScrollableState>(scrollable).position.jumpTo(0);
+      await tester.scrollUntilVisible(
+        find.bySemanticsLabel(label),
+        150,
+        scrollable: scrollable,
+      );
       await tester.tap(find.bySemanticsLabel(label));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull, reason: label);
@@ -242,8 +253,21 @@ void main() {
     );
   });
 
-  test('a new pet can be added after setup', () async {
+  test('free tier blocks a second pet', () async {
     final care = CareRepository.sample();
+    final blocked = await care.addPet(
+      name: 'Pepper',
+      species: Species.dog,
+      ageYears: 3,
+      weightKg: 12,
+    );
+    expect(blocked, isNull);
+    expect(care.canAddPet, isFalse);
+  });
+
+  test('a new pet can be added after setup with Pro', () async {
+    final care = CareRepository.sample();
+    await care.startTrial();
     final id = await care.addPet(
       name: 'Pepper',
       species: Species.dog,

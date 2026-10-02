@@ -7,4 +7,8 @@ abstract final class AppLinks {
   /// Apple subscription management (Guideline 3.1.2).
   static const manageAppleSubscriptions =
       'https://apps.apple.com/account/subscriptions';
+
+  /// Share with sitters — opens join flow with invite code prefilled.
+  static String sitterJoinLink(String inviteCode) =>
+      'https://pawsitivesync.app/join?code=${Uri.encodeComponent(inviteCode)}';
 }

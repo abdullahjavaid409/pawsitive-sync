@@ -10,12 +10,18 @@ enum StrokeIconKind {
   plus,
   close,
   chevronLeft,
+  chevronRight,
+  settings,
   refresh,
   bell,
   phone,
   camera,
   alert,
   clock,
+  sunrise,
+  sun,
+  moon,
+  medicine,
   mail,
   download,
   eye,
@@ -36,6 +42,7 @@ class StrokeIcon extends StatelessWidget {
   String get _asset {
     final name = switch (kind) {
       StrokeIconKind.chevronLeft => 'chevron_left',
+      StrokeIconKind.chevronRight => 'chevron_right',
       _ => kind.name,
     };
     return 'assets/icons/$name.svg';

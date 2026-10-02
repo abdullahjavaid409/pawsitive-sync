@@ -3,11 +3,11 @@ import pg from "pg";
 
 const { Pool } = pg;
 
-const schemaVersion = "2";
+const schemaVersion = "3";
 const parts = ["morning", "afternoon", "evening"];
 const species = ["cat", "dog", "rabbit", "other"];
 const roles = ["owner", "caregiver", "sitter"];
-const outcomes = ["given", "skipped"];
+const outcomes = ["given", "skipped", "uncertain"];
 const codeAlphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 
 export function createPool(connectionString) {
@@ -26,6 +26,9 @@ export async function migrate(pool, log) {
     // Version 1 held one shared demo household with no owners; nothing in it is user data.
     await pool.query("DROP TABLE IF EXISTS activity, doses, medications, pets, members, settings CASCADE");
   }
+  await pool.query(`
+    ALTER TABLE medications ADD COLUMN IF NOT EXISTS end_day text NOT NULL DEFAULT '';
+  `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS households (
       id text PRIMARY KEY,
@@ -66,6 +69,7 @@ export async function migrate(pool, log) {
       supply_total integer NOT NULL DEFAULT 0,
       doses_left integer NOT NULL DEFAULT 0,
       start_day text NOT NULL,
+      end_day text NOT NULL DEFAULT '',
       archived boolean NOT NULL DEFAULT false,
       created_at timestamptz NOT NULL DEFAULT now(),
       PRIMARY KEY (household_id, id)
@@ -86,6 +90,43 @@ export async function migrate(pool, log) {
       UNIQUE (household_id, medication_id, part, day)
     );
     CREATE INDEX IF NOT EXISTS dose_logs_day_idx ON dose_logs (household_id, day);
+    CREATE TABLE IF NOT EXISTS apple_links (
+      apple_user_id text PRIMARY KEY,
+      household_id text NOT NULL REFERENCES households (id) ON DELETE CASCADE,
+      member_id text NOT NULL,
+      linked_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE TABLE IF NOT EXISTS care_events (
+      household_id text NOT NULL REFERENCES households (id) ON DELETE CASCADE,
+      id text NOT NULL,
+      pet_id text NOT NULL,
+      title text NOT NULL,
+      kind text NOT NULL,
+      due_day text NOT NULL,
+      note text NOT NULL DEFAULT '',
+      created_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (household_id, id)
+    );
+    CREATE INDEX IF NOT EXISTS care_events_due_idx ON care_events (household_id, due_day);
+    CREATE TABLE IF NOT EXISTS device_tokens (
+      household_id text NOT NULL REFERENCES households (id) ON DELETE CASCADE,
+      member_id text NOT NULL,
+      platform text NOT NULL,
+      token text NOT NULL,
+      push_enabled boolean NOT NULL DEFAULT true,
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (household_id, member_id, token)
+    );
+    CREATE TABLE IF NOT EXISTS analytics_daily (
+      day date NOT NULL,
+      event text NOT NULL,
+      count integer NOT NULL DEFAULT 0,
+      PRIMARY KEY (day, event)
+    );
+  `);
+  await pool.query(`
+    ALTER TABLE households ADD COLUMN IF NOT EXISTS rc_expires_at timestamptz;
+    ALTER TABLE households ADD COLUMN IF NOT EXISTS rc_product_id text;
   `);
   await pool.query(
     `INSERT INTO meta (key, value) VALUES ('schema_version', $1)
@@ -189,6 +230,7 @@ function readMedication(input) {
     supplyTotal,
     dosesLeft: input?.dosesLeft === undefined ? supplyTotal : count(input.dosesLeft, supplyTotal),
     startDay: day(input?.startDay, "medication.startDay"),
+    endDay: text(input?.endDay, "medication.endDay", { max: 10, required: false }) || "",
   };
 }
 
@@ -226,11 +268,12 @@ async function insertMedication(client, householdId, medication) {
   ]);
   if (pet.rowCount === 0) throw new InputError("That pet is not in this household");
   const result = await client.query(
-    `INSERT INTO medications (household_id, id, pet_id, name, amount, parts, supply_total, doses_left, start_day)
-     VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9)
+    `INSERT INTO medications (household_id, id, pet_id, name, amount, parts, supply_total, doses_left, start_day, end_day)
+     VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10)
      ON CONFLICT (household_id, id) DO UPDATE SET
        name = EXCLUDED.name, amount = EXCLUDED.amount, parts = EXCLUDED.parts,
-       supply_total = EXCLUDED.supply_total, doses_left = EXCLUDED.doses_left, archived = false
+       supply_total = EXCLUDED.supply_total, doses_left = EXCLUDED.doses_left,
+       end_day = EXCLUDED.end_day, archived = false
      RETURNING *`,
     [
       householdId,
@@ -242,6 +285,7 @@ async function insertMedication(client, householdId, medication) {
       medication.supplyTotal,
       medication.dosesLeft,
       medication.startDay,
+      medication.endDay || "",
     ],
   );
   return mapMedication(result.rows[0]);
@@ -381,6 +425,7 @@ function mapMedication(row) {
     supplyTotal: row.supply_total,
     dosesLeft: row.doses_left,
     startDay: row.start_day,
+    endDay: row.end_day || "",
   };
 }
 
@@ -398,8 +443,32 @@ function mapLog(row) {
   };
 }
 
+const careKinds = ["vaccine", "vetVisit", "refill", "other"];
+
+function readCareEvent(input) {
+  return {
+    id: id(input?.id, "event.id"),
+    petId: id(input?.petId, "event.petId"),
+    title: text(input?.title, "event.title", { max: 80 }),
+    kind: oneOf(input?.kind, careKinds, "event.kind", "other"),
+    dueDay: day(input?.dueDay, "event.dueDay"),
+    note: text(input?.note, "event.note", { max: 200, required: false }) || "",
+  };
+}
+
+function mapCareEvent(row) {
+  return {
+    id: row.id,
+    petId: row.pet_id,
+    title: row.title,
+    kind: row.kind,
+    dueDay: row.due_day,
+    note: row.note || "",
+  };
+}
+
 export async function loadHousehold(pool, { householdId, memberId }) {
-  const [house, members, pets, medications, logs] = await Promise.all([
+  const [house, members, pets, medications, logs, careEvents] = await Promise.all([
     pool.query("SELECT * FROM households WHERE id = $1", [householdId]),
     pool.query("SELECT * FROM members WHERE household_id = $1 ORDER BY created_at", [householdId]),
     pool.query("SELECT * FROM pets WHERE household_id = $1 ORDER BY created_at", [householdId]),
@@ -410,6 +479,10 @@ export async function loadHousehold(pool, { householdId, memberId }) {
     pool.query(
       `SELECT * FROM dose_logs WHERE household_id = $1
        AND created_at > now() - interval '100 days' ORDER BY created_at DESC LIMIT 3000`,
+      [householdId],
+    ),
+    pool.query(
+      "SELECT * FROM care_events WHERE household_id = $1 ORDER BY due_day ASC LIMIT 200",
       [householdId],
     ),
   ]);
@@ -427,6 +500,7 @@ export async function loadHousehold(pool, { householdId, memberId }) {
     pets: pets.rows.map(mapPet),
     medications: medications.rows.map(mapMedication),
     logs: logs.rows.map(mapLog),
+    careEvents: careEvents.rows.map(mapCareEvent),
   };
 }
 
@@ -533,4 +607,247 @@ export async function startTrial(pool, { householdId }) {
     [householdId],
   );
   return { isPro: true, plan: result.rows[0]?.plan ?? "yearly" };
+}
+
+export async function addCareEvent(pool, { householdId }, body) {
+  const event = readCareEvent(body);
+  const pet = await pool.query("SELECT 1 FROM pets WHERE household_id = $1 AND id = $2", [
+    householdId,
+    event.petId,
+  ]);
+  if (pet.rowCount === 0) throw new InputError("That pet is not in this household");
+  const result = await pool.query(
+    `INSERT INTO care_events (household_id, id, pet_id, title, kind, due_day, note)
+     VALUES ($1,$2,$3,$4,$5,$6,$7)
+     ON CONFLICT (household_id, id) DO UPDATE SET
+       title = EXCLUDED.title, kind = EXCLUDED.kind, due_day = EXCLUDED.due_day, note = EXCLUDED.note
+     RETURNING *`,
+    [householdId, event.id, event.petId, event.title, event.kind, event.dueDay, event.note],
+  );
+  return mapCareEvent(result.rows[0]);
+}
+
+export async function removeCareEvent(pool, { householdId }, eventId) {
+  const result = await pool.query(
+    "DELETE FROM care_events WHERE household_id = $1 AND id = $2",
+    [householdId, id(eventId, "event.id")],
+  );
+  return result.rowCount > 0;
+}
+
+export async function linkAppleAccount(pool, { householdId, memberId }, appleUserId) {
+  const appleId = text(appleUserId, "appleUserId", { max: 128 });
+  const owner = await pool.query(
+    "SELECT 1 FROM members WHERE household_id = $1 AND id = $2 AND role = 'owner'",
+    [householdId, memberId],
+  );
+  if (owner.rowCount === 0) throw new InputError("Only the household owner can link Apple Sign-In");
+  await pool.query(
+    `INSERT INTO apple_links (apple_user_id, household_id, member_id)
+     VALUES ($1,$2,$3)
+     ON CONFLICT (apple_user_id) DO UPDATE SET household_id = EXCLUDED.household_id, member_id = EXCLUDED.member_id, linked_at = now()`,
+    [appleId, householdId, memberId],
+  );
+  return { linked: true };
+}
+
+export async function recoverFromApple(pool, appleUserId) {
+  const appleId = text(appleUserId, "appleUserId", { max: 128 });
+  const link = await pool.query("SELECT household_id, member_id FROM apple_links WHERE apple_user_id = $1", [
+    appleId,
+  ]);
+  const row = link.rows[0];
+  if (!row) return null;
+  const token = newToken();
+  await pool.query(
+    "UPDATE members SET token_hash = $1 WHERE household_id = $2 AND id = $3",
+    [hashToken(token), row.household_id, row.member_id],
+  );
+  return { token, householdId: row.household_id, memberId: row.member_id };
+}
+
+export async function registerDevice(pool, auth, body) {
+  const platform = oneOf(body?.platform, ["ios", "android", "other"], "platform", "other");
+  const token = text(body?.token, "token", { max: 512 });
+  const pushEnabled = body?.pushEnabled !== false;
+  await pool.query(
+    `INSERT INTO device_tokens (household_id, member_id, platform, token, push_enabled, updated_at)
+     VALUES ($1,$2,$3,$4,$5,now())
+     ON CONFLICT (household_id, member_id, token) DO UPDATE SET
+       push_enabled = EXCLUDED.push_enabled, updated_at = now()`,
+    [auth.householdId, auth.memberId, platform, token, pushEnabled],
+  );
+  return { ok: true };
+}
+
+export async function leaveHousehold(pool, { householdId, memberId }) {
+  await pool.query("DELETE FROM device_tokens WHERE household_id = $1 AND member_id = $2", [
+    householdId,
+    memberId,
+  ]);
+  const result = await pool.query(
+    "DELETE FROM members WHERE household_id = $1 AND id = $2 AND role <> 'owner'",
+    [householdId, memberId],
+  );
+  if (result.rowCount > 0) return { left: true };
+  const owner = await pool.query(
+    "SELECT 1 FROM members WHERE household_id = $1 AND id = $2 AND role = 'owner'",
+    [householdId, memberId],
+  );
+  if (owner.rowCount === 0) return { left: false };
+  await pool.query("UPDATE members SET token_hash = NULL WHERE household_id = $1 AND id = $2", [
+    householdId,
+    memberId,
+  ]);
+  return { left: true, ownerSignedOut: true };
+}
+
+export async function exportHouseholdData(pool, { householdId, memberId }) {
+  const snapshot = await loadHousehold(pool, { householdId, memberId });
+  if (!snapshot) return null;
+  return {
+    exportedAt: new Date().toISOString(),
+    ...snapshot,
+  };
+}
+
+export async function trackAnalytics(pool, events) {
+  const list = Array.isArray(events) ? events.slice(0, 50) : [];
+  for (const item of list) {
+    const name = text(item?.name, "event.name", { max: 64, required: false });
+    if (!name) continue;
+    const safe = name.replace(/[^a-z0-9_.]/gi, "").slice(0, 48);
+    if (!safe) continue;
+    await pool.query(
+      `INSERT INTO analytics_daily (day, event, count) VALUES (CURRENT_DATE, $1, 1)
+       ON CONFLICT (day, event) DO UPDATE SET count = analytics_daily.count + 1`,
+      [safe],
+    );
+  }
+  return { recorded: list.length };
+}
+
+export async function applyBatchOperation(pool, auth, operation) {
+  const type = text(operation?.type, "operation.type", { max: 32 });
+  const payload = operation?.payload ?? {};
+  switch (type) {
+    case "logDose": {
+      const result = await logDose(pool, auth, payload);
+      if (result.missing) return { status: "missing" };
+      if (result.conflict !== undefined) return { status: "conflict", log: result.conflict };
+      return { status: "ok", log: result.log, medication: result.medication };
+    }
+    case "addPet":
+      return { status: "ok", pet: await addPet(pool, auth, payload) };
+    case "updatePet":
+      return {
+        status: "ok",
+        pet: await updatePet(pool, auth, id(payload?.id, "pet.id"), payload),
+      };
+    case "addMedication":
+      return { status: "ok", medication: await addMedication(pool, auth, payload) };
+    case "removeMedication":
+      await archiveMedication(pool, auth, id(payload?.id, "medication.id"));
+      return { status: "ok" };
+    case "refill": {
+      const medication = await refillMedication(pool, auth, id(payload?.id, "medication.id"));
+      return medication ? { status: "ok", medication } : { status: "missing" };
+    }
+    case "addCareEvent":
+      return { status: "ok", careEvent: await addCareEvent(pool, auth, payload) };
+    case "removeCareEvent":
+      await removeCareEvent(pool, auth, id(payload?.id, "event.id"));
+      return { status: "ok" };
+    default:
+      throw new InputError(`Unknown operation type: ${type}`);
+  }
+}
+
+export async function applyBatch(pool, auth, body) {
+  const operations = list(body?.operations, 100);
+  const results = [];
+  for (const operation of operations) {
+    const opId = text(operation?.id, "operation.id", { max: 48, required: false }) || newId("op");
+    try {
+      const result = await applyBatchOperation(pool, auth, operation);
+      results.push({ id: opId, ...result });
+    } catch (error) {
+      results.push({
+        id: opId,
+        status: "error",
+        message: error instanceof InputError ? error.message : "Operation failed",
+      });
+    }
+  }
+  return { results, household: await loadHousehold(pool, auth) };
+}
+
+export async function notifyHouseholdOnDose(pool, auth, logEntry, logFn) {
+  const tokens = await pool.query(
+    `SELECT token, platform FROM device_tokens
+     WHERE household_id = $1 AND member_id <> $2 AND push_enabled = true`,
+    [auth.householdId, auth.memberId],
+  );
+  if (tokens.rowCount === 0) return;
+  const fcmKey = process.env.FCM_SERVER_KEY;
+  for (const row of tokens.rows) {
+    logFn("push.queued", {
+      householdId: auth.householdId,
+      platform: row.platform,
+      hasFcm: Boolean(fcmKey),
+    });
+    if (!fcmKey || row.platform === "ios" || !row.token.startsWith("fcm:")) continue;
+    try {
+      await fetch("https://fcm.googleapis.com/fcm/send", {
+        method: "POST",
+        headers: {
+          authorization: `key=${fcmKey}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          to: row.token.slice(4),
+          notification: {
+            title: "Dose logged",
+            body: `A caregiver logged ${logEntry.outcome} for today.`,
+          },
+          data: { type: "dose_logged", logId: logEntry.id },
+        }),
+      });
+    } catch (error) {
+      logFn("push.failed", { reason: String(error?.message ?? error).slice(0, 120) });
+    }
+  }
+}
+
+export async function handleRevenueCatWebhook(pool, body, logFn) {
+  const secret = process.env.REVENUECAT_WEBHOOK_SECRET;
+  if (secret && body?.authorization !== secret) {
+    return { status: "unauthorized" };
+  }
+  const event = body?.event;
+  const appUserId = event?.app_user_id ?? body?.app_user_id;
+  if (typeof appUserId !== "string" || !appUserId) {
+    return { status: "ignored", reason: "no_app_user_id" };
+  }
+  const member = await pool.query(
+    "SELECT household_id FROM members WHERE id = $1 LIMIT 1",
+    [appUserId],
+  );
+  const householdId = member.rows[0]?.household_id;
+  if (!householdId) return { status: "ignored", reason: "member_not_found" };
+  const type = event?.type ?? body?.type ?? "";
+  const active =
+    type.includes("INITIAL_PURCHASE") ||
+    type.includes("RENEWAL") ||
+    type.includes("UNCANCELLATION") ||
+    type.includes("PRODUCT_CHANGE");
+  const inactive =
+    type.includes("EXPIRATION") || type.includes("CANCELLATION") || type.includes("BILLING_ISSUE");
+  let isPro = null;
+  if (active) isPro = true;
+  if (inactive) isPro = false;
+  if (isPro === null) return { status: "ignored", reason: "event_type" };
+  await pool.query("UPDATE households SET is_pro = $1 WHERE id = $2", [isPro, householdId]);
+  logFn("billing.webhook", { householdId, type, isPro });
+  return { status: "ok", isPro };
 }

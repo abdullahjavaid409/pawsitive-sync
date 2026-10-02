@@ -54,14 +54,17 @@ class _JoinScreenState extends State<JoinScreen> {
     final data = await Clipboard.getData(Clipboard.kTextPlain);
     final match = RegExp(r'[A-Za-z0-9]{6}').firstMatch(data?.text ?? '');
     if (match == null) {
+      AppLog.event('join.paste_failed');
       setState(() => _error = 'No invite code found on the clipboard.');
       return;
     }
+    AppLog.event('join.paste_success');
     _code.text = match.group(0)!.toUpperCase();
   }
 
   Future<void> _join() async {
     if (_busy) return;
+    AppLog.event('join.started');
     FocusScope.of(context).unfocus();
     setState(() {
       _busy = true;
@@ -72,6 +75,7 @@ class _JoinScreenState extends State<JoinScreen> {
     final error = await care.join(code: _code.text, name: _name.text);
     if (!mounted) return;
     if (error != null) {
+      AppLog.event('join.ui_failed', {'error': error});
       setState(() {
         _busy = false;
         _error = error;

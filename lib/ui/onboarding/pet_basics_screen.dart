@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
@@ -88,6 +89,7 @@ class PetBasicsScreen extends StatelessWidget {
         footer: FilledButton(
           onPressed: model.hasValidPetName
               ? () {
+                  AppLog.event('onboarding.step', {'step': 'pet_basics'});
                   FocusScope.of(context).unfocus();
                   context.go(AppRoutes.petDetails);
                 }

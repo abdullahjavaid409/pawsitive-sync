@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
@@ -23,6 +24,10 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   Future<void> _choose(BuildContext context, {required bool ask}) async {
     if (_busy) return;
+    AppLog.event('onboarding.step', {
+      'step': 'notifications',
+      'ask': ask,
+    });
     setState(() => _busy = true);
     try {
       final model = context.read<OnboardingViewModel>();

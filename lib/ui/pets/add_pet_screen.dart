@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/constants/pet_limits.dart';
+import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
@@ -28,6 +29,14 @@ class _AddPetScreenState extends State<AddPetScreen> {
   void initState() {
     super.initState();
     _name.addListener(() => setState(() => _error = null));
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final care = context.read<CareRepository>();
+      if (!care.canAddPet) {
+        AppLog.event('pet.add.blocked', {'source': 'add_pet_screen'});
+        context.go(AppRoutes.paywall);
+      }
+    });
   }
 
   @override
@@ -56,12 +65,16 @@ class _AddPetScreenState extends State<AddPetScreen> {
     );
     if (!mounted) return;
     if (id == null) {
+      AppLog.event('pet.add.ui_failed', {
+        'error': care.lastError ?? 'unknown',
+      });
       setState(() {
         _busy = false;
         _error = care.lastError ?? 'Could not save. Try again.';
       });
       return;
     }
+    AppLog.event('pet.add.ui_success', {'petId': id, 'species': _species.name});
     final messenger = ScaffoldMessenger.of(context);
     final router = GoRouter.of(context);
     messenger.showSnackBar(
