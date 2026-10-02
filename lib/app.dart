@@ -2,11 +2,13 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/app_router.dart';
 import 'package:pawsitive_sync/core/theme/app_theme.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
 
+/// Applies the PawsitiveSync theme and router.
 class PawsitiveApp extends StatefulWidget {
   const PawsitiveApp({super.key});
 
@@ -42,9 +44,14 @@ class _PawsitiveAppState extends State<PawsitiveApp> {
   }
 }
 
+/// Sends framework and platform errors to Flutter's error presenter.
 void installErrorHandlers() {
-  FlutterError.onError = FlutterError.presentError;
+  FlutterError.onError = (details) {
+    AppLog.error('flutter.error', details.exception, details.stack);
+    FlutterError.presentError(details);
+  };
   PlatformDispatcher.instance.onError = (error, stack) {
+    AppLog.error('platform.error', error, stack);
     FlutterError.presentError(
       FlutterErrorDetails(exception: error, stack: stack),
     );

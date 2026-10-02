@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:provider/provider.dart';
 
+/// Summarizes recent doses so they can be shared with a vet.
 class VetReportScreen extends StatefulWidget {
   const VetReportScreen({super.key});
 
@@ -22,21 +24,27 @@ class _VetReportScreenState extends State<VetReportScreen> {
     final care = context.watch<CareRepository>();
     final pet = care.pets.first;
     final scheme = Theme.of(context).colorScheme;
+    final tokens = context.paws;
     final text = Theme.of(context).textTheme;
-    final inShell = GoRouterState.of(context).uri.path == '/reports';
 
     return Scaffold(
       body: SafeArea(
-        bottom: false,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-          children: [
-            if (!inShell)
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 4, 24, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
               Row(
                 children: [
                   IconButton(
                     tooltip: 'Back',
-                    onPressed: () => context.pop(),
+                    onPressed: () {
+                      if (context.canPop()) {
+                        context.pop();
+                      } else {
+                        context.go(AppRoutes.pets);
+                      }
+                    },
                     icon: StrokeIcon(
                       StrokeIconKind.chevronLeft,
                       color: scheme.onSurface,
@@ -52,116 +60,245 @@ class _VetReportScreenState extends State<VetReportScreen> {
                   const SizedBox(width: 48),
                 ],
               ),
-            Text("Ready for ${pet.name}'s checkup", style: text.headlineMedium),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                for (final days in [30, 60, 90]) ...[
-                  Expanded(
-                    child: _RangeChip(
-                      label: '$days days',
-                      selected: _days == days,
-                      onPressed: () => setState(() => _days = days),
+              const SizedBox(height: 16),
+              Text(
+                "Ready for ${pet.name}'s checkup",
+                style: text.headlineMedium?.copyWith(fontSize: 28),
+              ),
+              const SizedBox(height: 16),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: tokens.neutral,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Row(
+                    children: [
+                      for (final days in [30, 60, 90])
+                        Expanded(
+                          child: _RangeChip(
+                            label: '$days days',
+                            selected: _days == days,
+                            onPressed: () => setState(() => _days = days),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: tokens.neutral,
+                  borderRadius: BorderRadius.circular(18),
+                ),
+                child: SizedBox(
+                  height: 300,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: scheme.surfaceContainerLowest,
+                        borderRadius: const BorderRadius.vertical(
+                          top: Radius.circular(6),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: scheme.shadow.withValues(alpha: 0.1),
+                            blurRadius: 3,
+                            offset: const Offset(0, 1),
+                          ),
+                        ],
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Text(
+                                  '${pet.name} · Care report',
+                                  style: text.bodySmall?.copyWith(
+                                    color: scheme.onSurface,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const Spacer(),
+                                Text(
+                                  _rangeLabel(),
+                                  style: text.bodySmall?.copyWith(fontSize: 10),
+                                ),
+                              ],
+                            ),
+                            Text(
+                              '${pet.speciesLabel} · ${pet.ageYears} yrs · ${pet.conditions.join(', ')} · [VET CLINIC NAME]',
+                              style: text.bodySmall?.copyWith(fontSize: 10),
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              'DOSES GIVEN',
+                              style: text.labelSmall?.copyWith(
+                                fontSize: 10,
+                                letterSpacing: 0.6,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            const _Bar(
+                              label: 'Insulin 2 u',
+                              value: '59/60',
+                              fraction: 0.98,
+                            ),
+                            const _Bar(
+                              label: 'Benazepril',
+                              value: '29/30',
+                              fraction: 0.97,
+                            ),
+                            const _Bar(
+                              label: 'Fluids 100 ml',
+                              value: '28/30',
+                              fraction: 0.93,
+                            ),
+                            const SizedBox(height: 12),
+                            Text(
+                              'WEIGHT',
+                              style: text.labelSmall?.copyWith(
+                                fontSize: 10,
+                                letterSpacing: 0.6,
+                              ),
+                            ),
+                            const SizedBox(
+                              height: 40,
+                              width: double.infinity,
+                              child: _MiniChart(),
+                            ),
+                            Text(
+                              'SYMPTOM NOTES',
+                              style: text.labelSmall?.copyWith(
+                                fontSize: 10,
+                                letterSpacing: 0.6,
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Vomited ×4 (2 this week) · Low appetite ×1',
+                              style: text.bodySmall?.copyWith(
+                                fontSize: 11,
+                                color: scheme.onSurface,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
-                  if (days != 90) const SizedBox(width: 8),
-                ],
-              ],
-            ),
-            const SizedBox(height: 16),
-            SurfaceCard(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('${pet.name} · Care report', style: text.titleMedium),
-                  Text(_rangeLabel(), style: text.bodySmall),
-                  const SizedBox(height: 8),
-                  Text(
-                    '${pet.speciesLabel} · ${pet.ageYears} yrs · ${pet.conditions.join(', ')}',
-                    style: text.bodyMedium,
-                  ),
-                  const SizedBox(height: 16),
-                  Text('DOSES GIVEN', style: text.labelSmall),
-                  const SizedBox(height: 8),
-                  const _AdherenceRow(
-                    label: 'Insulin 2 u',
-                    value: '59/60',
-                    fraction: 59 / 60,
-                  ),
-                  const _AdherenceRow(
-                    label: 'Benazepril',
-                    value: '29/30',
-                    fraction: 29 / 30,
-                  ),
-                  const _AdherenceRow(
-                    label: 'Fluids 100 ml',
-                    value: '28/30',
-                    fraction: 28 / 30,
-                  ),
-                  const SizedBox(height: 16),
-                  Text('WEIGHT', style: text.labelSmall),
-                  const SizedBox(
-                    height: 72,
-                    width: double.infinity,
-                    child: _MiniChart(),
-                  ),
-                  const SizedBox(height: 12),
-                  Text('SYMPTOM NOTES', style: text.labelSmall),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Vomited ×4 (2 this week) · Low appetite ×1',
-                    style: text.bodyLarge,
-                  ),
-                  if (_showWho) ...[
-                    const SizedBox(height: 8),
-                    Text('Includes who gave each dose.', style: text.bodySmall),
+                ),
+              ),
+              const SizedBox(height: 16),
+              SurfaceCard(
+                child: Column(
+                  children: [
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        border: Border(
+                          bottom: BorderSide(color: scheme.surfaceContainer),
+                        ),
+                      ),
+                      child: SizedBox(
+                        height: 48,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  'Dose log, weight, symptoms',
+                                  style: text.bodyLarge,
+                                ),
+                              ),
+                              StrokeIcon(
+                                StrokeIconKind.check,
+                                size: 20,
+                                color: scheme.primary,
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                    InkWell(
+                      onTap: () => setState(() => _showWho = !_showWho),
+                      child: SizedBox(
+                        height: 48,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  'Show who gave each dose',
+                                  style: text.bodyLarge,
+                                ),
+                              ),
+                              PillSwitch(on: _showWho),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
                   ],
+                ),
+              ),
+              const Spacer(),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        textStyle: text.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      onPressed: () =>
+                          _toast(
+                            context,
+                            'Email isn’t hooked up yet. The report is still here.',
+                          ),
+                      icon: StrokeIcon(
+                        StrokeIconKind.mail,
+                        size: 18,
+                        color: scheme.onSurface,
+                      ),
+                      label: const Text('Email vet'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        textStyle: text.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          color: scheme.onPrimary,
+                        ),
+                      ),
+                      onPressed: () =>
+                          _toast(
+                            context,
+                            'Can’t save a PDF yet. You can still read it here.',
+                          ),
+                      icon: StrokeIcon(
+                        StrokeIconKind.download,
+                        size: 18,
+                        color: scheme.onPrimary,
+                      ),
+                      label: const Text('Export PDF'),
+                    ),
+                  ),
                 ],
               ),
-            ),
-            const SizedBox(height: 12),
-            SurfaceCard(
-              child: SwitchListTile(
-                title: const Text('Show who gave each dose'),
-                value: _showWho,
-                onChanged: (value) => setState(() => _showWho = value),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () =>
-                        _toast(context, 'Email draft opened for your vet.'),
-                    icon: StrokeIcon(
-                      StrokeIconKind.file,
-                      size: 18,
-                      color: context.paws.brandDark,
-                    ),
-                    label: const Text('Email vet'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: () =>
-                        _toast(context, 'PDF saved to your device.'),
-                    style: FilledButton.styleFrom(
-                      minimumSize: const Size.fromHeight(48),
-                    ),
-                    icon: StrokeIcon(
-                      StrokeIconKind.file,
-                      size: 18,
-                      color: scheme.onPrimary,
-                    ),
-                    label: const Text('Export PDF'),
-                  ),
-                ),
-              ],
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -196,23 +333,21 @@ class _RangeChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Material(
-      color: selected ? scheme.secondary : scheme.surfaceContainerLowest,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: selected ? scheme.secondary : scheme.outlineVariant,
-        ),
-      ),
+      color: selected ? scheme.surfaceContainerLowest : Colors.transparent,
+      elevation: selected ? 1 : 0,
+      shadowColor: scheme.shadow.withValues(alpha: 0.12),
+      borderRadius: BorderRadius.circular(9),
       child: InkWell(
         onTap: onPressed,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(9),
         child: SizedBox(
           height: 40,
           child: Center(
             child: Text(
               label,
               style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                color: selected ? scheme.onSecondary : scheme.onSurface,
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                color: selected ? scheme.onSurface : scheme.onSurfaceVariant,
               ),
             ),
           ),
@@ -222,8 +357,8 @@ class _RangeChip extends StatelessWidget {
   }
 }
 
-class _AdherenceRow extends StatelessWidget {
-  const _AdherenceRow({
+class _Bar extends StatelessWidget {
+  const _Bar({
     required this.label,
     required this.value,
     required this.fraction,
@@ -237,25 +372,38 @@ class _AdherenceRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.only(bottom: 6),
       child: Row(
         children: [
-          Expanded(
-            child: Text(label, style: Theme.of(context).textTheme.bodyLarge),
+          SizedBox(
+            width: 96,
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(fontSize: 11),
+            ),
           ),
           Expanded(
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(4),
+              borderRadius: BorderRadius.circular(3),
               child: LinearProgressIndicator(
                 value: fraction,
-                minHeight: 8,
+                minHeight: 6,
                 backgroundColor: scheme.outlineVariant,
                 color: scheme.primary,
               ),
             ),
           ),
-          const SizedBox(width: 12),
-          Text(value, style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 40,
+            child: Text(
+              value,
+              textAlign: TextAlign.right,
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(fontSize: 11),
+            ),
+          ),
         ],
       ),
     );
@@ -281,17 +429,21 @@ class _LinePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final path = Path()
-      ..moveTo(0, size.height * 0.2)
-      ..lineTo(size.width * 0.35, size.height * 0.28)
-      ..lineTo(size.width * 0.7, size.height * 0.55)
-      ..lineTo(size.width, size.height * 0.78);
+      ..moveTo(0, size.height * 0.25)
+      ..lineTo(size.width * 0.17, size.height * 0.3)
+      ..lineTo(size.width * 0.33, size.height * 0.35)
+      ..lineTo(size.width * 0.5, size.height * 0.5)
+      ..lineTo(size.width * 0.67, size.height * 0.6)
+      ..lineTo(size.width * 0.83, size.height * 0.75)
+      ..lineTo(size.width, size.height * 0.85);
     canvas.drawPath(
       path,
       Paint()
         ..color = color
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 2.25
-        ..strokeCap = StrokeCap.round,
+        ..strokeWidth = 1.75
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round,
     );
   }
 

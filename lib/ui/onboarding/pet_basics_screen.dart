@@ -9,6 +9,7 @@ import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
 
+/// Collects the first pet's name, species, age, and weight.
 class PetBasicsScreen extends StatelessWidget {
   const PetBasicsScreen({super.key});
 
@@ -156,8 +157,30 @@ class PetBasicsScreen extends StatelessWidget {
                           child: FilledButton(
                             onPressed: model.petName.trim().isEmpty
                                 ? null
-                                : () => context.go(AppRoutes.conditions),
-                            child: const Text('Continue'),
+                                : () {
+                                    final weight = model.weight.trim();
+                                    if (weight.isNotEmpty &&
+                                        !RegExp(
+                                          r'^\d{1,2}(\.\d{1,2})?$',
+                                        ).hasMatch(weight)) {
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                            'Use a weight like 4.6 kg, or leave it blank.',
+                                          ),
+                                        ),
+                                      );
+                                      return;
+                                    }
+                                    context.go(AppRoutes.conditions);
+                                  },
+                            child: Text(
+                              model.petName.trim().isEmpty
+                                  ? 'Add a name to continue'
+                                  : 'Continue',
+                            ),
                           ),
                         ),
                       ],
@@ -254,8 +277,8 @@ class _AgeStepper extends StatelessWidget {
             child: Row(
               children: [
                 IconButton(
-                  tooltip: 'Decrease age',
-                  onPressed: () => model.changeAge(-1),
+                  tooltip: years <= 0 ? 'Youngest age is 0' : 'Decrease age',
+                  onPressed: years <= 0 ? null : () => model.changeAge(-1),
                   icon: const Text('−', style: TextStyle(fontSize: 20)),
                 ),
                 Expanded(
@@ -266,8 +289,8 @@ class _AgeStepper extends StatelessWidget {
                   ),
                 ),
                 IconButton(
-                  tooltip: 'Increase age',
-                  onPressed: () => model.changeAge(1),
+                  tooltip: years >= 30 ? 'Oldest age is 30' : 'Increase age',
+                  onPressed: years >= 30 ? null : () => model.changeAge(1),
                   icon: const Text('+', style: TextStyle(fontSize: 20)),
                 ),
               ],

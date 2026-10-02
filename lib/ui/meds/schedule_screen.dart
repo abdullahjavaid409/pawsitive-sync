@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
-import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
+import 'package:pawsitive_sync/core/theme/app_colors.dart';
+import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 
+/// Lets a caregiver choose when a repeating dose is due.
 class ScheduleScreen extends StatefulWidget {
   const ScheduleScreen({super.key});
 
@@ -17,12 +19,13 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final tokens = context.paws;
     final text = Theme.of(context).textTheme;
 
     return Scaffold(
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          padding: const EdgeInsets.fromLTRB(24, 4, 24, 16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -43,31 +46,73 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                       style: text.titleMedium,
                     ),
                   ),
-                  Text('2/3', style: text.bodyMedium),
+                  SizedBox(
+                    width: 48,
+                    child: Text(
+                      '2/3',
+                      textAlign: TextAlign.center,
+                      style: text.bodyMedium,
+                    ),
+                  ),
                 ],
               ),
-              const SizedBox(height: 8),
-              Text('Heartworm chew · Juniper', style: text.bodyMedium),
-              const SizedBox(height: 8),
-              Text(
-                'When should the next dose be due?',
-                style: text.headlineMedium,
+              const SizedBox(height: 16),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: tokens.neutral,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 6,
+                  ),
+                  child: Text(
+                    'Heartworm chew · Juniper',
+                    style: text.bodyMedium?.copyWith(
+                      color: scheme.onSurface,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
               ),
               const SizedBox(height: 16),
-              SurfaceCard(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 14,
+              Text(
+                'When should the next dose be due?',
+                style: text.headlineMedium?.copyWith(fontSize: 28),
+              ),
+              const SizedBox(height: 16),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainerLowest,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: scheme.outlineVariant),
                 ),
-                child: Row(
-                  children: [
-                    Text('Repeats', style: text.bodyLarge),
-                    const Spacer(),
-                    Text('Every month', style: text.titleSmall),
-                  ],
+                child: SizedBox(
+                  height: 52,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    child: Row(
+                      children: [
+                        Text(
+                          'Repeats',
+                          style: text.bodyLarge?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          'Every month',
+                          style: text.bodyLarge?.copyWith(
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 16),
               _Rule(
                 title: 'From the last dose',
                 badge: 'Recommended',
@@ -83,43 +128,46 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                 onPressed: () => setState(() => _fromLastDose = false),
               ),
               const SizedBox(height: 16),
-              Text('HOW THIS PLAYS OUT', style: text.labelSmall),
-              const SizedBox(height: 8),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: tokens.neutral,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'HOW THIS PLAYS OUT',
+                        style: Theme.of(context).textTheme.labelSmall,
+                      ),
+                      const SizedBox(height: 16),
+                      const _Timeline(),
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
               const Row(
                 children: [
                   Expanded(
-                    child: _Play(date: 'Sep 1', caption: 'was due'),
+                    child: _Mini(label: 'Remind at', value: '9:00 AM'),
                   ),
+                  SizedBox(width: 8),
                   Expanded(
-                    child: _Play(date: 'Sep 4', caption: 'given late'),
-                  ),
-                  Expanded(
-                    child: _Play(date: 'Oct 4', caption: 'next due'),
-                  ),
-                  Expanded(
-                    child: _Play(date: 'Nov 4', caption: 'then'),
+                    child: _Mini(label: 'In the box', value: '6 chews'),
                   ),
                 ],
               ),
               const Spacer(),
-              SurfaceCard(
-                child: const Column(
-                  children: [
-                    _Line(label: 'Remind at', value: '9:00 AM'),
-                    _Line(
-                      label: 'In the box',
-                      value: '6 chews',
-                      divider: false,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
               FilledButton(
                 onPressed: () {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
-                      content: Text('Medication saved to Juniper’s schedule.'),
+                      content: Text(
+                        'Saved on Juniper’s schedule.',
+                      ),
                     ),
                   );
                   context.go(AppRoutes.today);
@@ -152,13 +200,14 @@ class _Rule extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final tokens = context.paws;
     return Material(
       color: scheme.surfaceContainerLowest,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
         side: BorderSide(
           color: selected ? scheme.primary : scheme.outlineVariant,
-          width: selected ? 1.5 : 1,
+          width: selected ? 2 : 1,
         ),
       ),
       child: InkWell(
@@ -172,7 +221,7 @@ class _Rule extends StatelessWidget {
               Container(
                 width: 22,
                 height: 22,
-                margin: const EdgeInsets.only(top: 2),
+                margin: const EdgeInsets.only(top: 1),
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   border: Border.all(
@@ -186,24 +235,48 @@ class _Rule extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text.rich(
-                      TextSpan(
-                        text: title,
-                        style: Theme.of(context).textTheme.titleMedium,
-                        children: [
-                          if (badge != null)
-                            TextSpan(
-                              text: '  $badge',
-                              style: Theme.of(context).textTheme.bodySmall
-                                  ?.copyWith(
-                                    color: scheme.primary,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                    Wrap(
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 8,
+                      children: [
+                        Text(
+                          title,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        if (badge != null)
+                          DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: scheme.primaryContainer,
+                              borderRadius: BorderRadius.circular(5),
                             ),
-                        ],
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              child: Text(
+                                badge!,
+                                style: Theme.of(context).textTheme.bodySmall
+                                    ?.copyWith(
+                                      color: tokens.brandDark,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      body,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w400,
+                        height: 1.4,
+                        color: selected
+                            ? scheme.onSurface
+                            : scheme.onSurfaceVariant,
                       ),
                     ),
-                    Text(body, style: Theme.of(context).textTheme.bodyMedium),
                   ],
                 ),
               ),
@@ -215,59 +288,174 @@ class _Rule extends StatelessWidget {
   }
 }
 
-class _Play extends StatelessWidget {
-  const _Play({required this.date, required this.caption});
-
-  final String date;
-  final String caption;
+class _Timeline extends StatelessWidget {
+  const _Timeline();
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    final scheme = Theme.of(context).colorScheme;
+    return Stack(
       children: [
-        Container(
-          width: 10,
-          height: 10,
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primary,
-            shape: BoxShape.circle,
+        Positioned(
+          left: 0,
+          right: 0,
+          top: 7,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 0),
+            child: Align(
+              alignment: Alignment.center,
+              child: FractionallySizedBox(
+                widthFactor: 0.75,
+                child: Container(height: 2, color: scheme.outline),
+              ),
+            ),
           ),
         ),
-        const SizedBox(height: 8),
-        Text(date, style: Theme.of(context).textTheme.titleSmall),
-        Text(caption, style: Theme.of(context).textTheme.bodySmall),
+        const Row(
+          children: [
+            Expanded(
+              child: _Stop(
+                date: 'Sep 1',
+                caption: 'was due',
+                struck: true,
+                fill: _StopFill.outlineMuted,
+              ),
+            ),
+            Expanded(
+              child: _Stop(
+                date: 'Sep 4',
+                caption: 'given late',
+                fill: _StopFill.amber,
+              ),
+            ),
+            Expanded(
+              child: _Stop(
+                date: 'Oct 4',
+                caption: 'next due',
+                fill: _StopFill.brand,
+              ),
+            ),
+            Expanded(
+              child: _Stop(
+                date: 'Nov 4',
+                caption: 'then',
+                fill: _StopFill.outlineBrand,
+              ),
+            ),
+          ],
+        ),
       ],
     );
   }
 }
 
-class _Line extends StatelessWidget {
-  const _Line({required this.label, required this.value, this.divider = true});
+enum _StopFill { outlineMuted, amber, brand, outlineBrand }
 
-  final String label;
-  final String value;
-  final bool divider;
+class _Stop extends StatelessWidget {
+  const _Stop({
+    required this.date,
+    required this.caption,
+    required this.fill,
+    this.struck = false,
+  });
+
+  final String date;
+  final String caption;
+  final _StopFill fill;
+  final bool struck;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      constraints: const BoxConstraints(minHeight: 48),
-      padding: const EdgeInsets.symmetric(horizontal: 16),
+    final scheme = Theme.of(context).colorScheme;
+    final tokens = context.paws;
+    final dateColor = switch (fill) {
+      _StopFill.outlineMuted => scheme.onSurfaceVariant,
+      _StopFill.amber => scheme.onSurface,
+      _StopFill.brand => tokens.brandDark,
+      _StopFill.outlineBrand => scheme.onSurface,
+    };
+    final captionColor = switch (fill) {
+      _StopFill.amber => tokens.warning,
+      _StopFill.brand => tokens.brandDark,
+      _ => scheme.onSurfaceVariant,
+    };
+    return Column(
+      children: [
+        Container(
+          width: 16,
+          height: 16,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: switch (fill) {
+              _StopFill.amber => tokens.amber,
+              _StopFill.brand => scheme.primary,
+              _StopFill.outlineMuted => scheme.surface,
+              _ => scheme.surfaceContainerLowest,
+            },
+            border: switch (fill) {
+              _StopFill.outlineMuted => Border.all(
+                color: AppColors.timelineMuted,
+                width: 2,
+              ),
+              _StopFill.outlineBrand => Border.all(
+                color: scheme.primary,
+                width: 2,
+              ),
+              _ => null,
+            },
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          date,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: dateColor,
+            fontWeight: FontWeight.w600,
+            decoration: struck ? TextDecoration.lineThrough : null,
+          ),
+        ),
+        Text(
+          caption,
+          style: Theme.of(context).textTheme.bodySmall
+              ?.copyWith(color: captionColor),
+        ),
+      ],
+    );
+  }
+}
+
+class _Mini extends StatelessWidget {
+  const _Mini({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
       decoration: BoxDecoration(
-        border: divider
-            ? Border(
-                bottom: BorderSide(
-                  color: Theme.of(context).colorScheme.outlineVariant,
-                ),
-              )
-            : null,
+        color: scheme.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: scheme.outlineVariant),
       ),
-      child: Row(
-        children: [
-          Text(label, style: Theme.of(context).textTheme.bodyLarge),
-          const Spacer(),
-          Text(value, style: Theme.of(context).textTheme.titleSmall),
-        ],
+      child: SizedBox(
+        height: 52,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(label, style: Theme.of(context).textTheme.bodySmall),
+              Text(
+                value,
+                style: Theme.of(context).textTheme.bodyLarge
+                    ?.copyWith(fontWeight: FontWeight.w500),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

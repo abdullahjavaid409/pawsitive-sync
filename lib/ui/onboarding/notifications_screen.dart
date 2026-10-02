@@ -7,6 +7,7 @@ import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
 
+/// Explains dose reminders before the trial offer.
 class NotificationsScreen extends StatelessWidget {
   const NotificationsScreen({super.key});
 
@@ -234,7 +235,6 @@ class _Point extends StatelessWidget {
             StrokeIconKind.check,
             size: 22,
             color: Theme.of(context).colorScheme.primary,
-            strokeWidth: 2,
           ),
           const SizedBox(width: 12),
           Expanded(

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pawsitive_sync/core/format/day_label.dart';
+import 'package:pawsitive_sync/core/motion/app_motion.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
@@ -9,6 +11,7 @@ import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/today/dose_sheets.dart';
 import 'package:provider/provider.dart';
 
+/// Shows today's doses and who has already given them.
 class TodayScreen extends StatefulWidget {
   const TodayScreen({super.key});
 
@@ -36,7 +39,17 @@ class _TodayScreenState extends State<TodayScreen> {
         break;
       }
     }
+    final slots = doses.length;
     final low = care.lowSupply;
+    final summary = doses.isEmpty ? 'Nothing due' : '$given of $slots given';
+    final nextLine = doses.isEmpty
+        ? ''
+        : next == null
+        ? 'Nothing else due'
+        : 'Next: ${next.name} at ${_dueTime(next)}';
+    final faces = care.members.length >= 3
+        ? [care.members[1], care.members[2], care.members[0]]
+        : care.members;
 
     return Scaffold(
       body: SafeArea(
@@ -52,7 +65,7 @@ class _TodayScreenState extends State<TodayScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Friday, October 2',
+                        dayLabel(),
                         style: text.bodyMedium?.copyWith(
                           fontWeight: FontWeight.w500,
                         ),
@@ -67,20 +80,18 @@ class _TodayScreenState extends State<TodayScreen> {
                   child: InkWell(
                     onTap: () => context.go(AppRoutes.household),
                     borderRadius: BorderRadius.circular(20),
-                    child: Row(
-                      children: [
-                        for (final member in care.members.take(3))
-                          Padding(
-                            padding: const EdgeInsets.only(left: 0),
-                            child: Transform.translate(
-                              offset: Offset(
-                                member == care.members.first ? 0 : -8,
-                                0,
-                              ),
-                              child: _memberAvatar(context, member, size: 30),
+                    child: SizedBox(
+                      width: 74,
+                      height: 30,
+                      child: Stack(
+                        children: [
+                          for (var i = 0; i < faces.length && i < 3; i++)
+                            Positioned(
+                              left: i * 22.0,
+                              child: _memberAvatar(context, faces[i], size: 30),
                             ),
-                          ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -89,41 +100,58 @@ class _TodayScreenState extends State<TodayScreen> {
             const SizedBox(height: 16),
             Row(
               children: [
-                Text(
-                  '$given of ${doses.length} given',
-                  style: text.bodyMedium?.copyWith(
-                    color: scheme.onSurface,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const Spacer(),
-                Text(
-                  next == null
-                      ? 'Nothing else due'
-                      : 'Next: ${next.name} at ${_dueTime(next)}',
-                  style: text.bodyMedium,
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                for (var i = 0; i < doses.length; i++) ...[
-                  Expanded(
-                    child: Container(
-                      height: 6,
-                      decoration: BoxDecoration(
-                        color: i < given
-                            ? scheme.primary
-                            : scheme.outlineVariant,
-                        borderRadius: BorderRadius.circular(3),
-                      ),
+                AnimatedSwitcher(
+                  duration: AppMotion.enterOf(context),
+                  switchInCurve: AppMotion.enterCurve,
+                  switchOutCurve: AppMotion.exitCurve,
+                  child: Text(
+                    summary,
+                    key: ValueKey(summary),
+                    style: text.bodyMedium?.copyWith(
+                      color: scheme.onSurface,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
-                  if (i != doses.length - 1) const SizedBox(width: 4),
-                ],
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: AnimatedSwitcher(
+                    duration: AppMotion.enterOf(context),
+                    switchInCurve: AppMotion.enterCurve,
+                    switchOutCurve: AppMotion.exitCurve,
+                    child: Text(
+                      nextLine,
+                      key: ValueKey(nextLine),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.end,
+                      style: text.bodyMedium,
+                    ),
+                  ),
+                ),
               ],
             ),
+            if (slots > 0) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  for (var i = 0; i < slots; i++) ...[
+                    Expanded(
+                      child: Container(
+                        height: 6,
+                        decoration: BoxDecoration(
+                          color: i < given
+                              ? scheme.primary
+                              : scheme.outlineVariant,
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                      ),
+                    ),
+                    if (i != slots - 1) const SizedBox(width: 4),
+                  ],
+                ],
+              ),
+            ],
             const SizedBox(height: 16),
             SizedBox(
               height: 36,
@@ -203,15 +231,28 @@ class _TodayScreenState extends State<TodayScreen> {
                 ),
               ),
             ],
-            for (final part in DayPart.values) ...[
-              if (doses.any((dose) => dose.part == part)) ...[
-                SectionLabel(part.name.toUpperCase()),
-                _DoseGroup(
-                  doses: doses.where((dose) => dose.part == part).toList(),
-                  onDose: (dose) => _openDose(context, dose),
+            if (doses.isEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 28),
+                child: Text(
+                  _petId == null
+                      ? 'Nothing is scheduled today.'
+                      : 'Nothing is scheduled for this pet today.',
+                  style: text.bodyLarge?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
                 ),
+              )
+            else
+              for (final part in DayPart.values) ...[
+                if (doses.any((dose) => dose.part == part)) ...[
+                  SectionLabel(part.name.toUpperCase()),
+                  _DoseGroup(
+                    doses: doses.where((dose) => dose.part == part).toList(),
+                    onDose: (dose) => _openDose(context, dose),
+                  ),
+                ],
               ],
-            ],
           ],
         ),
       ),
@@ -369,7 +410,6 @@ class _DoseTile extends StatelessWidget {
                       StrokeIconKind.check,
                       size: 16,
                       color: scheme.onPrimary,
-                      strokeWidth: 2.6,
                     )
                   : null,
             ),

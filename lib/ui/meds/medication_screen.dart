@@ -7,6 +7,7 @@ import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:provider/provider.dart';
 
+/// Shows one medication's supply, schedule, and recent doses.
 class MedicationScreen extends StatelessWidget {
   const MedicationScreen({super.key, required this.medicationId});
 
@@ -33,7 +34,7 @@ class MedicationScreen extends StatelessWidget {
                   onPressed: () => context.pop(),
                   icon: StrokeIcon(
                     StrokeIconKind.chevronLeft,
-                    color: scheme.onSurface,
+                    color: scheme.primary,
                   ),
                 ),
                 Text(
@@ -52,7 +53,10 @@ class MedicationScreen extends StatelessWidget {
       );
     }
 
-    final fraction = medication.dosesLeft / medication.supplyTotal;
+    final fraction = (medication.dosesLeft / medication.supplyTotal).clamp(
+      0.0,
+      1.0,
+    );
 
     return Scaffold(
       body: SafeArea(
@@ -63,33 +67,52 @@ class MedicationScreen extends StatelessWidget {
               children: [
                 TextButton.icon(
                   onPressed: () => context.pop(),
+                  style: TextButton.styleFrom(
+                    foregroundColor: scheme.primary,
+                    textStyle: text.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w400,
+                    ),
+                    padding: const EdgeInsets.only(left: 0),
+                  ),
                   icon: StrokeIcon(
                     StrokeIconKind.chevronLeft,
-                    size: 18,
-                    color: scheme.onSurface,
+                    size: 22,
+                    color: scheme.primary,
                   ),
                   label: const Text('Today'),
-                  style: TextButton.styleFrom(
-                    foregroundColor: scheme.onSurface,
-                  ),
                 ),
                 const Spacer(),
                 TextButton(
                   onPressed: () => context.push(AppRoutes.schedule),
-                  child: Text(
-                    'Edit',
-                    style: text.titleSmall?.copyWith(color: scheme.primary),
+                  style: TextButton.styleFrom(
+                    foregroundColor: scheme.primary,
+                    textStyle: text.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w400,
+                    ),
                   ),
+                  child: const Text('Edit'),
                 ),
               ],
             ),
-            Text(medication.name, style: text.displaySmall),
-            Text(
-              medication.detail,
-              style: text.bodyLarge?.copyWith(color: scheme.onSurfaceVariant),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(medication.name, style: text.headlineMedium),
+                  Text(
+                    medication.detail,
+                    style: text.bodyLarge?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 24),
             SurfaceCard(
+              radius: 18,
+              borderColor: tokens.warningBorder,
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -107,83 +130,111 @@ class MedicationScreen extends StatelessWidget {
                       const Spacer(),
                       Text(
                         'of ${medication.supplyTotal}',
-                        style: text.bodySmall,
+                        style: text.bodyMedium,
                       ),
                     ],
                   ),
                   const SizedBox(height: 8),
-                  Text('${medication.dosesLeft}', style: text.displaySmall),
-                  Text('doses left', style: text.bodyMedium),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Text(
+                        '${medication.dosesLeft}',
+                        style: text.displaySmall?.copyWith(
+                          fontSize: 44,
+                          height: 1,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        'doses left',
+                        style: text.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w400,
+                          color: scheme.onSurface,
+                        ),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 12),
                   ClipRRect(
                     borderRadius: BorderRadius.circular(4),
                     child: LinearProgressIndicator(
-                      value: fraction.clamp(0, 1),
+                      value: fraction,
                       minHeight: 8,
-                      backgroundColor: scheme.outlineVariant,
-                      color: medication.isLow ? tokens.warning : scheme.primary,
+                      backgroundColor: tokens.neutral,
+                      color: medication.isLow ? tokens.amber : scheme.primary,
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 8),
                   Text.rich(
                     TextSpan(
                       text: 'Last dose ',
-                      style: text.bodyMedium,
+                      style: text.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w400,
+                      ),
                       children: [
                         TextSpan(
                           text: medication.lastsUntil,
-                          style: text.bodyMedium?.copyWith(
-                            color: scheme.onSurface,
-                            fontWeight: FontWeight.w600,
-                          ),
+                          style: const TextStyle(fontWeight: FontWeight.w600),
                         ),
                         const TextSpan(text: ' at this pace'),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 16),
                   Row(
                     children: [
                       Expanded(
                         child: FilledButton(
-                          onPressed: medication.isLow
-                              ? () {
-                                  care.refill(medication.id);
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text(
-                                        'Supply reset to a full box.',
-                                      ),
-                                    ),
-                                  );
-                                }
-                              : null,
+                          onPressed: () {
+                            care.refill(medication.id);
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Refilled. The box is full again.',
+                                ),
+                              ),
+                            );
+                          },
                           style: FilledButton.styleFrom(
                             minimumSize: const Size.fromHeight(48),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            textStyle: text.titleMedium,
                           ),
                           child: const Text('I refilled it'),
                         ),
                       ),
                       const SizedBox(width: 8),
-                      OutlinedButton.icon(
-                        onPressed: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text(
-                                'Call your clinic from the phone app.',
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'Can’t dial from here. Call the clinic on your phone.',
+                                ),
                               ),
+                            );
+                          },
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size.fromHeight(48),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
                             ),
-                          );
-                        },
-                        style: OutlinedButton.styleFrom(
-                          minimumSize: const Size(0, 48),
+                            textStyle: text.bodyLarge?.copyWith(
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          icon: StrokeIcon(
+                            StrokeIconKind.phone,
+                            size: 18,
+                            color: scheme.onSurface,
+                          ),
+                          label: const Text('Call vet'),
                         ),
-                        icon: StrokeIcon(
-                          StrokeIconKind.phone,
-                          size: 18,
-                          color: scheme.onSurface,
-                        ),
-                        label: const Text('Call vet'),
                       ),
                     ],
                   ),
@@ -210,67 +261,90 @@ class MedicationScreen extends StatelessWidget {
                 children: [
                   Text('LAST 7 DAYS', style: text.labelSmall),
                   const Spacer(),
-                  Text(medication.onTimeLabel, style: text.bodySmall),
+                  Text(medication.onTimeLabel, style: text.bodyMedium),
                 ],
               ),
             ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                for (final day in [
-                  'Sat',
-                  'Sun',
-                  'Mon',
-                  'Tue',
-                  'Wed',
-                  'Thu',
-                  'Fri',
-                ])
-                  Column(
+            SurfaceCard(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                children: [
+                  Row(
                     children: [
-                      Container(
-                        width: 28,
-                        height: 28,
-                        decoration: BoxDecoration(
-                          color: day == 'Wed'
-                              ? tokens.warningBg
-                              : scheme.primary,
-                          shape: BoxShape.circle,
+                      for (final day in [
+                        'Sat',
+                        'Sun',
+                        'Mon',
+                        'Tue',
+                        'Wed',
+                        'Thu',
+                        'Fri',
+                      ])
+                        Expanded(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 2),
+                            child: Column(
+                              children: [
+                                Container(
+                                  height: 28,
+                                  decoration: BoxDecoration(
+                                    color: day == 'Wed'
+                                        ? tokens.amber
+                                        : scheme.primary,
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  day,
+                                  style: text.bodySmall?.copyWith(
+                                    fontWeight: day == 'Fri'
+                                        ? FontWeight.w600
+                                        : FontWeight.w400,
+                                    color: day == 'Fri'
+                                        ? scheme.onSurface
+                                        : scheme.onSurfaceVariant,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(day, style: text.bodySmall),
                     ],
                   ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            for (final log in medication.history)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text.rich(
-                        TextSpan(
-                          text: log.when,
-                          style: text.bodyLarge,
-                          children: [
-                            if (log.lateNote != null)
+                  const SizedBox(height: 16),
+                  for (final log in medication.history)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text.rich(
                               TextSpan(
-                                text: ' · ${log.lateNote}',
-                                style: text.bodyMedium?.copyWith(
-                                  color: tokens.warning,
+                                text: log.when,
+                                style: text.titleSmall?.copyWith(
+                                  fontWeight: FontWeight.w400,
                                 ),
+                                children: [
+                                  if (log.lateNote != null)
+                                    TextSpan(
+                                      text: ' · ${log.lateNote}',
+                                      style: TextStyle(
+                                        color: tokens.warning,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                ],
                               ),
-                          ],
-                        ),
+                            ),
+                          ),
+                          Text(log.who, style: text.bodyMedium),
+                        ],
                       ),
                     ),
-                    Text(log.who, style: text.bodyMedium),
-                  ],
-                ),
+                ],
               ),
+            ),
           ],
         ),
       ),
@@ -287,6 +361,7 @@ class _Pair extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Container(
       constraints: const BoxConstraints(minHeight: 48),
       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -297,9 +372,17 @@ class _Pair extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Text(label, style: Theme.of(context).textTheme.bodyLarge),
+          Text(
+            label,
+            style: Theme.of(context).textTheme.bodyLarge
+                ?.copyWith(color: scheme.onSurfaceVariant),
+          ),
           const Spacer(),
-          Text(value, style: Theme.of(context).textTheme.titleSmall),
+          Text(
+            value,
+            style: Theme.of(context).textTheme.bodyLarge
+                ?.copyWith(fontWeight: FontWeight.w500),
+          ),
         ],
       ),
     );

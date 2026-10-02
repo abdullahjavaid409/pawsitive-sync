@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:pawsitive_sync/core/theme/app_colors.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 
+/// Light and dark themes built from the shared PawsitiveSync palette.
 abstract final class AppTheme {
   static ThemeData light() => _build(Brightness.light);
 
@@ -17,19 +18,19 @@ abstract final class AppTheme {
       primaryContainer: isLight ? AppColors.brandSoft : AppColors.darkBrandSoft,
       onPrimaryContainer: isLight
           ? AppColors.brandDark
-          : const Color(0xFFD7EBDD),
+          : AppColors.darkOnPrimaryContainer,
       secondary: AppColors.ink,
       onSecondary: AppColors.white,
       secondaryContainer: isLight ? AppColors.neutral : AppColors.darkNeutral,
       onSecondaryContainer: isLight ? AppColors.ink : AppColors.darkInk,
-      error: const Color(0xFFB42318),
+      error: AppColors.error,
       onError: AppColors.white,
-      errorContainer: const Color(0xFFF8E4E2),
-      onErrorContainer: const Color(0xFF7A1D16),
+      errorContainer: AppColors.errorContainer,
+      onErrorContainer: AppColors.onErrorContainer,
       surface: isLight ? AppColors.background : AppColors.darkSurface,
       onSurface: isLight ? AppColors.ink : AppColors.darkInk,
       onSurfaceVariant: isLight ? AppColors.muted : AppColors.darkMuted,
-      outline: isLight ? AppColors.stroke : const Color(0xFF5C6560),
+      outline: isLight ? AppColors.stroke : AppColors.darkStroke,
       outlineVariant: isLight ? AppColors.hairline : AppColors.darkHairline,
       shadow: AppColors.ink,
       scrim: AppColors.scrim,
@@ -42,9 +43,7 @@ abstract final class AppTheme {
           ? AppColors.background
           : AppColors.darkSurface,
       surfaceContainer: isLight ? AppColors.neutral : AppColors.darkNeutral,
-      surfaceContainerHigh: isLight
-          ? AppColors.divider
-          : const Color(0xFF2A332F),
+      surfaceContainerHigh: isLight ? AppColors.divider : AppColors.darkDivider,
       surfaceContainerHighest: isLight
           ? AppColors.hairline
           : AppColors.darkHairline,
@@ -212,6 +211,14 @@ abstract final class AppTheme {
         contentTextStyle: text.bodyMedium?.copyWith(
           color: scheme.onInverseSurface,
         ),
+      ),
+      switchTheme: SwitchThemeData(
+        thumbColor: const WidgetStatePropertyAll(AppColors.white),
+        trackColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) return AppColors.brand;
+          return isLight ? AppColors.stroke : AppColors.darkStroke;
+        }),
+        trackOutlineColor: const WidgetStatePropertyAll(Colors.transparent),
       ),
     );
   }

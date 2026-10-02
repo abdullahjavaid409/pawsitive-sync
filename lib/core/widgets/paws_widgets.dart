@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:pawsitive_sync/core/motion/app_motion.dart';
+import 'package:pawsitive_sync/core/theme/app_colors.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 
@@ -11,6 +13,7 @@ class InitialsAvatar extends StatelessWidget {
     this.size = 30,
     this.fontSize = 13,
     this.borderColor,
+    this.borderWidth = 2,
     this.showPresence = false,
     this.dashed = false,
   });
@@ -21,6 +24,7 @@ class InitialsAvatar extends StatelessWidget {
   final double size;
   final double fontSize;
   final Color? borderColor;
+  final double borderWidth;
   final bool showPresence;
   final bool dashed;
 
@@ -30,6 +34,14 @@ class InitialsAvatar extends StatelessWidget {
     return Stack(
       clipBehavior: Clip.none,
       children: [
+        if (dashed)
+          CustomPaint(
+            size: Size(size, size),
+            painter: DashedCirclePainter(
+              color: ring ?? Theme.of(context).colorScheme.outline,
+              strokeWidth: borderWidth,
+            ),
+          ),
         Container(
           width: size,
           height: size,
@@ -37,12 +49,9 @@ class InitialsAvatar extends StatelessWidget {
           decoration: BoxDecoration(
             color: dashed ? Colors.transparent : background,
             shape: BoxShape.circle,
-            border: ring == null && !dashed
+            border: ring == null || dashed
                 ? null
-                : Border.all(
-                    color: ring ?? Theme.of(context).colorScheme.outline,
-                    width: dashed ? 1.5 : 2,
-                  ),
+                : Border.all(color: ring, width: borderWidth),
           ),
           child: Text(
             label,
@@ -78,6 +87,78 @@ class InitialsAvatar extends StatelessWidget {
   }
 }
 
+class DashedCirclePainter extends CustomPainter {
+  const DashedCirclePainter({required this.color, required this.strokeWidth});
+
+  final Color color;
+  final double strokeWidth;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = strokeWidth
+      ..strokeCap = StrokeCap.round;
+    final radius = (size.shortestSide - strokeWidth) / 2;
+    final center = size.center(Offset.zero);
+    const dash = 3.2;
+    const gap = 3.2;
+    final circumference = 2 * 3.141592653589793 * radius;
+    final count = (circumference / (dash + gap)).floor();
+    final sweep = (dash / circumference) * 2 * 3.141592653589793;
+    final step = (dash + gap) / circumference * 2 * 3.141592653589793;
+    for (var i = 0; i < count; i++) {
+      canvas.drawArc(
+        Rect.fromCircle(center: center, radius: radius),
+        -1.5707963267948966 + i * step,
+        sweep,
+        false,
+        paint,
+      );
+    }
+  }
+
+  @override
+  bool shouldRepaint(DashedCirclePainter oldDelegate) =>
+      oldDelegate.color != color || oldDelegate.strokeWidth != strokeWidth;
+}
+
+class PillSwitch extends StatelessWidget {
+  const PillSwitch({super.key, required this.on});
+
+  final bool on;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return AnimatedContainer(
+      duration: AppMotion.enterOf(context),
+      curve: AppMotion.enterCurve,
+      width: 51,
+      height: 31,
+      decoration: BoxDecoration(
+        color: on ? scheme.primary : scheme.outline,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: AnimatedAlign(
+        duration: AppMotion.enterOf(context),
+        curve: AppMotion.enterCurve,
+        alignment: on ? Alignment.centerRight : Alignment.centerLeft,
+        child: Container(
+          width: 27,
+          height: 27,
+          margin: const EdgeInsets.symmetric(horizontal: 2),
+          decoration: const BoxDecoration(
+            color: AppColors.white,
+            shape: BoxShape.circle,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class CheckMark extends StatelessWidget {
   const CheckMark({super.key, required this.selected, this.size = 24});
 
@@ -104,7 +185,6 @@ class CheckMark extends StatelessWidget {
               StrokeIconKind.check,
               size: size * 0.66,
               color: scheme.onPrimary,
-              strokeWidth: 2.6,
             )
           : null,
     );

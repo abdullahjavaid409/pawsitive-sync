@@ -1,141 +1,166 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pawsitive_sync/core/format/day_label.dart';
 import 'package:pawsitive_sync/core/theme/app_colors.dart';
+import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
-import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
-import 'package:provider/provider.dart';
 
+/// Lock-screen preview of a due dose, with quick actions.
 class LockScreen extends StatelessWidget {
   const LockScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final name = context.watch<OnboardingViewModel>().petName.trim();
-    final pet = name.isEmpty ? 'Miso' : name;
+    final text = Theme.of(context).textTheme;
+    final tokens = context.paws;
+    final scheme = Theme.of(context).colorScheme;
 
     return Scaffold(
       backgroundColor: AppColors.lock,
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Friday, October 2',
-                style: TextStyle(
-                  color: Colors.white70,
-                  fontSize: 14,
+              Text(
+                dayLabel(),
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: AppColors.lockDate,
+                  fontSize: 18,
                   fontWeight: FontWeight.w500,
                 ),
               ),
-              const Text(
-                '7:58',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 72,
+              Text(
+                clockLabel(),
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: AppColors.white,
+                  fontSize: 92,
                   fontWeight: FontWeight.w600,
-                  letterSpacing: -2,
+                  letterSpacing: -3.7,
                   height: 1,
                 ),
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 72),
               DecoratedBox(
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(20),
+                  color: AppColors.lockCard,
+                  borderRadius: BorderRadius.circular(22),
                 ),
                 child: Padding(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Row(
+                      Row(
                         children: [
-                          _Dot(),
-                          SizedBox(width: 8),
+                          Container(
+                            width: 20,
+                            height: 20,
+                            decoration: BoxDecoration(
+                              color: scheme.primary,
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
                           Text(
                             'PAWSITIVESYNC',
-                            style: TextStyle(
-                              color: Colors.white70,
-                              fontSize: 13,
+                            style: text.bodySmall?.copyWith(
+                              letterSpacing: 0.3,
                               fontWeight: FontWeight.w500,
-                              letterSpacing: 0.4,
                             ),
                           ),
-                          Spacer(),
-                          Text(
-                            'now',
-                            style: TextStyle(
-                              color: Colors.white70,
-                              fontSize: 13,
-                            ),
-                          ),
+                          const Spacer(),
+                          Text('now', style: text.bodySmall),
                         ],
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        "$pet's evening insulin is due",
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
+                        "Miso's evening insulin is due",
+                        style: text.titleMedium,
                       ),
                       const SizedBox(height: 2),
-                      const Text(
+                      Text(
                         '2 units with food at 8:00 PM. Dan is on tonight.',
-                        style: TextStyle(color: Colors.white70, fontSize: 15),
+                        style: text.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w400,
+                          height: 1.4,
+                          color: scheme.onSurface,
+                        ),
                       ),
                     ],
                   ),
                 ),
               ),
-              const SizedBox(height: 12),
-              _Action(
-                label: 'Mark given',
-                icon: StrokeIconKind.check,
-                onPressed: () =>
-                    _done(context, 'Marked given from the lock screen.'),
-              ),
-              _Action(
-                label: 'Snooze 15 minutes',
-                icon: StrokeIconKind.bell,
-                onPressed: () => _done(context, 'Snoozed for 15 minutes.'),
-              ),
-              _Action(
-                label: 'Someone else gave it',
-                icon: StrokeIconKind.people,
-                onPressed: () => _done(context, 'Left for the person on duty.'),
-              ),
-              const Spacer(),
+              const SizedBox(height: 8),
               DecoratedBox(
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(16),
+                  color: AppColors.lockCard,
+                  borderRadius: BorderRadius.circular(18),
                 ),
-                child: const Padding(
-                  padding: EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    _Action(
+                      label: 'Mark given',
+                      color: tokens.brandDark,
+                      icon: StrokeIconKind.check,
+                      iconColor: tokens.brandDark,
+                      onPressed: () =>
+                          _done(context, 'Marked given from the lock screen.'),
+                    ),
+                    _Action(
+                      label: 'Snooze 15 minutes',
+                      icon: StrokeIconKind.clock,
+                      iconColor: scheme.onSurfaceVariant,
+                      onPressed: () =>
+                          _done(context, 'Snoozed for 15 minutes.'),
+                    ),
+                    _Action(
+                      label: 'Someone else gave it',
+                      icon: StrokeIconKind.people,
+                      iconColor: scheme.onSurfaceVariant,
+                      divider: false,
+                      onPressed: () =>
+                          _done(context, 'Left for the person on duty.'),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: AppColors.lockHistory,
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 12,
+                  ),
                   child: Row(
                     children: [
-                      _Dot(),
-                      SizedBox(width: 12),
+                      Container(
+                        width: 32,
+                        height: 32,
+                        decoration: BoxDecoration(
+                          color: scheme.primary,
+                          borderRadius: BorderRadius.circular(9),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
                               "Sara gave Juniper's supplement",
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w600,
-                              ),
+                              style: text.titleSmall,
                             ),
                             Text(
                               'Evening dose done · 7:41 PM',
-                              style: TextStyle(
-                                color: Colors.white70,
-                                fontSize: 14,
+                              style: text.bodyMedium?.copyWith(
+                                color: scheme.onSurface,
                               ),
                             ),
                           ],
@@ -145,13 +170,16 @@ class LockScreen extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(height: 16),
-              Center(
-                child: TextButton(
-                  onPressed: () => context.pop(),
-                  child: const Text(
-                    'Close preview',
-                    style: TextStyle(color: Colors.white70),
+              const Spacer(),
+              GestureDetector(
+                onTap: () => context.pop(),
+                child: Container(
+                  width: 134,
+                  height: 5,
+                  margin: const EdgeInsets.only(bottom: 8),
+                  decoration: BoxDecoration(
+                    color: AppColors.lockHandle,
+                    borderRadius: BorderRadius.circular(3),
                   ),
                 ),
               ),
@@ -169,64 +197,49 @@ class LockScreen extends StatelessWidget {
   }
 }
 
-class _Dot extends StatelessWidget {
-  const _Dot();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 20,
-      height: 20,
-      decoration: BoxDecoration(
-        color: AppColors.brand,
-        borderRadius: BorderRadius.circular(6),
-      ),
-    );
-  }
-}
-
 class _Action extends StatelessWidget {
   const _Action({
     required this.label,
     required this.icon,
+    required this.iconColor,
     required this.onPressed,
+    this.color,
+    this.divider = true,
   });
 
   final String label;
   final StrokeIconKind icon;
+  final Color iconColor;
   final VoidCallback onPressed;
+  final Color? color;
+  final bool divider;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Material(
-        color: Colors.white.withValues(alpha: 0.1),
-        borderRadius: BorderRadius.circular(14),
-        child: InkWell(
-          onTap: onPressed,
-          borderRadius: BorderRadius.circular(14),
-          child: SizedBox(
-            height: 52,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      label,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  StrokeIcon(icon, color: Colors.white, size: 18),
-                ],
+    final scheme = Theme.of(context).colorScheme;
+    return InkWell(
+      onTap: onPressed,
+      child: Container(
+        height: 48,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        decoration: BoxDecoration(
+          border: divider
+              ? Border(bottom: BorderSide(color: scheme.outlineVariant))
+              : null,
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                label,
+                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                  fontWeight: color == null ? FontWeight.w400 : FontWeight.w600,
+                  color: color ?? scheme.onSurface,
+                ),
               ),
             ),
-          ),
+            StrokeIcon(icon, size: 20, color: iconColor),
+          ],
         ),
       ),
     );

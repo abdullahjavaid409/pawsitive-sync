@@ -9,6 +9,7 @@ import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/household/invite_paywall_sheet.dart';
 import 'package:provider/provider.dart';
 
+/// Lists household members and the doses logged today.
 class HouseholdScreen extends StatelessWidget {
   const HouseholdScreen({super.key});
 

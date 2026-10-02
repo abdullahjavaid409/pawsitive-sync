@@ -7,6 +7,7 @@ import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
 
+/// Offers a free trial and a free path that keeps one pet.
 class PaywallScreen extends StatelessWidget {
   const PaywallScreen({super.key});
 
@@ -45,7 +46,9 @@ class PaywallScreen extends StatelessWidget {
                     onPressed: () {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                          content: Text('Nothing to restore on this device.'),
+                          content: Text(
+                            'No purchase on this phone to restore.',
+                          ),
                         ),
                       );
                     },
@@ -218,16 +221,10 @@ class _TimelineStep extends StatelessWidget {
                           StrokeIconKind.check,
                           size: 14,
                           color: scheme.onPrimary,
-                          strokeWidth: 2.6,
                         )
                       : icon == null
                       ? null
-                      : StrokeIcon(
-                          icon!,
-                          size: 12,
-                          color: scheme.primary,
-                          strokeWidth: 2.4,
-                        ),
+                      : StrokeIcon(icon!, size: 12, color: scheme.primary),
                 ),
                 if (showLine)
                   Expanded(

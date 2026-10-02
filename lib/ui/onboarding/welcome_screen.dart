@@ -7,6 +7,7 @@ import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
 
+/// Introduces shared pet care and starts setup.
 class WelcomeScreen extends StatelessWidget {
   const WelcomeScreen({super.key});
 
@@ -184,7 +185,6 @@ class _PreviewRow extends StatelessWidget {
                 StrokeIconKind.check,
                 size: 20,
                 color: scheme.onPrimary,
-                strokeWidth: 2.2,
               ),
             )
           else

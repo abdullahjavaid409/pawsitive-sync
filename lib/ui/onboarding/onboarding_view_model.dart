@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
+import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 
+/// Stores setup answers until onboarding is marked complete.
 class OnboardingViewModel extends ChangeNotifier {
   bool isComplete = false;
   String petName = 'Miso';
@@ -81,5 +83,6 @@ class OnboardingViewModel extends ChangeNotifier {
     remindersOn = reminders;
     isComplete = true;
     notifyListeners();
+    AppLog.event('onboarding.finished', {'reminders': reminders});
   }
 }

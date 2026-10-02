@@ -1,23 +1,27 @@
 import 'package:flutter/foundation.dart';
+import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 
 /// In-memory household. This is the source of truth for the demo schedule.
 class CareRepository extends ChangeNotifier {
-  CareRepository() {
-    _members = List<Member>.of(_seedMembers);
-    _pets = List<Pet>.of(_seedPets);
-    _doses = List<Dose>.of(_seedDoses);
-    _medications = List<Medication>.of(_seedMedications);
-    _activity = List<ActivityItem>.of(_seedActivity);
-  }
+  CareRepository()
+    : _members = List<Member>.of(_seedMembers),
+      _pets = List<Pet>.of(_seedPets),
+      _doses = List<Dose>.of(_seedDoses),
+      _medications = List<Medication>.of(_seedMedications),
+      _activity = List<ActivityItem>.of(_seedActivity);
 
-  late List<Member> _members;
-  late List<Pet> _pets;
-  late List<Dose> _doses;
-  late List<Medication> _medications;
-  late List<ActivityItem> _activity;
-  bool isPro = false;
-  BillingPlan plan = BillingPlan.yearly;
+  final List<Member> _members;
+  final List<Pet> _pets;
+  final List<Dose> _doses;
+  final List<Medication> _medications;
+  List<ActivityItem> _activity;
+  bool _isPro = false;
+  BillingPlan _plan = BillingPlan.yearly;
+
+  bool get isPro => _isPro;
+
+  BillingPlan get plan => _plan;
 
   List<Member> get members => List.unmodifiable(_members);
   List<Pet> get pets => List.unmodifiable(_pets);
@@ -69,7 +73,10 @@ class CareRepository extends ChangeNotifier {
     DoseOutcome? outcome,
   }) {
     final index = _doses.indexWhere((dose) => dose.id == doseId);
-    if (index < 0) return;
+    if (index < 0) {
+      AppLog.event('dose.log_rejected', {'doseId': doseId});
+      return;
+    }
     final dose = _doses[index];
     final member = memberById(memberId);
     final pet = petById(dose.petId);
@@ -97,32 +104,51 @@ class CareRepository extends ChangeNotifier {
       ..._activity,
     ];
     notifyListeners();
+    AppLog.event('dose.logged', {
+      'doseId': doseId,
+      'memberId': memberId,
+      'outcome': outcome?.name ?? 'smooth',
+    });
   }
 
   void skipDose(String doseId) {
+    final removed = _doses.length;
     _doses.removeWhere((dose) => dose.id == doseId);
+    if (_doses.length == removed) {
+      AppLog.event('dose.skip_rejected', {'doseId': doseId});
+      return;
+    }
     notifyListeners();
+    AppLog.event('dose.skipped', {'doseId': doseId});
   }
 
   void refill(String medicationId) {
     final index = _medications.indexWhere((item) => item.id == medicationId);
-    if (index < 0) return;
+    if (index < 0) {
+      AppLog.event('medication.refill_rejected', {
+        'medicationId': medicationId,
+      });
+      return;
+    }
     final medication = _medications[index];
     _medications[index] = medication.copyWith(
       dosesLeft: medication.supplyTotal,
     );
     notifyListeners();
+    AppLog.event('medication.refilled', {'medicationId': medicationId});
   }
 
   void setPlan(BillingPlan value) {
-    if (plan == value) return;
-    plan = value;
+    if (_plan == value) return;
+    _plan = value;
     notifyListeners();
+    AppLog.event('billing.plan_set', {'plan': value.name});
   }
 
   void startTrial() {
-    isPro = true;
+    _isPro = true;
     notifyListeners();
+    AppLog.event('billing.trial_started');
   }
 
   static const _seedMembers = [
@@ -241,16 +267,6 @@ class CareRepository extends ChangeNotifier {
       part: DayPart.evening,
       status: DoseStatus.upcoming,
       subtitle: 'Miso · 8:00 PM with food · Dan',
-    ),
-    Dose(
-      id: 'drops-pm',
-      petId: 'juniper',
-      medicationId: 'drops',
-      name: 'Eye drops',
-      amount: '1 drop',
-      part: DayPart.evening,
-      status: DoseStatus.upcoming,
-      subtitle: 'Juniper · 9:00 PM',
     ),
   ];
 

@@ -5,6 +5,7 @@ import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
 
+/// Asks which conditions the pet is being treated for.
 class ConditionsScreen extends StatelessWidget {
   const ConditionsScreen({super.key});
 

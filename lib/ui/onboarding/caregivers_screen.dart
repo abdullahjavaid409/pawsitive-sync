@@ -6,6 +6,7 @@ import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
 
+/// Asks who else helps care for the pet.
 class CaregiversScreen extends StatelessWidget {
   const CaregiversScreen({super.key});
 
@@ -121,7 +122,11 @@ class CaregiversScreen extends StatelessWidget {
                   onPressed: model.caregivers.isEmpty
                       ? null
                       : () => context.go(AppRoutes.notifications),
-                  child: const Text('Continue'),
+                  child: Text(
+                    model.caregivers.isEmpty
+                        ? 'Choose at least one person'
+                        : 'Continue',
+                  ),
                 ),
               ),
             ],

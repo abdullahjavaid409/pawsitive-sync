@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
-import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:provider/provider.dart';
 
+/// Builds a caregiver or sitter invite link.
 class InviteScreen extends StatefulWidget {
   const InviteScreen({super.key});
 
@@ -24,7 +24,6 @@ class _InviteScreenState extends State<InviteScreen> {
   Widget build(BuildContext context) {
     final care = context.watch<CareRepository>();
     final scheme = Theme.of(context).colorScheme;
-    final tokens = context.paws;
     final text = Theme.of(context).textTheme;
     final pets = care.pets.map((pet) => pet.name).join(', ');
 
@@ -55,7 +54,14 @@ class _InviteScreenState extends State<InviteScreen> {
                   const SizedBox(width: 48),
                 ],
               ),
-              Text('Who are you inviting?', style: text.headlineMedium),
+              Text(
+                'Who are you inviting?',
+                style: text.headlineMedium?.copyWith(
+                  fontSize: 28,
+                  height: 1.15,
+                  letterSpacing: -0.98,
+                ),
+              ),
               const SizedBox(height: 16),
               _RoleTile(
                 title: 'Caregiver',
@@ -85,61 +91,96 @@ class _InviteScreenState extends State<InviteScreen> {
                       value: pets,
                     ),
                     _InfoRow(
-                      icon: StrokeIconKind.file,
+                      icon: StrokeIconKind.eye,
                       label: 'Can see',
                       value: "Today's doses, notes",
+                      showDivider: false,
                     ),
-                    SwitchListTile(
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 16,
+                    InkWell(
+                      onTap: () => setState(() => _notify = !_notify),
+                      child: SizedBox(
+                        height: 52,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Row(
+                            children: [
+                              StrokeIcon(
+                                StrokeIconKind.bell,
+                                size: 20,
+                                color: scheme.onSurfaceVariant,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  'Tell me when they log a dose',
+                                  style: text.bodyLarge,
+                                ),
+                              ),
+                              PillSwitch(on: _notify),
+                            ],
+                          ),
+                        ),
                       ),
-                      secondary: StrokeIcon(
-                        StrokeIconKind.bell,
-                        color: scheme.onSurface,
-                      ),
-                      title: const Text('Tell me when they log a dose'),
-                      value: _notify,
-                      onChanged: (value) => setState(() => _notify = value),
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: 16),
-              SurfaceCard(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    StrokeIcon(
-                      StrokeIconKind.check,
-                      color: scheme.primary,
-                      strokeWidth: 2.2,
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Invite link ready', style: text.titleSmall),
-                          Text(
-                            'Works once · expires in 48 hours',
-                            style: text.bodySmall,
-                          ),
-                        ],
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainer,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+                  child: Row(
+                    children: [
+                      StrokeIcon(
+                        StrokeIconKind.link,
+                        size: 20,
+                        color: scheme.onSurfaceVariant,
                       ),
-                    ),
-                    TextButton(
-                      onPressed: () async {
-                        await Clipboard.setData(
-                          const ClipboardData(
-                            text: 'https://pawsitivesync.app/join/miso-juniper',
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Invite link ready',
+                              style: text.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            Text(
+                              'Works once · expires in 48 hours',
+                              style: text.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                      OutlinedButton(
+                        onPressed: () async {
+                          await Clipboard.setData(
+                            const ClipboardData(
+                              text:
+                                  'https://pawsitivesync.app/join/miso-juniper',
+                            ),
+                          );
+                          if (!mounted) return;
+                          setState(() => _copied = true);
+                        },
+                        style: OutlinedButton.styleFrom(
+                          minimumSize: const Size(0, 44),
+                          padding: const EdgeInsets.symmetric(horizontal: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
                           ),
-                        );
-                        if (!mounted) return;
-                        setState(() => _copied = true);
-                      },
-                      child: Text(_copied ? 'Copied' : 'Copy'),
-                    ),
-                  ],
+                          textStyle: text.titleSmall,
+                        ),
+                        child: Text(_copied ? 'Copied' : 'Copy'),
+                      ),
+                    ],
+                  ),
                 ),
               ),
               const Spacer(),
@@ -151,18 +192,11 @@ class _InviteScreenState extends State<InviteScreen> {
                   context.pop();
                 },
                 icon: StrokeIcon(
-                  StrokeIconKind.plus,
-                  size: 18,
+                  StrokeIconKind.share,
+                  size: 20,
                   color: scheme.onPrimary,
                 ),
                 label: const Text('Share invite'),
-              ),
-              const SizedBox(height: 8),
-              Center(
-                child: Text(
-                  _role == InviteRole.sitter ? 'Sitter access ends on Oct 12.' : 'Caregivers stay on the schedule until you remove them.',
-                  style: text.bodySmall?.copyWith(color: tokens.brandDark),
-                ),
               ),
             ],
           ),
@@ -194,7 +228,7 @@ class _RoleTile extends StatelessWidget {
         borderRadius: BorderRadius.circular(16),
         side: BorderSide(
           color: selected ? scheme.primary : scheme.outlineVariant,
-          width: selected ? 1.5 : 1,
+          width: selected ? 2 : 1,
         ),
       ),
       child: InkWell(
@@ -241,30 +275,46 @@ class _InfoRow extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.value,
+    this.showDivider = true,
   });
 
   final StrokeIconKind icon;
   final String label;
   final String value;
+  final bool showDivider;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-      child: Row(
-        children: [
-          StrokeIcon(icon, size: 18, color: scheme.onSurfaceVariant),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(label, style: Theme.of(context).textTheme.bodyLarge),
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: showDivider
+            ? Border(bottom: BorderSide(color: scheme.surfaceContainer))
+            : null,
+      ),
+      child: SizedBox(
+        height: 52,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: Row(
+            children: [
+              StrokeIcon(icon, size: 20, color: scheme.onSurfaceVariant),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  label,
+                  style: Theme.of(context).textTheme.bodyLarge
+                      ?.copyWith(color: scheme.onSurfaceVariant),
+                ),
+              ),
+              Text(
+                value,
+                style: Theme.of(context).textTheme.bodyLarge
+                    ?.copyWith(fontWeight: FontWeight.w500),
+              ),
+            ],
           ),
-          Text(
-            value,
-            style: Theme.of(context).textTheme.bodyMedium
-                ?.copyWith(color: scheme.onSurface),
-          ),
-        ],
+        ),
       ),
     );
   }

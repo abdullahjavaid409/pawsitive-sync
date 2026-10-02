@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:pawsitive_sync/core/layout/adaptive.dart';
+import 'package:pawsitive_sync/core/motion/app_motion.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
@@ -7,11 +9,14 @@ import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:provider/provider.dart';
 
+/// Opens the sheet for logging one due dose.
 Future<void> showLogDoseSheet(BuildContext context, Dose dose) {
   return showModalBottomSheet<void>(
     context: context,
+    sheetAnimationStyle: AppMotion.sheet(context),
     isScrollControlled: true,
     useRootNavigator: true,
+    constraints: AdaptiveLayout.sheetConstraints,
     backgroundColor: Theme.of(context).colorScheme.surfaceContainerLowest,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
@@ -20,10 +25,13 @@ Future<void> showLogDoseSheet(BuildContext context, Dose dose) {
   );
 }
 
+/// Opens the warning shown when that dose was already given.
 Future<void> showDoubleDoseGuard(BuildContext context, Dose dose) {
   return showModalBottomSheet<void>(
     context: context,
     useRootNavigator: true,
+    sheetAnimationStyle: AppMotion.sheet(context),
+    constraints: AdaptiveLayout.sheetConstraints,
     backgroundColor: Theme.of(context).colorScheme.surfaceContainerLowest,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
@@ -300,20 +308,30 @@ class _DoubleDoseSheet extends StatelessWidget {
     final pet = care.petById(dose.petId);
     final who = member?.name ?? 'Someone';
 
+    final detail = dose.id == 'insulin-am'
+        ? "${pet.name}'s morning insulin was logged 6 minutes ago. Giving it again could cause dangerously low blood sugar."
+        : '${pet.name}\'s ${dose.name.toLowerCase()} was already logged. Giving it again could be unsafe.';
+    final when = dose.id == 'insulin-am'
+        ? 'Given by $who · 8:02 AM · with breakfast'
+        : 'Given by $who · ${dose.subtitle}';
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+      padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
       child: Column(
         mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            width: 36,
-            height: 5,
-            decoration: BoxDecoration(
-              color: scheme.outlineVariant,
-              borderRadius: BorderRadius.circular(3),
+          Center(
+            child: Container(
+              width: 36,
+              height: 5,
+              decoration: BoxDecoration(
+                color: scheme.outlineVariant,
+                borderRadius: BorderRadius.circular(3),
+              ),
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 24),
           Container(
             width: 56,
             height: 56,
@@ -322,58 +340,79 @@ class _DoubleDoseSheet extends StatelessWidget {
               color: tokens.warningBg,
               shape: BoxShape.circle,
             ),
-            child: StrokeIcon(StrokeIconKind.bell, color: tokens.warning),
+            child: StrokeIcon(
+              StrokeIconKind.alert,
+              size: 28,
+              color: tokens.warningIcon,
+            ),
           ),
           const SizedBox(height: 16),
           Text(
             '$who already gave this dose',
-            style: text.headlineSmall,
-            textAlign: TextAlign.center,
+            style: text.headlineSmall?.copyWith(fontSize: 26, height: 1.15),
           ),
           const SizedBox(height: 8),
           Text(
-            "${pet.name}'s dose was logged recently. Giving it again could be dangerous.",
-            style: text.bodyLarge?.copyWith(color: scheme.onSurfaceVariant),
-            textAlign: TextAlign.center,
+            detail,
+            style: text.bodyLarge?.copyWith(
+              color: scheme.onSurface,
+              height: 1.45,
+            ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 24),
           SurfaceCard(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                if (member != null)
-                  InitialsAvatar(
-                    label: member.initials,
-                    background: tokens.brandSoft,
-                    foreground: tokens.brandDark,
-                  ),
+                InitialsAvatar(
+                  label: member?.initials ?? '?',
+                  size: 40,
+                  fontSize: 16,
+                  background: tokens.brandSoft,
+                  foreground: tokens.brandDark,
+                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(dose.title, style: text.titleMedium),
-                      Text(
-                        'Given by $who · ${dose.subtitle}',
-                        style: text.bodyMedium,
-                      ),
+                      const SizedBox(height: 1),
+                      Text(when, style: text.bodyMedium),
                     ],
                   ),
                 ),
-                StrokeIcon(
-                  StrokeIconKind.check,
-                  color: scheme.primary,
-                  strokeWidth: 2.2,
+                Container(
+                  width: 28,
+                  height: 28,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: scheme.primary,
+                    shape: BoxShape.circle,
+                  ),
+                  child: StrokeIcon(
+                    StrokeIconKind.check,
+                    size: 14,
+                    color: scheme.onPrimary,
+                  ),
                 ),
               ],
             ),
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 32),
           FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: scheme.secondary,
+              foregroundColor: scheme.onSecondary,
+            ),
             onPressed: () => Navigator.of(context).pop(),
             child: const Text("Got it, don't log"),
           ),
-          TextButton(
+          const SizedBox(height: 8),
+          OutlinedButton(
+            style: OutlinedButton.styleFrom(
+              minimumSize: const Size.fromHeight(52),
+            ),
             onPressed: () {
               final navigator = Navigator.of(context);
               navigator.pop();
@@ -381,10 +420,13 @@ class _DoubleDoseSheet extends StatelessWidget {
             },
             child: const Text('This is a separate dose'),
           ),
-          Text(
-            'Only log a second dose if your vet told you to.',
-            style: text.bodySmall,
-            textAlign: TextAlign.center,
+          const SizedBox(height: 12),
+          Center(
+            child: Text(
+              'Only log a second dose if your vet told you to.',
+              style: text.bodyMedium,
+              textAlign: TextAlign.center,
+            ),
           ),
         ],
       ),

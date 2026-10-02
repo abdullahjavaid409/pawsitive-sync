@@ -18,6 +18,8 @@ abstract final class AppColors {
   static const warningBg = Color(0xFFFBF0DF);
   static const warningBorder = Color(0xFFEBCB97);
   static const warning = Color(0xFF7A4E0E);
+  static const warningIcon = Color(0xFF9A6414);
+  static const amber = Color(0xFFE7A959);
   static const lock = Color(0xFF26302B);
   static const scrim = Color(0x732C3531);
 
@@ -28,4 +30,23 @@ abstract final class AppColors {
   static const darkHairline = Color(0xFF343C38);
   static const darkNeutral = Color(0xFF2C3531);
   static const darkBrandSoft = Color(0xFF24332A);
+  static const darkOnPrimaryContainer = Color(0xFFD7EBDD);
+  static const darkStroke = Color(0xFF5C6560);
+  static const darkDivider = Color(0xFF2A332F);
+  static const darkWarning = Color(0xFFE8C48A);
+  static const darkWarningBorder = Color(0xFF6B5430);
+  static const darkWarningBg = Color(0xFF3A2E1C);
+  static const darkBrand = Color(0xFF8FBF9C);
+  static const error = Color(0xFFB42318);
+  static const errorContainer = Color(0xFFF8E4E2);
+  static const onErrorContainer = Color(0xFF7A1D16);
+
+  /// Muted ring on an upcoming schedule stop.
+  static const timelineMuted = Color(0xFFA3A8A5);
+
+  /// Translucent surfaces used only on the lock screen.
+  static const lockDate = Color(0xBFFFFFFF);
+  static const lockCard = Color(0xF0FBFBFA);
+  static const lockHistory = Color(0xCCFBFBFA);
+  static const lockHandle = Color(0xCCFFFFFF);
 }

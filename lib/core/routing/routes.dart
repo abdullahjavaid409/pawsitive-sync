@@ -1,5 +1,7 @@
+/// Location constants used by the router and the screens.
 abstract final class AppRoutes {
   static const welcome = '/';
+  static const onboarding = '/onboarding';
   static const pet = '/onboarding/pet';
   static const conditions = '/onboarding/conditions';
   static const caregivers = '/onboarding/caregivers';
@@ -12,6 +14,7 @@ abstract final class AppRoutes {
   static const schedule = '/schedule';
   static const invite = '/invite';
   static const lock = '/lock';
+  static const medicationPath = '/medication/:id';
 
   static String medication(String id) => '/medication/$id';
 }

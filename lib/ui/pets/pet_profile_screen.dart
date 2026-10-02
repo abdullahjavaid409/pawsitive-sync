@@ -7,6 +7,7 @@ import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:provider/provider.dart';
 
+/// Shows one pet's weight, conditions, and notes from this week.
 class PetProfileScreen extends StatefulWidget {
   const PetProfileScreen({super.key});
 
@@ -157,10 +158,13 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  const SizedBox(
-                    height: 72,
-                    width: double.infinity,
-                    child: _WeightChart(),
+                  Semantics(
+                    label: 'Weight trending down from 4.9 to 4.6 kg',
+                    child: const SizedBox(
+                      height: 72,
+                      width: double.infinity,
+                      child: _WeightChart(),
+                    ),
                   ),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,

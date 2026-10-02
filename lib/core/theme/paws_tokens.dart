@@ -8,6 +8,8 @@ class PawsTokens extends ThemeExtension<PawsTokens> {
     required this.onWarning,
     required this.warningBorder,
     required this.warningBg,
+    required this.warningIcon,
+    required this.amber,
     required this.brandDark,
     required this.brandSoft,
     required this.neutral,
@@ -22,6 +24,8 @@ class PawsTokens extends ThemeExtension<PawsTokens> {
   final Color onWarning;
   final Color warningBorder;
   final Color warningBg;
+  final Color warningIcon;
+  final Color amber;
   final Color brandDark;
   final Color brandSoft;
   final Color neutral;
@@ -36,6 +40,8 @@ class PawsTokens extends ThemeExtension<PawsTokens> {
     onWarning: AppColors.warning,
     warningBorder: AppColors.warningBorder,
     warningBg: AppColors.warningBg,
+    warningIcon: AppColors.warningIcon,
+    amber: AppColors.amber,
     brandDark: AppColors.brandDark,
     brandSoft: AppColors.brandSoft,
     neutral: AppColors.neutral,
@@ -47,16 +53,18 @@ class PawsTokens extends ThemeExtension<PawsTokens> {
   );
 
   static const dark = PawsTokens(
-    warning: Color(0xFFE8C48A),
-    onWarning: Color(0xFFE8C48A),
-    warningBorder: Color(0xFF6B5430),
-    warningBg: Color(0xFF3A2E1C),
-    brandDark: Color(0xFF8FBF9C),
+    warning: AppColors.darkWarning,
+    onWarning: AppColors.darkWarning,
+    warningBorder: AppColors.darkWarningBorder,
+    warningBg: AppColors.darkWarningBg,
+    warningIcon: AppColors.darkWarning,
+    amber: AppColors.amber,
+    brandDark: AppColors.darkBrand,
     brandSoft: AppColors.darkBrandSoft,
     neutral: AppColors.darkNeutral,
-    stroke: Color(0xFF5C6560),
+    stroke: AppColors.darkStroke,
     hairline: AppColors.darkHairline,
-    divider: Color(0xFF2A332F),
+    divider: AppColors.darkDivider,
     card: AppColors.darkCard,
     lock: AppColors.lock,
   );
@@ -67,6 +75,8 @@ class PawsTokens extends ThemeExtension<PawsTokens> {
     Color? onWarning,
     Color? warningBorder,
     Color? warningBg,
+    Color? warningIcon,
+    Color? amber,
     Color? brandDark,
     Color? brandSoft,
     Color? neutral,
@@ -81,6 +91,8 @@ class PawsTokens extends ThemeExtension<PawsTokens> {
       onWarning: onWarning ?? this.onWarning,
       warningBorder: warningBorder ?? this.warningBorder,
       warningBg: warningBg ?? this.warningBg,
+      warningIcon: warningIcon ?? this.warningIcon,
+      amber: amber ?? this.amber,
       brandDark: brandDark ?? this.brandDark,
       brandSoft: brandSoft ?? this.brandSoft,
       neutral: neutral ?? this.neutral,
@@ -100,6 +112,8 @@ class PawsTokens extends ThemeExtension<PawsTokens> {
       onWarning: Color.lerp(onWarning, other.onWarning, t)!,
       warningBorder: Color.lerp(warningBorder, other.warningBorder, t)!,
       warningBg: Color.lerp(warningBg, other.warningBg, t)!,
+      warningIcon: Color.lerp(warningIcon, other.warningIcon, t)!,
+      amber: Color.lerp(amber, other.amber, t)!,
       brandDark: Color.lerp(brandDark, other.brandDark, t)!,
       brandSoft: Color.lerp(brandSoft, other.brandSoft, t)!,
       neutral: Color.lerp(neutral, other.neutral, t)!,
