@@ -60,9 +60,18 @@ class PetBasicsScreen extends StatelessWidget {
                               const SizedBox(height: 20),
                               Center(
                                 child: SoftEnter(
-                                  child: PetMark(
-                                    species: model.species,
-                                    size: 88,
+                                  child: Column(
+                                    children: [
+                                      PetMark(
+                                        species: model.species,
+                                        size: 88,
+                                      ),
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        _label(model.species),
+                                        style: text.titleSmall,
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ),

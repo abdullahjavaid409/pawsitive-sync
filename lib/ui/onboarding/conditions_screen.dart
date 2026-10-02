@@ -48,7 +48,16 @@ class ConditionsScreen extends StatelessWidget {
                     const SizedBox(height: 16),
                     Center(
                       child: SoftEnter(
-                        child: PetMark(species: model.species, size: 72),
+                        child: Column(
+                          children: [
+                            PetMark(species: model.species, size: 72),
+                            const SizedBox(height: 8),
+                            Text(
+                              name,
+                              style: Theme.of(context).textTheme.titleSmall,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                     const SizedBox(height: 16),

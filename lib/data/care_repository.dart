@@ -1,15 +1,24 @@
 import 'package:flutter/foundation.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
+import 'package:pawsitive_sync/data/household_api.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 
-/// In-memory household. This is the source of truth for the demo schedule.
+/// Household schedule. With an API, the server is the source of truth.
+/// Without one, the sample household stays so tests and offline use still run.
 class CareRepository extends ChangeNotifier {
-  CareRepository()
-    : _members = List<Member>.of(_seedMembers),
-      _pets = List<Pet>.of(_seedPets),
-      _doses = List<Dose>.of(_seedDoses),
-      _medications = List<Medication>.of(_seedMedications),
-      _activity = List<ActivityItem>.of(_seedActivity);
+  CareRepository({HouseholdApi? api})
+    : _api = api,
+      _members = List<Member>.of(api == null ? _seedMembers : const []),
+      _pets = List<Pet>.of(api == null ? _seedPets : const []),
+      _doses = List<Dose>.of(api == null ? _seedDoses : const []),
+      _medications = List<Medication>.of(
+        api == null ? _seedMedications : <Medication>[],
+      ),
+      _activity = List<ActivityItem>.of(api == null ? _seedActivity : const []);
+
+  final HouseholdApi? _api;
+  bool syncing = false;
+  String? syncError;
 
   final List<Member> _members;
   final List<Pet> _pets;
@@ -65,17 +74,79 @@ class CareRepository extends ChangeNotifier {
     return null;
   }
 
-  void logDose({
+  /// Fetches the household once. Does nothing when no API is configured.
+  Future<void> sync() async {
+    final api = _api;
+    if (api == null) return;
+    syncing = true;
+    syncError = null;
+    notifyListeners();
+    try {
+      final house = await api.fetchHousehold();
+      _members
+        ..clear()
+        ..addAll(house.members);
+      _pets
+        ..clear()
+        ..addAll(house.pets);
+      _doses
+        ..clear()
+        ..addAll(house.doses);
+      _medications
+        ..clear()
+        ..addAll(house.medications);
+      _activity = house.activity;
+      _isPro = house.isPro;
+      _plan = house.plan;
+      AppLog.event('household.synced', {'doses': _doses.length});
+    } catch (_) {
+      syncError =
+          "Can't reach the household. Check the connection and try again.";
+      AppLog.event('household.sync_failed');
+    } finally {
+      syncing = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> logDose({
     required String doseId,
     required String memberId,
     required String amount,
     required String timeLabel,
     DoseOutcome? outcome,
-  }) {
+  }) async {
+    final api = _api;
+    if (api != null) {
+      try {
+        final saved = await api.logDose(
+          doseId: doseId,
+          memberId: memberId,
+          amount: amount,
+          timeLabel: timeLabel,
+          outcome: outcome == null || outcome == DoseOutcome.smooth
+              ? null
+              : outcome.name,
+        );
+        final index = _doses.indexWhere((dose) => dose.id == doseId);
+        if (index >= 0) _doses[index] = saved.dose;
+        _activity = [saved.activity, ..._activity];
+        notifyListeners();
+        AppLog.event('dose.logged', {
+          'doseId': doseId,
+          'memberId': memberId,
+          'outcome': outcome?.name ?? 'smooth',
+        });
+        return true;
+      } catch (_) {
+        AppLog.event('dose.log_failed', {'doseId': doseId});
+        return false;
+      }
+    }
     final index = _doses.indexWhere((dose) => dose.id == doseId);
     if (index < 0) {
       AppLog.event('dose.log_rejected', {'doseId': doseId});
-      return;
+      return false;
     }
     final dose = _doses[index];
     final member = memberById(memberId);
@@ -109,26 +180,51 @@ class CareRepository extends ChangeNotifier {
       'memberId': memberId,
       'outcome': outcome?.name ?? 'smooth',
     });
+    return true;
   }
 
-  void skipDose(String doseId) {
+  Future<bool> skipDose(String doseId) async {
+    final api = _api;
+    if (api != null) {
+      try {
+        await api.skipDose(doseId);
+      } catch (_) {
+        AppLog.event('dose.skip_failed', {'doseId': doseId});
+        return false;
+      }
+    }
     final removed = _doses.length;
     _doses.removeWhere((dose) => dose.id == doseId);
     if (_doses.length == removed) {
       AppLog.event('dose.skip_rejected', {'doseId': doseId});
-      return;
+      return false;
     }
     notifyListeners();
     AppLog.event('dose.skipped', {'doseId': doseId});
+    return true;
   }
 
-  void refill(String medicationId) {
+  Future<bool> refill(String medicationId) async {
+    final api = _api;
+    if (api != null) {
+      try {
+        final saved = await api.refill(medicationId);
+        final index = _medications.indexWhere((item) => item.id == medicationId);
+        if (index >= 0) _medications[index] = saved;
+        notifyListeners();
+        AppLog.event('medication.refilled', {'medicationId': medicationId});
+        return true;
+      } catch (_) {
+        AppLog.event('medication.refill_failed', {'medicationId': medicationId});
+        return false;
+      }
+    }
     final index = _medications.indexWhere((item) => item.id == medicationId);
     if (index < 0) {
       AppLog.event('medication.refill_rejected', {
         'medicationId': medicationId,
       });
-      return;
+      return false;
     }
     final medication = _medications[index];
     _medications[index] = medication.copyWith(
@@ -136,17 +232,40 @@ class CareRepository extends ChangeNotifier {
     );
     notifyListeners();
     AppLog.event('medication.refilled', {'medicationId': medicationId});
+    return true;
   }
 
-  void setPlan(BillingPlan value) {
-    if (_plan == value) return;
-    _plan = value;
+  Future<void> setPlan(BillingPlan value) async {
+    if (_plan == value && _api == null) return;
+    final api = _api;
+    if (api != null) {
+      try {
+        _plan = await api.setPlan(value);
+      } catch (_) {
+        AppLog.event('billing.plan_failed', {'plan': value.name});
+        return;
+      }
+    } else {
+      _plan = value;
+    }
     notifyListeners();
-    AppLog.event('billing.plan_set', {'plan': value.name});
+    AppLog.event('billing.plan_set', {'plan': _plan.name});
   }
 
-  void startTrial() {
-    _isPro = true;
+  Future<void> startTrial() async {
+    final api = _api;
+    if (api != null) {
+      try {
+        final billing = await api.startTrial();
+        _isPro = billing.isPro;
+        _plan = billing.plan;
+      } catch (_) {
+        AppLog.event('billing.trial_failed');
+        return;
+      }
+    } else {
+      _isPro = true;
+    }
     notifyListeners();
     AppLog.event('billing.trial_started');
   }

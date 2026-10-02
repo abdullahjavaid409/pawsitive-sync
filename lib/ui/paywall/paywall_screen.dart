@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
+import 'package:pawsitive_sync/data/dose_reminders.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
@@ -170,8 +171,15 @@ class PaywallScreen extends StatelessWidget {
   }
 
   void _enter(BuildContext context, {required bool trial}) {
-    if (trial) context.read<CareRepository>().startTrial();
-    context.read<OnboardingViewModel>().finish(reminders: true);
+    final care = context.read<CareRepository>();
+    final model = context.read<OnboardingViewModel>();
+    if (trial) care.startTrial();
+    model.finish(reminders: model.remindersOn);
+    if (model.remindersOn) {
+      DoseReminders.scheduleNext(care);
+    } else {
+      DoseReminders.cancel();
+    }
     context.go(AppRoutes.today);
   }
 }

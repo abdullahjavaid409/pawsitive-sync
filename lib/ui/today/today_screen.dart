@@ -55,7 +55,10 @@ class _TodayScreenState extends State<TodayScreen> {
     return Scaffold(
       body: SafeArea(
         bottom: false,
-        child: ListView(
+        child: RefreshIndicator(
+          onRefresh: care.sync,
+          child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
           children: [
             Row(
@@ -98,6 +101,23 @@ class _TodayScreenState extends State<TodayScreen> {
                 ),
               ],
             ),
+            if (care.syncing || care.syncError != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                care.syncError ?? 'Loading the household.',
+                style: text.bodyLarge?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+              if (care.syncError != null)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton(
+                    onPressed: care.sync,
+                    child: const Text('Try again'),
+                  ),
+                ),
+            ],
             const SizedBox(height: 16),
             if (next != null)
               SoftEnter(
@@ -238,6 +258,7 @@ class _TodayScreenState extends State<TodayScreen> {
                 ],
               ],
           ],
+          ),
         ),
       ),
     );

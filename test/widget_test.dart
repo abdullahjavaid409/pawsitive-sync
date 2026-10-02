@@ -27,6 +27,7 @@ void main() {
       findsOneWidget,
     );
 
+    await tester.ensureVisible(find.text('Get started'));
     await tester.tap(find.text('Get started'));
     await tester.pumpAndSettle();
 

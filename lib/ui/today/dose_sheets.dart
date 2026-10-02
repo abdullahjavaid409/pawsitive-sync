@@ -75,6 +75,14 @@ class _LogDoseSheetState extends State<_LogDoseSheet> {
 
   int get _step => _unit == 'ml' ? 10 : 1;
 
+  String _clockNow() {
+    final now = DateTime.now();
+    final hour = now.hour % 12 == 0 ? 12 : now.hour % 12;
+    final minute = now.minute.toString().padLeft(2, '0');
+    final suffix = now.hour >= 12 ? 'PM' : 'AM';
+    return '$hour:$minute $suffix';
+  }
+
   @override
   Widget build(BuildContext context) {
     final care = context.watch<CareRepository>();
@@ -250,23 +258,41 @@ class _LogDoseSheetState extends State<_LogDoseSheet> {
             ),
             const SizedBox(height: 32),
             FilledButton(
-              onPressed: () {
+              onPressed: () async {
                 HapticFeedback.lightImpact();
-                care.logDose(
+                final saved = await care.logDose(
                   doseId: widget.dose.id,
                   memberId: _memberId,
                   amount: amountLabel,
-                  timeLabel: _now ? '1:06 PM' : '12:40 PM',
+                  timeLabel: _clockNow(),
                   outcome: _outcome,
                 );
+                if (!context.mounted) return;
+                if (!saved) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Could not save this dose. Try again.'),
+                    ),
+                  );
+                  return;
+                }
                 Navigator.of(context).pop();
               },
               child: const Text('Log dose'),
             ),
             Center(
               child: TextButton(
-                onPressed: () {
-                  care.skipDose(widget.dose.id);
+                onPressed: () async {
+                  final saved = await care.skipDose(widget.dose.id);
+                  if (!context.mounted) return;
+                  if (!saved) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Could not skip this dose. Try again.'),
+                      ),
+                    );
+                    return;
+                  }
                   Navigator.of(context).pop();
                 },
                 child: const Text('Skip this dose'),

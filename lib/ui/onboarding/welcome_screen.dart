@@ -84,13 +84,16 @@ class WelcomeScreen extends StatelessWidget {
                           ],
                         ),
                         const SizedBox(height: 28),
-                        _PreviewRow(
-                          filled: true,
-                          title: 'Morning insulin · Miso',
-                          subtitle: 'Given by Sara at 8:02 AM',
-                          initials: 'S',
-                          avatarBackground: tokens.brandSoft,
-                          avatarForeground: tokens.brandDark,
+                        SoftEnter(
+                          delay: const Duration(milliseconds: 160),
+                          child: _PreviewRow(
+                            filled: true,
+                            title: 'Morning insulin · Miso',
+                            subtitle: 'Given by Sara at 8:02 AM',
+                            initials: 'S',
+                            avatarBackground: tokens.brandSoft,
+                            avatarForeground: tokens.brandDark,
+                          ),
                         ),
                         const SizedBox(height: 8),
                         Padding(

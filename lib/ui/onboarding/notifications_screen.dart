@@ -6,12 +6,35 @@ import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/motion/app_motion.dart';
 import 'package:pawsitive_sync/core/widgets/step_picture.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
+import 'package:pawsitive_sync/data/dose_reminders.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
 
 /// Explains dose reminders before the trial offer.
 class NotificationsScreen extends StatelessWidget {
   const NotificationsScreen({super.key});
+
+  Future<void> _choose(BuildContext context, {required bool ask}) async {
+    final model = context.read<OnboardingViewModel>();
+    if (!ask) {
+      model.chooseReminders(false);
+      context.go(AppRoutes.paywall);
+      return;
+    }
+    final allowed = await DoseReminders.ask();
+    if (!context.mounted) return;
+    model.chooseReminders(allowed);
+    if (!allowed) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Reminders stay off. You can allow them later in Settings.',
+          ),
+        ),
+      );
+    }
+    context.go(AppRoutes.paywall);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -212,12 +235,12 @@ class NotificationsScreen extends StatelessWidget {
                 child: Column(
                   children: [
                     FilledButton(
-                      onPressed: () => context.go(AppRoutes.paywall),
+                      onPressed: () => _choose(context, ask: true),
                       child: const Text('Turn on reminders'),
                     ),
                     TextButton(
-                      onPressed: () => context.go(AppRoutes.paywall),
-                      child: const Text('Maybe later'),
+                      onPressed: () => _choose(context, ask: false),
+                      child: const Text('Not now'),
                     ),
                   ],
                 ),

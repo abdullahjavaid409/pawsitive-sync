@@ -187,12 +187,15 @@ class MedicationScreen extends StatelessWidget {
                     children: [
                       Expanded(
                         child: FilledButton(
-                          onPressed: () {
-                            care.refill(medication.id);
+                          onPressed: () async {
+                            final saved = await care.refill(medication.id);
+                            if (!context.mounted) return;
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
+                              SnackBar(
                                 content: Text(
-                                  'Refilled. The box is full again.',
+                                  saved
+                                      ? 'Refilled. The box is full again.'
+                                      : 'Could not save the refill. Try again.',
                                 ),
                               ),
                             );

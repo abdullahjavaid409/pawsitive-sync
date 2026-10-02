@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
+import 'package:pawsitive_sync/data/reminder_choice.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 
 /// Stores setup answers until onboarding is marked complete.
@@ -87,10 +88,16 @@ class OnboardingViewModel extends ChangeNotifier {
     return 1 + caregivers.length;
   }
 
+  void chooseReminders(bool on) {
+    remindersOn = on;
+    notifyListeners();
+  }
+
   void finish({required bool reminders}) {
     remindersOn = reminders;
     isComplete = true;
     notifyListeners();
+    ReminderChoice.write(reminders);
     AppLog.event('onboarding.finished', {'reminders': reminders});
   }
 }
