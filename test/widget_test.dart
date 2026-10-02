@@ -117,9 +117,7 @@ void main() {
 
     for (final size in const [Size(360, 780), Size(1024, 1366)]) {
       await _pumpHome(tester, size);
-      final router = GoRouter.of(
-        tester.element(find.byType(Scaffold).first),
-      );
+      final router = GoRouter.of(tester.element(find.byType(Scaffold).first));
       for (final path in paths) {
         router.go(path);
         await tester.pumpAndSettle();

@@ -71,7 +71,9 @@ class DoseReminders {
     }
     final when = _next(dose);
     final petName = pet?.name ?? 'Your pet';
-    final amount = dose.amount.isEmpty ? dose.name : '${dose.name}, ${dose.amount}';
+    final amount = dose.amount.isEmpty
+        ? dose.name
+        : '${dose.name}, ${dose.amount}';
     try {
       await _plugin.zonedSchedule(
         1,

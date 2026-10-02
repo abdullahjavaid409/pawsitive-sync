@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
@@ -31,70 +32,70 @@ class _VetReportScreenState extends State<VetReportScreen> {
       body: SafeArea(
         child: SingleChildScrollView(
           child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 4, 24, 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  IconButton(
-                    tooltip: 'Back',
-                    onPressed: () {
-                      if (context.canPop()) {
-                        context.pop();
-                      } else {
-                        context.go(AppRoutes.pets);
-                      }
-                    },
-                    icon: StrokeIcon(
-                      StrokeIconKind.chevronLeft,
-                      color: scheme.onSurface,
+            padding: const EdgeInsets.fromLTRB(24, 4, 24, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    IconButton(
+                      tooltip: 'Back',
+                      onPressed: () {
+                        if (context.canPop()) {
+                          context.pop();
+                        } else {
+                          context.go(AppRoutes.pets);
+                        }
+                      },
+                      icon: StrokeIcon(
+                        StrokeIconKind.chevronLeft,
+                        color: scheme.onSurface,
+                      ),
                     ),
-                  ),
-                  Expanded(
-                    child: Text(
-                      'Vet report',
-                      textAlign: TextAlign.center,
-                      style: text.titleMedium,
+                    Expanded(
+                      child: Text(
+                        'Vet report',
+                        textAlign: TextAlign.center,
+                        style: text.titleMedium,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 48),
-                ],
-              ),
-              const SizedBox(height: 16),
-              Text(
-                "Ready for ${pet.name}'s checkup",
-                style: text.headlineMedium,
-              ),
-              const SizedBox(height: 16),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  color: tokens.neutral,
-                  borderRadius: BorderRadius.circular(12),
+                    const SizedBox(width: 48),
+                  ],
                 ),
-                child: Padding(
-                  padding: const EdgeInsets.all(4),
-                  child: Row(
-                    children: [
-                      for (final days in [30, 60, 90])
-                        Expanded(
-                          child: _RangeChip(
-                            label: '$days days',
-                            selected: _days == days,
-                            onPressed: () => setState(() => _days = days),
+                const SizedBox(height: 16),
+                Text(
+                  "Ready for ${pet.name}'s checkup",
+                  style: text.headlineMedium,
+                ),
+                const SizedBox(height: 16),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: tokens.neutral,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(4),
+                    child: Row(
+                      children: [
+                        for (final days in [30, 60, 90])
+                          Expanded(
+                            child: _RangeChip(
+                              label: '$days days',
+                              selected: _days == days,
+                              onPressed: () => setState(() => _days = days),
+                            ),
                           ),
-                        ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  color: tokens.neutral,
-                  borderRadius: BorderRadius.circular(18),
-                ),
-                child: Padding(
+                const SizedBox(height: 16),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: tokens.neutral,
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Padding(
                     padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
                     child: DecoratedBox(
                       decoration: BoxDecoration(
@@ -202,110 +203,114 @@ class _VetReportScreenState extends State<VetReportScreen> {
                     ),
                   ),
                 ),
-              const SizedBox(height: 16),
-              SurfaceCard(
-                child: Column(
-                  children: [
-                    DecoratedBox(
-                      decoration: BoxDecoration(
-                        border: Border(
-                          bottom: BorderSide(color: scheme.surfaceContainer),
-                        ),
-                      ),
-                      child: SizedBox(
-                        height: 48,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  'Dose log, weight, symptoms',
-                                  style: text.bodyLarge,
-                                ),
-                              ),
-                              StrokeIcon(
-                                StrokeIconKind.check,
-                                size: 20,
-                                color: scheme.primary,
-                              ),
-                            ],
+                const SizedBox(height: 16),
+                SurfaceCard(
+                  child: Column(
+                    children: [
+                      DecoratedBox(
+                        decoration: BoxDecoration(
+                          border: Border(
+                            bottom: BorderSide(color: scheme.surfaceContainer),
                           ),
                         ),
+                        child: SizedBox(
+                          height: 48,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    'Dose log, weight, symptoms',
+                                    style: text.bodyLarge,
+                                  ),
+                                ),
+                                StrokeIcon(
+                                  StrokeIconKind.check,
+                                  size: 20,
+                                  color: scheme.primary,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                      InkWell(
+                        onTap: () => setState(() => _showWho = !_showWho),
+                        child: SizedBox(
+                          height: 48,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    'Show who gave each dose',
+                                    style: text.bodyLarge,
+                                  ),
+                                ),
+                                PillSwitch(on: _showWho),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          textStyle: text.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        onPressed: () {
+                          AppLog.event('report.email_unavailable');
+                          _toast(
+                            context,
+                            'Email isn’t hooked up yet. The report is still here.',
+                          );
+                        },
+                        icon: StrokeIcon(
+                          StrokeIconKind.mail,
+                          size: 18,
+                          color: scheme.onSurface,
+                        ),
+                        label: const Text('Email vet'),
                       ),
                     ),
-                    InkWell(
-                      onTap: () => setState(() => _showWho = !_showWho),
-                      child: SizedBox(
-                        height: 48,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  'Show who gave each dose',
-                                  style: text.bodyLarge,
-                                ),
-                              ),
-                              PillSwitch(on: _showWho),
-                            ],
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: FilledButton.icon(
+                        style: FilledButton.styleFrom(
+                          textStyle: text.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: scheme.onPrimary,
                           ),
                         ),
+                        onPressed: () {
+                          AppLog.event('report.export_unavailable');
+                          _toast(
+                            context,
+                            'Can’t save a PDF yet. You can still read it here.',
+                          );
+                        },
+                        icon: StrokeIcon(
+                          StrokeIconKind.download,
+                          size: 18,
+                          color: scheme.onPrimary,
+                        ),
+                        label: const Text('Export PDF'),
                       ),
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        textStyle: text.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      onPressed: () =>
-                          _toast(
-                            context,
-                            'Email isn’t hooked up yet. The report is still here.',
-                          ),
-                      icon: StrokeIcon(
-                        StrokeIconKind.mail,
-                        size: 18,
-                        color: scheme.onSurface,
-                      ),
-                      label: const Text('Email vet'),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: FilledButton.icon(
-                      style: FilledButton.styleFrom(
-                        textStyle: text.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w600,
-                          color: scheme.onPrimary,
-                        ),
-                      ),
-                      onPressed: () =>
-                          _toast(
-                            context,
-                            'Can’t save a PDF yet. You can still read it here.',
-                          ),
-                      icon: StrokeIcon(
-                        StrokeIconKind.download,
-                        size: 18,
-                        color: scheme.onPrimary,
-                      ),
-                      label: const Text('Export PDF'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
+              ],
+            ),
           ),
         ),
       ),

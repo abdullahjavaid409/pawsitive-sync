@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:pawsitive_sync/core/layout/adaptive.dart';
+import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/motion/app_motion.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/moment_art.dart';
@@ -12,6 +13,7 @@ import 'package:provider/provider.dart';
 
 /// Opens the sheet for logging one due dose.
 Future<void> showLogDoseSheet(BuildContext context, Dose dose) {
+  AppLog.event('dose.opened', {'doseId': dose.id, 'part': dose.part.name});
   return showModalBottomSheet<void>(
     context: context,
     sheetAnimationStyle: AppMotion.sheet(context),
@@ -28,6 +30,7 @@ Future<void> showLogDoseSheet(BuildContext context, Dose dose) {
 
 /// Opens the warning shown when that dose was already given.
 Future<void> showDoubleDoseGuard(BuildContext context, Dose dose) {
+  AppLog.event('dose.already', {'doseId': dose.id});
   return showModalBottomSheet<void>(
     context: context,
     useRootNavigator: true,
@@ -56,8 +59,10 @@ class _LogDoseSheetState extends State<_LogDoseSheet> {
   bool _now = true;
   DoseOutcome _outcome = DoseOutcome.smooth;
   String? _moment;
+  var _busy = false;
 
   Future<void> _finish(String moment) async {
+    if (_moment != null) return;
     setState(() => _moment = moment);
     await Future<void>.delayed(const Duration(milliseconds: 1200));
     if (!mounted) return;
@@ -298,43 +303,55 @@ class _LogDoseSheetState extends State<_LogDoseSheet> {
             ),
             const SizedBox(height: 32),
             FilledButton(
-              onPressed: () async {
-                HapticFeedback.lightImpact();
-                final saved = await care.logDose(
-                  doseId: widget.dose.id,
-                  memberId: _memberId,
-                  amount: amountLabel,
-                  timeLabel: _clockNow(),
-                  outcome: _outcome,
-                );
-                if (!context.mounted) return;
-                if (!saved) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Could not save this dose. Try again.'),
-                    ),
-                  );
-                  return;
-                }
-                await _finish('dose.logged');
-              },
+              onPressed: _busy
+                  ? null
+                  : () async {
+                      setState(() => _busy = true);
+                      HapticFeedback.lightImpact();
+                      final saved = await care.logDose(
+                        doseId: widget.dose.id,
+                        memberId: _memberId,
+                        amount: amountLabel,
+                        timeLabel: _clockNow(),
+                        outcome: _outcome,
+                      );
+                      if (!context.mounted) return;
+                      if (!saved) {
+                        if (mounted) setState(() => _busy = false);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text(
+                              'Could not save this dose. Try again.',
+                            ),
+                          ),
+                        );
+                        return;
+                      }
+                      await _finish('dose.logged');
+                    },
               child: const Text('Log dose'),
             ),
             Center(
               child: TextButton(
-                onPressed: () async {
-                  final saved = await care.skipDose(widget.dose.id);
-                  if (!context.mounted) return;
-                  if (!saved) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Could not skip this dose. Try again.'),
-                      ),
-                    );
-                    return;
-                  }
-                  await _finish('dose.skipped');
-                },
+                onPressed: _busy
+                    ? null
+                    : () async {
+                        setState(() => _busy = true);
+                        final saved = await care.skipDose(widget.dose.id);
+                        if (!context.mounted) return;
+                        if (!saved) {
+                          if (mounted) setState(() => _busy = false);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Could not skip this dose. Try again.',
+                              ),
+                            ),
+                          );
+                          return;
+                        }
+                        await _finish('dose.skipped');
+                      },
                 child: const Text('Skip this dose'),
               ),
             ),
@@ -400,10 +417,7 @@ class _DoubleDoseSheet extends StatelessWidget {
           const SizedBox(height: 16),
           const MomentArt('dose.already', size: 120),
           const SizedBox(height: 16),
-          Text(
-            '$who already gave this dose',
-            style: text.headlineSmall,
-          ),
+          Text('$who already gave this dose', style: text.headlineSmall),
           const SizedBox(height: 8),
           Text(
             detail,

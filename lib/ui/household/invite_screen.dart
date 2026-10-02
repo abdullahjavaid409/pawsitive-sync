@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
@@ -167,6 +168,7 @@ class _InviteScreenState extends State<InviteScreen> {
                             ),
                           );
                           if (!mounted) return;
+                          AppLog.event('invite.copied');
                           setState(() => _copied = true);
                         },
                         style: OutlinedButton.styleFrom(
@@ -186,6 +188,7 @@ class _InviteScreenState extends State<InviteScreen> {
               const Spacer(),
               FilledButton.icon(
                 onPressed: () {
+                  AppLog.event('invite.share_tapped');
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('Invite ready to share.')),
                   );

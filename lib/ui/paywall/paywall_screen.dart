@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
@@ -52,6 +53,7 @@ class PaywallScreen extends StatelessWidget {
                 const Spacer(),
                 TextButton(
                   onPressed: () {
+                    AppLog.event('billing.restore_empty');
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text('No purchase on this phone to restore.'),
@@ -150,7 +152,11 @@ class PaywallScreen extends StatelessWidget {
   void _enter(BuildContext context, {required bool trial}) {
     final care = context.read<CareRepository>();
     final model = context.read<OnboardingViewModel>();
-    if (trial) care.startTrial();
+    if (trial) {
+      care.startTrial();
+    } else {
+      AppLog.event('billing.continued_free');
+    }
     model.finish(reminders: model.remindersOn);
     if (model.remindersOn) {
       DoseReminders.scheduleNext(care);
@@ -231,9 +237,8 @@ class _Mark extends StatelessWidget {
       return Text(
         '—',
         textAlign: TextAlign.center,
-        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-          color: Theme.of(context).colorScheme.outline,
-        ),
+        style: Theme.of(context).textTheme.titleMedium
+            ?.copyWith(color: Theme.of(context).colorScheme.outline),
       );
     }
     return Center(
@@ -297,7 +302,10 @@ class _PlanTile extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(title, style: Theme.of(context).textTheme.titleMedium),
+                        Text(
+                          title,
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
                         if (subtitle != null)
                           Text(
                             subtitle!,

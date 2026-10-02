@@ -79,10 +79,10 @@ class _SoftEnterState extends State<SoftEnter>
 
   @override
   Widget build(BuildContext context) {
-    final slide = Tween<Offset>(
-      begin: const Offset(0, 0.06),
-      end: Offset.zero,
-    ).animate(CurvedAnimation(parent: _controller, curve: AppMotion.enterCurve));
+    final slide = Tween<Offset>(begin: const Offset(0, 0.06), end: Offset.zero)
+        .animate(
+          CurvedAnimation(parent: _controller, curve: AppMotion.enterCurve),
+        );
     return SlideTransition(position: slide, child: widget.child);
   }
 }

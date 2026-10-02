@@ -52,9 +52,7 @@ class CaregiversScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 16),
                     const Center(
-                      child: SoftEnter(
-                        child: StoryArt('people', size: 140),
-                      ),
+                      child: SoftEnter(child: StoryArt('people', size: 140)),
                     ),
                     const SizedBox(height: 16),
                     for (final option

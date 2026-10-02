@@ -91,6 +91,7 @@ class OnboardingViewModel extends ChangeNotifier {
   void chooseReminders(bool on) {
     remindersOn = on;
     notifyListeners();
+    AppLog.event(on ? 'reminders.on' : 'reminders.off');
   }
 
   void finish({required bool reminders}) {

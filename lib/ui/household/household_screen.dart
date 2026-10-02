@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
@@ -57,8 +58,10 @@ class HouseholdScreen extends StatelessWidget {
             OutlinedButton.icon(
               onPressed: () {
                 if (care.isPro) {
+                  AppLog.event('invite.opened');
                   context.push(AppRoutes.invite);
                 } else {
+                  AppLog.event('invite.blocked');
                   context.push(AppRoutes.paywall);
                 }
               },
@@ -106,7 +109,6 @@ class HouseholdScreen extends StatelessWidget {
       ),
     );
   }
-
 }
 
 class _MemberRow extends StatelessWidget {

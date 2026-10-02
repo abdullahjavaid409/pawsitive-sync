@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:pawsitive_sync/core/layout/adaptive.dart';
+import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/motion/app_motion.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
@@ -98,6 +99,7 @@ class PetDetailsScreen extends StatelessWidget {
                     final weight = model.weight.trim();
                     if (weight.isNotEmpty &&
                         !RegExp(r'^\d{1,2}(\.\d{1,2})?$').hasMatch(weight)) {
+                      AppLog.event('pet.weight_rejected');
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
                           content: Text(
@@ -174,7 +176,8 @@ Future<void> _choosePhoto(BuildContext context, OnboardingViewModel model) {
               ),
               const SizedBox(height: 16),
               FilledButton(
-                onPressed: () => _pick(context, sheetContext, ImageSource.camera),
+                onPressed: () =>
+                    _pick(context, sheetContext, ImageSource.camera),
                 child: const Text('Take a photo'),
               ),
               const SizedBox(height: 8),
@@ -187,6 +190,7 @@ Future<void> _choosePhoto(BuildContext context, OnboardingViewModel model) {
                 const SizedBox(height: 8),
                 TextButton(
                   onPressed: () {
+                    AppLog.event('pet.photo_removed');
                     model.setPhoto(null);
                     Navigator.of(sheetContext).pop();
                   },
@@ -213,15 +217,26 @@ Future<void> _pick(
       maxWidth: 800,
       imageQuality: 80,
     );
-    if (file == null || !context.mounted) return;
+    if (file == null) {
+      AppLog.event('pet.photo_cancelled', {'source': source.name});
+      return;
+    }
+    if (!context.mounted) return;
     final bytes = await file.readAsBytes();
     if (!context.mounted) return;
     context.read<OnboardingViewModel>().setPhoto(bytes);
+    AppLog.event('pet.photo_set', {
+      'source': source.name,
+      'bytes': bytes.length,
+    });
   } on PlatformException {
+    AppLog.event('pet.photo_failed', {'source': source.name});
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Could not open the camera or photos. Try the other one.'),
+        content: Text(
+          'Could not open the camera or photos. Try the other one.',
+        ),
       ),
     );
   }
@@ -241,9 +256,8 @@ class _AgeStepper extends StatelessWidget {
       children: [
         Text(
           'Age',
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            fontWeight: FontWeight.w500,
-          ),
+          style: Theme.of(context).textTheme.bodyMedium
+              ?.copyWith(fontWeight: FontWeight.w500),
         ),
         const SizedBox(height: 8),
         DecoratedBox(
@@ -295,9 +309,8 @@ class _WeightField extends StatelessWidget {
       children: [
         Text(
           'Weight (optional)',
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-            fontWeight: FontWeight.w500,
-          ),
+          style: Theme.of(context).textTheme.bodyMedium
+              ?.copyWith(fontWeight: FontWeight.w500),
         ),
         const SizedBox(height: 8),
         SizedBox(
@@ -311,9 +324,8 @@ class _WeightField extends StatelessWidget {
             onChanged: context.read<OnboardingViewModel>().setWeight,
             decoration: InputDecoration(
               suffixText: 'kg',
-              suffixStyle: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                color: scheme.onSurfaceVariant,
-              ),
+              suffixStyle: Theme.of(context).textTheme.bodyLarge
+                  ?.copyWith(color: scheme.onSurfaceVariant),
             ),
           ),
         ),

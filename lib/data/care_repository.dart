@@ -82,7 +82,7 @@ class CareRepository extends ChangeNotifier {
     syncError = null;
     notifyListeners();
     try {
-      final house = await api.fetchHousehold();
+      final house = await AppLog.trace('household.sync', api.fetchHousehold);
       _members
         ..clear()
         ..addAll(house.members);
@@ -99,6 +99,7 @@ class CareRepository extends ChangeNotifier {
       _isPro = house.isPro;
       _plan = house.plan;
       AppLog.event('household.synced', {'doses': _doses.length});
+      _logShape();
     } catch (_) {
       syncError =
           "Can't reach the household. Check the connection and try again.";
@@ -119,14 +120,17 @@ class CareRepository extends ChangeNotifier {
     final api = _api;
     if (api != null) {
       try {
-        final saved = await api.logDose(
-          doseId: doseId,
-          memberId: memberId,
-          amount: amount,
-          timeLabel: timeLabel,
-          outcome: outcome == null || outcome == DoseOutcome.smooth
-              ? null
-              : outcome.name,
+        final saved = await AppLog.trace(
+          'dose.log',
+          () => api.logDose(
+            doseId: doseId,
+            memberId: memberId,
+            amount: amount,
+            timeLabel: timeLabel,
+            outcome: outcome == null || outcome == DoseOutcome.smooth
+                ? null
+                : outcome.name,
+          ),
         );
         final index = _doses.indexWhere((dose) => dose.id == doseId);
         if (index >= 0) _doses[index] = saved.dose;
@@ -187,7 +191,7 @@ class CareRepository extends ChangeNotifier {
     final api = _api;
     if (api != null) {
       try {
-        await api.skipDose(doseId);
+        await AppLog.trace('dose.skip', () => api.skipDose(doseId));
       } catch (_) {
         AppLog.event('dose.skip_failed', {'doseId': doseId});
         return false;
@@ -208,14 +212,21 @@ class CareRepository extends ChangeNotifier {
     final api = _api;
     if (api != null) {
       try {
-        final saved = await api.refill(medicationId);
-        final index = _medications.indexWhere((item) => item.id == medicationId);
+        final saved = await AppLog.trace(
+          'medication.refill',
+          () => api.refill(medicationId),
+        );
+        final index = _medications.indexWhere(
+          (item) => item.id == medicationId,
+        );
         if (index >= 0) _medications[index] = saved;
         notifyListeners();
         AppLog.event('medication.refilled', {'medicationId': medicationId});
         return true;
       } catch (_) {
-        AppLog.event('medication.refill_failed', {'medicationId': medicationId});
+        AppLog.event('medication.refill_failed', {
+          'medicationId': medicationId,
+        });
         return false;
       }
     }
@@ -240,7 +251,7 @@ class CareRepository extends ChangeNotifier {
     final api = _api;
     if (api != null) {
       try {
-        _plan = await api.setPlan(value);
+        _plan = await AppLog.trace('billing.plan', () => api.setPlan(value));
       } catch (_) {
         AppLog.event('billing.plan_failed', {'plan': value.name});
         return;
@@ -256,7 +267,7 @@ class CareRepository extends ChangeNotifier {
     final api = _api;
     if (api != null) {
       try {
-        final billing = await api.startTrial();
+        final billing = await AppLog.trace('billing.trial', api.startTrial);
         _isPro = billing.isPro;
         _plan = billing.plan;
       } catch (_) {
@@ -268,6 +279,25 @@ class CareRepository extends ChangeNotifier {
     }
     notifyListeners();
     AppLog.event('billing.trial_started');
+  }
+
+  void _logShape() {
+    if (_doses.isEmpty) {
+      AppLog.event('dose.empty');
+    } else {
+      for (final part in DayPart.values) {
+        final count = _doses.where((dose) => dose.part == part).length;
+        if (count == 0) continue;
+        AppLog.event(part.name, {'doses': count});
+      }
+    }
+    final low = lowSupply;
+    if (low != null) {
+      AppLog.event('medication.low', {
+        'medicationId': low.id,
+        'dosesLeft': low.dosesLeft,
+      });
+    }
   }
 
   static const _seedMembers = [

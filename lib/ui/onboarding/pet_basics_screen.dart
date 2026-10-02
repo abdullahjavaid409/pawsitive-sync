@@ -56,17 +56,16 @@ class PetBasicsScreen extends StatelessWidget {
                               ),
                               const SizedBox(height: 20),
                               const Center(
-                                child: SoftEnter(child: StoryArt('pet', size: 140)),
+                                child: SoftEnter(
+                                  child: StoryArt('pet', size: 140),
+                                ),
                               ),
                               const SizedBox(height: 12),
                               Center(
                                 child: SoftEnter(
                                   child: Column(
                                     children: [
-                                      PetMark(
-                                        species: model.species,
-                                        size: 56,
-                                      ),
+                                      PetMark(species: model.species, size: 56),
                                       const SizedBox(height: 8),
                                       Text(
                                         _label(model.species),
@@ -103,7 +102,11 @@ class PetBasicsScreen extends StatelessWidget {
                               for (var row = 0; row < 2; row++) ...[
                                 Row(
                                   children: [
-                                    for (var column = 0; column < 2; column++) ...[
+                                    for (
+                                      var column = 0;
+                                      column < 2;
+                                      column++
+                                    ) ...[
                                       Expanded(
                                         child: _SpeciesChip(
                                           label: _label(
@@ -117,7 +120,8 @@ class PetBasicsScreen extends StatelessWidget {
                                           ),
                                         ),
                                       ),
-                                      if (column == 0) const SizedBox(width: 12),
+                                      if (column == 0)
+                                        const SizedBox(width: 12),
                                     ],
                                   ],
                                 ),

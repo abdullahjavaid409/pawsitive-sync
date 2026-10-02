@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/format/day_label.dart';
+import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/theme/app_colors.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
@@ -106,23 +107,32 @@ class LockScreen extends StatelessWidget {
                       color: tokens.brandDark,
                       icon: StrokeIconKind.check,
                       iconColor: tokens.brandDark,
-                      onPressed: () =>
-                          _done(context, 'Marked given from the lock screen.'),
+                      onPressed: () => _done(
+                        context,
+                        'lock.given',
+                        'Marked given from the lock screen.',
+                      ),
                     ),
                     _Action(
                       label: 'Snooze 15 minutes',
                       icon: StrokeIconKind.clock,
                       iconColor: scheme.onSurfaceVariant,
-                      onPressed: () =>
-                          _done(context, 'Snoozed for 15 minutes.'),
+                      onPressed: () => _done(
+                        context,
+                        'lock.snoozed',
+                        'Snoozed for 15 minutes.',
+                      ),
                     ),
                     _Action(
                       label: 'Someone else gave it',
                       icon: StrokeIconKind.people,
                       iconColor: scheme.onSurfaceVariant,
                       divider: false,
-                      onPressed: () =>
-                          _done(context, 'Left for the person on duty.'),
+                      onPressed: () => _done(
+                        context,
+                        'lock.left',
+                        'Left for the person on duty.',
+                      ),
                     ),
                   ],
                 ),
@@ -190,7 +200,8 @@ class LockScreen extends StatelessWidget {
     );
   }
 
-  void _done(BuildContext context, String message) {
+  void _done(BuildContext context, String event, String message) {
+    AppLog.event(event, {'saved': false});
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(message)));
     context.pop();

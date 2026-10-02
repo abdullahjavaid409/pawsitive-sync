@@ -33,7 +33,8 @@ class SavedDose {
 
 /// Talks to the household API. No polling. Callers fetch once and write on an action.
 class HouseholdApi {
-  HouseholdApi(this.base, {http.Client? client}) : _client = client ?? http.Client();
+  HouseholdApi(this.base, {http.Client? client})
+    : _client = client ?? http.Client();
 
   final Uri base;
   final http.Client _client;
@@ -102,7 +103,10 @@ class HouseholdApi {
     return _read(response);
   }
 
-  Future<Map<String, dynamic>> _post(String path, Map<String, dynamic> payload) async {
+  Future<Map<String, dynamic>> _post(
+    String path,
+    Map<String, dynamic> payload,
+  ) async {
     final response = await _client
         .post(
           _uri(path),
@@ -122,7 +126,9 @@ class HouseholdApi {
 
   Map<String, dynamic> _read(http.Response response) {
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw HouseholdException('The household did not answer (${response.statusCode}).');
+      throw HouseholdException(
+        'The household did not answer (${response.statusCode}).',
+      );
     }
     final decoded = jsonDecode(response.body);
     if (decoded is! Map<String, dynamic>) {
@@ -155,7 +161,11 @@ Member _member(Map<String, dynamic> json) {
     name: '${json['name']}',
     initials: '${json['initials']}',
     role: _enum(MemberRole.values, json['role'], MemberRole.caregiver),
-    avatarTone: _enum(AvatarTone.values, json['avatarTone'], AvatarTone.neutral),
+    avatarTone: _enum(
+      AvatarTone.values,
+      json['avatarTone'],
+      AvatarTone.neutral,
+    ),
     status: json['status'] as String?,
     active: json['active'] == true,
     isYou: json['isYou'] == true,
@@ -171,7 +181,8 @@ Pet _pet(Map<String, dynamic> json) {
     breed: '${json['breed'] ?? ''}',
     sex: '${json['sex'] ?? ''}',
     conditions: [
-      for (final item in json['conditions'] is List ? json['conditions'] as List : const [])
+      for (final item
+          in json['conditions'] is List ? json['conditions'] as List : const [])
         '$item',
     ],
     weightKg: _double(json['weightKg']),

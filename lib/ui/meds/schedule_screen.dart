@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/app_colors.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
@@ -26,157 +27,156 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       body: SafeArea(
         child: SingleChildScrollView(
           child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 4, 24, 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                children: [
-                  IconButton(
-                    tooltip: 'Back',
-                    onPressed: () => context.pop(),
-                    icon: StrokeIcon(
-                      StrokeIconKind.chevronLeft,
-                      color: scheme.onSurface,
+            padding: const EdgeInsets.fromLTRB(24, 4, 24, 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    IconButton(
+                      tooltip: 'Back',
+                      onPressed: () => context.pop(),
+                      icon: StrokeIcon(
+                        StrokeIconKind.chevronLeft,
+                        color: scheme.onSurface,
+                      ),
                     ),
-                  ),
-                  Expanded(
-                    child: Text(
-                      'New medication',
-                      textAlign: TextAlign.center,
-                      style: text.titleMedium,
+                    Expanded(
+                      child: Text(
+                        'New medication',
+                        textAlign: TextAlign.center,
+                        style: text.titleMedium,
+                      ),
                     ),
-                  ),
-                  SizedBox(
-                    width: 48,
-                    child: Text(
-                      '2/3',
-                      textAlign: TextAlign.center,
-                      style: text.bodyMedium,
+                    SizedBox(
+                      width: 48,
+                      child: Text(
+                        '2/3',
+                        textAlign: TextAlign.center,
+                        style: text.bodyMedium,
+                      ),
                     ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  color: tokens.neutral,
-                  borderRadius: BorderRadius.circular(16),
+                  ],
                 ),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 6,
+                const SizedBox(height: 16),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: tokens.neutral,
+                    borderRadius: BorderRadius.circular(16),
                   ),
-                  child: Text(
-                    'Heartworm chew · Juniper',
-                    style: text.bodyMedium?.copyWith(
-                      color: scheme.onSurface,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'When should the next dose be due?',
-                style: text.headlineMedium,
-              ),
-              const SizedBox(height: 16),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  color: scheme.surfaceContainerLowest,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: scheme.outlineVariant),
-                ),
-                child: SizedBox(
-                  height: 52,
                   child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Row(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 6,
+                    ),
+                    child: Text(
+                      'Heartworm chew · Juniper',
+                      style: text.bodyMedium?.copyWith(
+                        color: scheme.onSurface,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'When should the next dose be due?',
+                  style: text.headlineMedium,
+                ),
+                const SizedBox(height: 16),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: scheme.surfaceContainerLowest,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: scheme.outlineVariant),
+                  ),
+                  child: SizedBox(
+                    height: 52,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Row(
+                        children: [
+                          Text(
+                            'Repeats',
+                            style: text.bodyLarge?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                          const Spacer(),
+                          Text(
+                            'Every month',
+                            style: text.bodyLarge?.copyWith(
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _Rule(
+                  title: 'From the last dose',
+                  badge: 'Recommended',
+                  body: 'Gave it late? The next one counts from when it was actually given.',
+                  selected: _fromLastDose,
+                  onPressed: () => setState(() => _fromLastDose = true),
+                ),
+                const SizedBox(height: 8),
+                _Rule(
+                  title: 'Same date every month',
+                  body: 'Stays on the 1st, even after a late dose.',
+                  selected: !_fromLastDose,
+                  onPressed: () => setState(() => _fromLastDose = false),
+                ),
+                const SizedBox(height: 16),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: tokens.neutral,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Repeats',
-                          style: text.bodyLarge?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                          ),
+                          'HOW THIS PLAYS OUT',
+                          style: Theme.of(context).textTheme.labelSmall,
                         ),
-                        const Spacer(),
-                        Text(
-                          'Every month',
-                          style: text.bodyLarge?.copyWith(
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
+                        const SizedBox(height: 16),
+                        const _Timeline(),
                       ],
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 16),
-              _Rule(
-                title: 'From the last dose',
-                badge: 'Recommended',
-                body: 'Gave it late? The next one counts from when it was actually given.',
-                selected: _fromLastDose,
-                onPressed: () => setState(() => _fromLastDose = true),
-              ),
-              const SizedBox(height: 8),
-              _Rule(
-                title: 'Same date every month',
-                body: 'Stays on the 1st, even after a late dose.',
-                selected: !_fromLastDose,
-                onPressed: () => setState(() => _fromLastDose = false),
-              ),
-              const SizedBox(height: 16),
-              DecoratedBox(
-                decoration: BoxDecoration(
-                  color: tokens.neutral,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'HOW THIS PLAYS OUT',
-                        style: Theme.of(context).textTheme.labelSmall,
-                      ),
-                      const SizedBox(height: 16),
-                      const _Timeline(),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Row(
-                children: [
-                  Expanded(
-                    child: _Mini(label: 'Remind at', value: '9:00 AM'),
-                  ),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: _Mini(label: 'In the box', value: '6 chews'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-              FilledButton(
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        'Saved on Juniper’s schedule.',
-                      ),
+                const SizedBox(height: 16),
+                const Row(
+                  children: [
+                    Expanded(
+                      child: _Mini(label: 'Remind at', value: '9:00 AM'),
                     ),
-                  );
-                  context.go(AppRoutes.today);
-                },
-                child: const Text('Save medication'),
-              ),
-            ],
-          ),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: _Mini(label: 'In the box', value: '6 chews'),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                FilledButton(
+                  onPressed: () {
+                    AppLog.event('schedule.not_saved');
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Saved on Juniper’s schedule.'),
+                      ),
+                    );
+                    context.go(AppRoutes.today);
+                  },
+                  child: const Text('Save medication'),
+                ),
+              ],
+            ),
           ),
         ),
       ),

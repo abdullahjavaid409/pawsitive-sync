@@ -53,10 +53,11 @@ class MomentArt extends StatelessWidget {
             fit: BoxFit.contain,
             repeat: false,
           );
-    if (!announce) return child;
+    final picture = RepaintBoundary(child: child);
+    if (!announce) return picture;
     final label = labels[name];
-    if (label == null) return child;
-    return Semantics(label: label, child: child);
+    if (label == null) return picture;
+    return Semantics(label: label, child: picture);
   }
 }
 

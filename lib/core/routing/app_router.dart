@@ -54,7 +54,7 @@ GoRouter createRouter(OnboardingViewModel onboarding) {
       return null;
     },
     errorBuilder: (context, state) =>
-        AdaptivePage(child: NotFoundScreen(path: state.uri.toString())),
+        AdaptivePage(child: NotFoundScreen(path: state.uri.path)),
     routes: [
       GoRoute(
         path: AppRoutes.welcome,
@@ -161,10 +161,21 @@ GoRouter createRouter(OnboardingViewModel onboarding) {
 }
 
 /// Shown when a location does not match a route.
-class NotFoundScreen extends StatelessWidget {
+class NotFoundScreen extends StatefulWidget {
   const NotFoundScreen({super.key, required this.path});
 
   final String path;
+
+  @override
+  State<NotFoundScreen> createState() => _NotFoundScreenState();
+}
+
+class _NotFoundScreenState extends State<NotFoundScreen> {
+  @override
+  void initState() {
+    super.initState();
+    AppLog.event('nav.missing', {'path': widget.path});
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -180,7 +191,7 @@ class NotFoundScreen extends StatelessWidget {
                 style: Theme.of(context).textTheme.headlineMedium,
               ),
               const SizedBox(height: 8),
-              Text(path, style: Theme.of(context).textTheme.bodyMedium),
+              Text(widget.path, style: Theme.of(context).textTheme.bodyMedium),
               const SizedBox(height: 24),
               FilledButton(
                 onPressed: () => context.go(AppRoutes.today),

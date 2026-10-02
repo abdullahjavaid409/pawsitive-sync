@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
+import 'package:pawsitive_sync/core/widgets/moment_art.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
@@ -134,6 +136,14 @@ class MedicationScreen extends StatelessWidget {
                       ),
                     ],
                   ),
+                  if (medication.isLow) ...[
+                    const SizedBox(height: 12),
+                    const MomentArt(
+                      'medication.low',
+                      size: 72,
+                      announce: false,
+                    ),
+                  ],
                   const SizedBox(height: 8),
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.baseline,
@@ -190,14 +200,20 @@ class MedicationScreen extends StatelessWidget {
                           onPressed: () async {
                             final saved = await care.refill(medication.id);
                             if (!context.mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  saved
-                                      ? 'Refilled. The box is full again.'
-                                      : 'Could not save the refill. Try again.',
+                            if (!saved) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Could not save the refill. Try again.',
+                                  ),
                                 ),
-                              ),
+                              );
+                              return;
+                            }
+                            await showMoment(
+                              context,
+                              name: 'medication.refilled',
+                              message: 'The box is full again.',
                             );
                           },
                           style: FilledButton.styleFrom(
@@ -214,6 +230,7 @@ class MedicationScreen extends StatelessWidget {
                       Expanded(
                         child: OutlinedButton.icon(
                           onPressed: () {
+                            AppLog.event('clinic.unavailable');
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
                                 content: Text(

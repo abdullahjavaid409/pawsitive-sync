@@ -42,70 +42,78 @@ class DayPreviewScreen extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-              const Center(
-                child: SoftEnter(child: StoryArt('medicine', size: 132)),
-              ),
-              const SizedBox(height: 16),
-              Text('A morning', style: text.headlineMedium),
-              const SizedBox(height: 8),
-              Text(
-                'Sara already gave the insulin. You can see that.',
-                style: text.bodyLarge?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: 24),
-              SurfaceCard(
-                padding: const EdgeInsets.all(16),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 40,
-                      height: 40,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: scheme.primary,
-                        shape: BoxShape.circle,
-                      ),
-                      child: StrokeIcon(
-                        StrokeIconKind.check,
-                        size: 20,
-                        color: scheme.onPrimary,
+                    const Center(
+                      child: SoftEnter(child: StoryArt('medicine', size: 132)),
+                    ),
+                    const SizedBox(height: 16),
+                    Text('A morning', style: text.headlineMedium),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Sara already gave the insulin. You can see that.',
+                      style: text.bodyLarge?.copyWith(
+                        color: scheme.onSurfaceVariant,
                       ),
                     ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                    const SizedBox(height: 24),
+                    SurfaceCard(
+                      padding: const EdgeInsets.all(16),
+                      child: Row(
                         children: [
-                          Text('Morning insulin', style: text.titleMedium),
-                          const SizedBox(height: 2),
-                          Text('Given by Sara at 8:02 AM', style: text.bodyMedium),
+                          Container(
+                            width: 40,
+                            height: 40,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: scheme.primary,
+                              shape: BoxShape.circle,
+                            ),
+                            child: StrokeIcon(
+                              StrokeIconKind.check,
+                              size: 20,
+                              color: scheme.onPrimary,
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Morning insulin',
+                                  style: text.titleMedium,
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  'Given by Sara at 8:02 AM',
+                                  style: text.bodyMedium,
+                                ),
+                              ],
+                            ),
+                          ),
+                          InitialsAvatar(
+                            label: 'S',
+                            size: 28,
+                            background: tokens.brandSoft,
+                            foreground: tokens.brandDark,
+                          ),
                         ],
                       ),
                     ),
-                    InitialsAvatar(
-                      label: 'S',
-                      size: 28,
-                      background: tokens.brandSoft,
-                      foreground: tokens.brandDark,
+                    const SizedBox(height: 24),
+                    FilledButton(
+                      onPressed: () => context.go(AppRoutes.pet),
+                      child: const Text('Get started'),
                     ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-              FilledButton(
-                onPressed: () => context.go(AppRoutes.pet),
-                child: const Text('Get started'),
-              ),
-              const SizedBox(height: 8),
-              OutlinedButton(
-                onPressed: () {
-                  context.read<OnboardingViewModel>().finish(reminders: false);
-                  context.go(AppRoutes.household);
-                },
-                child: const Text('I was invited to a household'),
-              ),
+                    const SizedBox(height: 8),
+                    OutlinedButton(
+                      onPressed: () {
+                        context.read<OnboardingViewModel>().finish(
+                          reminders: false,
+                        );
+                        context.go(AppRoutes.household);
+                      },
+                      child: const Text('I was invited to a household'),
+                    ),
                   ],
                 ),
               ),

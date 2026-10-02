@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/format/day_label.dart';
+import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/motion/app_motion.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
+import 'package:pawsitive_sync/core/widgets/moment_art.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/pet_mark.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
@@ -58,217 +60,221 @@ class _TodayScreenState extends State<TodayScreen> {
         child: RefreshIndicator(
           onRefresh: care.sync,
           child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        dayLabel(),
-                        style: text.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.w500,
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          dayLabel(),
+                          style: text.bodyMedium?.copyWith(
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        Text('Today', style: text.displaySmall),
+                      ],
+                    ),
+                  ),
+                  Semantics(
+                    button: true,
+                    label: 'Household, ${care.members.length} people in sync',
+                    child: InkWell(
+                      onTap: () => context.go(AppRoutes.household),
+                      borderRadius: BorderRadius.circular(20),
+                      child: SizedBox(
+                        width: 74,
+                        height: 30,
+                        child: Stack(
+                          children: [
+                            for (var i = 0; i < faces.length && i < 3; i++)
+                              Positioned(
+                                left: i * 22.0,
+                                child: _memberAvatar(
+                                  context,
+                                  faces[i],
+                                  size: 30,
+                                ),
+                              ),
+                          ],
                         ),
                       ),
-                      Text('Today', style: text.displaySmall),
-                    ],
+                    ),
                   ),
+                ],
+              ),
+              _HouseholdSync(
+                syncing: care.syncing,
+                error: care.syncError,
+                onRetry: care.sync,
+              ),
+              const SizedBox(height: 16),
+              if (next != null)
+                SoftEnter(
+                  child: _NowCard(
+                    dose: next,
+                    pet: care.petById(next.petId),
+                    time: _dueTime(next),
+                    onPressed: () => _openDose(context, next!),
+                  ),
+                )
+              else if (doses.isNotEmpty)
+                const SoftEnter(child: _CalmCard()),
+              if (doses.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                Text(summary, style: text.bodyLarge),
+              ],
+              if (slots > 0) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    for (var i = 0; i < slots; i++) ...[
+                      Expanded(
+                        child: Container(
+                          height: 6,
+                          decoration: BoxDecoration(
+                            color: i < given
+                                ? scheme.primary
+                                : scheme.outlineVariant,
+                            borderRadius: BorderRadius.circular(3),
+                          ),
+                        ),
+                      ),
+                      if (i != slots - 1) const SizedBox(width: 4),
+                    ],
+                  ],
                 ),
-                Semantics(
-                  button: true,
-                  label: 'Household, ${care.members.length} people in sync',
+              ],
+              const SizedBox(height: 16),
+              SizedBox(
+                height: 44,
+                child: ListView(
+                  scrollDirection: Axis.horizontal,
+                  children: [
+                    _FilterChip(
+                      label: 'All pets',
+                      selected: _petId == null,
+                      onPressed: () => setState(() => _petId = null),
+                    ),
+                    for (final pet in care.pets) ...[
+                      const SizedBox(width: 8),
+                      _FilterChip(
+                        label: pet.name,
+                        species: pet.species,
+                        selected: _petId == pet.id,
+                        onPressed: () {
+                          setState(() => _petId = pet.id);
+                          if (!care.doses.any((dose) => dose.petId == pet.id)) {
+                            AppLog.event('dose.empty', {'petId': pet.id});
+                          }
+                        },
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (low != null) ...[
+                const SizedBox(height: 16),
+                Material(
+                  color: tokens.warningBg,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    side: BorderSide(color: tokens.warningBorder),
+                  ),
                   child: InkWell(
-                    onTap: () => context.go(AppRoutes.household),
-                    borderRadius: BorderRadius.circular(20),
-                    child: SizedBox(
-                      width: 74,
-                      height: 30,
-                      child: Stack(
+                    onTap: () {
+                      AppLog.event('medication.low_opened', {
+                        'medicationId': low.id,
+                        'dosesLeft': low.dosesLeft,
+                      });
+                      context.push(AppRoutes.medication(low.id));
+                    },
+                    borderRadius: BorderRadius.circular(14),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      child: Row(
                         children: [
-                          for (var i = 0; i < faces.length && i < 3; i++)
-                            Positioned(
-                              left: i * 22.0,
-                              child: _memberAvatar(context, faces[i], size: 30),
+                          const MomentArt(
+                            'medication.low',
+                            size: 40,
+                            announce: false,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '${low.name} is running low',
+                                  style: text.bodyMedium?.copyWith(
+                                    color: tokens.warning,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                                Text(
+                                  '${low.dosesLeft} doses left · lasts until ${low.lastsUntil.split(',').first}',
+                                  style: text.bodyMedium?.copyWith(
+                                    color: tokens.warning,
+                                  ),
+                                ),
+                              ],
                             ),
+                          ),
+                          Text(
+                            'Refill',
+                            style: text.bodyMedium?.copyWith(
+                              color: tokens.warning,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                         ],
                       ),
                     ),
                   ),
                 ),
               ],
-            ),
-            if (care.syncing || care.syncError != null) ...[
-              const SizedBox(height: 12),
-              Text(
-                care.syncError ?? 'Loading the household.',
-                style: text.bodyLarge?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                ),
-              ),
-              if (care.syncError != null)
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: TextButton(
-                    onPressed: care.sync,
-                    child: const Text('Try again'),
-                  ),
-                ),
-            ],
-            const SizedBox(height: 16),
-            if (next != null)
-              SoftEnter(
-                child: _NowCard(
-                  dose: next,
-                  pet: care.petById(next.petId),
-                  time: _dueTime(next),
-                  onPressed: () => _openDose(context, next!),
-                ),
-              )
-            else if (doses.isNotEmpty)
-              const SoftEnter(child: _CalmCard()),
-            if (doses.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Text(summary, style: text.bodyLarge),
-            ],
-            if (slots > 0) ...[
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  for (var i = 0; i < slots; i++) ...[
-                    Expanded(
-                      child: Container(
-                        height: 6,
-                        decoration: BoxDecoration(
-                          color: i < given
-                              ? scheme.primary
-                              : scheme.outlineVariant,
-                          borderRadius: BorderRadius.circular(3),
+              if (doses.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 28),
+                  child: Column(
+                    children: [
+                      const MomentArt('dose.empty', size: 120),
+                      const SizedBox(height: 12),
+                      Text(
+                        _petId == null
+                            ? 'Nothing is scheduled today.'
+                            : 'Nothing is scheduled for this pet today.',
+                        textAlign: TextAlign.center,
+                        style: text.bodyLarge?.copyWith(
+                          color: scheme.onSurfaceVariant,
                         ),
                       ),
-                    ),
-                    if (i != slots - 1) const SizedBox(width: 4),
-                  ],
-                ],
-              ),
-            ],
-            const SizedBox(height: 16),
-            SizedBox(
-              height: 44,
-              child: ListView(
-                scrollDirection: Axis.horizontal,
-                children: [
-                  _FilterChip(
-                    label: 'All pets',
-                    selected: _petId == null,
-                    onPressed: () => setState(() => _petId = null),
+                    ],
                   ),
-                  for (final pet in care.pets) ...[
-                    const SizedBox(width: 8),
-                    _FilterChip(
-                      label: pet.name,
-                      species: pet.species,
-                      selected: _petId == pet.id,
-                      onPressed: () => setState(() => _petId = pet.id),
+                )
+              else
+                for (final part in DayPart.values) ...[
+                  if (doses.any((dose) => dose.part == part)) ...[
+                    _PartLabel(part),
+                    _DoseGroup(
+                      doses: doses.where((dose) => dose.part == part).toList(),
+                      onDose: (dose) => _openDose(context, dose),
                     ),
                   ],
                 ],
-              ),
-            ),
-            if (low != null) ...[
-              const SizedBox(height: 16),
-              Material(
-                color: tokens.warningBg,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  side: BorderSide(color: tokens.warningBorder),
-                ),
-                child: InkWell(
-                  onTap: () => context.push(AppRoutes.medication(low.id)),
-                  borderRadius: BorderRadius.circular(14),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 12,
-                    ),
-                    child: Row(
-                      children: [
-                        StrokeIcon(
-                          StrokeIconKind.refresh,
-                          size: 18,
-                          color: tokens.warning,
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '${low.name} is running low',
-                                style: text.bodyMedium?.copyWith(
-                                  color: tokens.warning,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              Text(
-                                '${low.dosesLeft} doses left · lasts until ${low.lastsUntil.split(',').first}',
-                                style: text.bodyMedium?.copyWith(
-                                  color: tokens.warning,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Text(
-                          'Refill',
-                          style: text.bodyMedium?.copyWith(
-                            color: tokens.warning,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
             ],
-            if (doses.isEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 28),
-                child: Text(
-                  _petId == null
-                      ? 'Nothing is scheduled today.'
-                      : 'Nothing is scheduled for this pet today.',
-                  style: text.bodyLarge?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-              )
-            else
-              for (final part in DayPart.values) ...[
-                if (doses.any((dose) => dose.part == part)) ...[
-                  SectionLabel(_partLabel(part)),
-                  _DoseGroup(
-                    doses: doses.where((dose) => dose.part == part).toList(),
-                    onDose: (dose) => _openDose(context, dose),
-                  ),
-                ],
-              ],
-          ],
           ),
         ),
       ),
     );
   }
-
-  String _partLabel(DayPart part) => switch (part) {
-    DayPart.morning => 'Morning',
-    DayPart.afternoon => 'Afternoon',
-    DayPart.evening => 'Evening',
-  };
 
   String _dueTime(Dose dose) {
     final match = RegExp(r'\d{1,2}:\d{2} [AP]M').firstMatch(dose.subtitle);
@@ -300,6 +306,121 @@ Widget _memberAvatar(BuildContext context, Member member, {double size = 24}) {
     foreground: foreground,
     borderColor: scheme.surface,
   );
+}
+
+class _PartLabel extends StatelessWidget {
+  const _PartLabel(this.part);
+
+  final DayPart part;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = switch (part) {
+      DayPart.morning => 'morning',
+      DayPart.afternoon => 'afternoon',
+      DayPart.evening => 'evening',
+    };
+    final label = switch (part) {
+      DayPart.morning => 'Morning',
+      DayPart.afternoon => 'Afternoon',
+      DayPart.evening => 'Evening',
+    };
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(0, 16, 0, 8),
+      child: Row(
+        children: [
+          MomentArt(name, size: 36, announce: false),
+          const SizedBox(width: 8),
+          Text(label, style: Theme.of(context).textTheme.labelSmall),
+        ],
+      ),
+    );
+  }
+}
+
+class _HouseholdSync extends StatefulWidget {
+  const _HouseholdSync({
+    required this.syncing,
+    required this.error,
+    required this.onRetry,
+  });
+
+  final bool syncing;
+  final String? error;
+  final Future<void> Function() onRetry;
+
+  @override
+  State<_HouseholdSync> createState() => _HouseholdSyncState();
+}
+
+class _HouseholdSyncState extends State<_HouseholdSync> {
+  var _started = false;
+  var _showSynced = false;
+
+  @override
+  void didUpdateWidget(covariant _HouseholdSync oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.syncing) _started = true;
+    if (_started &&
+        oldWidget.syncing &&
+        !widget.syncing &&
+        widget.error == null) {
+      setState(() => _showSynced = true);
+      Future<void>.delayed(const Duration(milliseconds: 1600), () {
+        if (mounted) setState(() => _showSynced = false);
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    final failed = widget.error != null;
+    if (!widget.syncing && !failed && !_showSynced) {
+      return const SizedBox.shrink();
+    }
+    final message = failed
+        ? widget.error!
+        : widget.syncing
+        ? 'Loading the household.'
+        : 'Household is up to date.';
+    final art = failed
+        ? 'household.sync_failed'
+        : _showSynced
+        ? 'household.synced'
+        : null;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              if (art != null) ...[
+                MomentArt(art, size: 40, announce: false),
+                const SizedBox(width: 8),
+              ],
+              Expanded(
+                child: Text(
+                  message,
+                  style: text.bodyLarge?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (failed)
+            TextButton(
+              onPressed: widget.onRetry,
+              child: const Text('Try again'),
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 class _FilterChip extends StatelessWidget {
