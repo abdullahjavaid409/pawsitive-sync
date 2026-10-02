@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<title>Pet profile</title>
+<script src="8db42374-d690-4ca2-84ca-3d76cf92b12d"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>/* cyrillic-ext */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/geist/v5/gyByhwUxId8gMEwRGFWNOITddY4.woff2) format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/geist/v5/gyByhwUxId8gMEwYGFWNOITddY4.woff2) format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/geist/v5/gyByhwUxId8gMEwTGFWNOITddY4.woff2) format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/geist/v5/gyByhwUxId8gMEwSGFWNOITddY4.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("d0efa0cb-a8ed-42a8-871d-01cdfa164105") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/geist/v5/gyByhwUxId8gMEwRGFWNOITddY4.woff2) format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/geist/v5/gyByhwUxId8gMEwYGFWNOITddY4.woff2) format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/geist/v5/gyByhwUxId8gMEwTGFWNOITddY4.woff2) format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/geist/v5/gyByhwUxId8gMEwSGFWNOITddY4.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("d0efa0cb-a8ed-42a8-871d-01cdfa164105") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/geist/v5/gyByhwUxId8gMEwRGFWNOITddY4.woff2) format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/geist/v5/gyByhwUxId8gMEwYGFWNOITddY4.woff2) format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/geist/v5/gyByhwUxId8gMEwTGFWNOITddY4.woff2) format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/geist/v5/gyByhwUxId8gMEwSGFWNOITddY4.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("d0efa0cb-a8ed-42a8-871d-01cdfa164105") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/geist/v5/gyByhwUxId8gMEwRGFWNOITddY4.woff2) format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/geist/v5/gyByhwUxId8gMEwYGFWNOITddY4.woff2) format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/geist/v5/gyByhwUxId8gMEwTGFWNOITddY4.woff2) format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/s/geist/v5/gyByhwUxId8gMEwSGFWNOITddY4.woff2) format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("d0efa0cb-a8ed-42a8-871d-01cdfa164105") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+</style>
+<style>
+body{margin:0}
+a{color:#4A7C59}a:hover{color:#3D6A4B}
+</style>
+</helmet>
+<div style="position: relative; width: 390px; height: 844px; box-sizing: border-box; background: #FBFBFA; color: #2C3531; font-family: 'Geist', system-ui, sans-serif; padding: 56px 16px 0; overflow: hidden">
+  <div role="tablist" aria-label="Pets" style="display: flex; gap: 8px; padding: 0 8px">
+    <button type="button" role="tab" aria-selected="true" style="height: 36px; padding: 0 16px; border-radius: 18px; border: 0; background: #2C3531; color: #FFFFFF; font-family: inherit; font-size: 15px; font-weight: 600">Miso</button>
+    <button type="button" role="tab" aria-selected="false" style="height: 36px; padding: 0 16px; border-radius: 18px; border: 1px solid #E4E5E1; background: #FFFFFF; color: #2C3531; font-family: inherit; font-size: 15px; font-weight: 500">Juniper</button>
+    <button type="button" aria-label="Add pet" style="width: 36px; height: 36px; border-radius: 18px; border: 1px dashed #C9CCC6; background: transparent; color: #6B726E; display: flex; align-items: center; justify-content: center"><svg width="16" height="16" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg></button>
+  </div>
+
+  <div style="margin-top: 24px; display: flex; align-items: center; gap: 16px; padding: 0 8px">
+    <div style="width: 72px; height: 72px; border-radius: 36px; background: #E9F1EB; color: #3D6A4B; font-size: 30px; font-weight: 600; display: flex; align-items: center; justify-content: center; flex-shrink: 0">M</div>
+    <div>
+      <h1 style="margin: 0; font-size: 30px; font-weight: 600; letter-spacing: -0.035em; line-height: 1.1">Miso</h1>
+      <div style="margin-top: 4px; font-size: 15px; color: #6B726E">Domestic shorthair · 12 yrs · female</div>
+    </div>
+  </div>
+  <div style="margin-top: 16px; display: flex; gap: 8px; padding: 0 8px">
+    <span style="height: 30px; padding: 0 12px; border-radius: 15px; background: #F2F2EF; font-size: 14px; font-weight: 500; display: flex; align-items: center">Diabetes</span>
+    <span style="height: 30px; padding: 0 12px; border-radius: 15px; background: #F2F2EF; font-size: 14px; font-weight: 500; display: flex; align-items: center">Kidney disease</span>
+  </div>
+
+  <div style="margin-top: 16px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px">
+    <div style="background: #FFFFFF; border: 1px solid #E4E5E1; border-radius: 14px; padding: 12px"><div style="font-size: 13px; color: #6B726E">Weight</div><div style="margin-top: 4px; font-size: 20px; font-weight: 600; letter-spacing: -0.02em">4.6 kg</div></div>
+    <div style="background: #FFFFFF; border: 1px solid #E4E5E1; border-radius: 14px; padding: 12px"><div style="font-size: 13px; color: #6B726E">Daily meds</div><div style="margin-top: 4px; font-size: 20px; font-weight: 600; letter-spacing: -0.02em">3</div></div>
+    <div style="background: #FFFFFF; border: 1px solid #E4E5E1; border-radius: 14px; padding: 12px"><div style="font-size: 13px; color: #6B726E">On time</div><div style="margin-top: 4px; font-size: 20px; font-weight: 600; letter-spacing: -0.02em">97%</div></div>
+  </div>
+
+  <div style="margin-top: 8px; background: #FFFFFF; border: 1px solid #E4E5E1; border-radius: 16px; padding: 16px">
+    <div style="display: flex; justify-content: space-between; align-items: baseline">
+      <span style="font-size: 16px; font-weight: 600">Weight · 90 days</span>
+      <span style="font-size: 14px; font-weight: 600; color: #7A4E0E">−0.3 kg</span>
+    </div>
+    <svg style="display: block; margin-top: 12px" width="324" height="72" sc-camel-view-box="0 0 324 72" fill="none" aria-label="Weight trending down from 4.9 to 4.6 kg">
+      <path d="M0 18H324M0 54H324" stroke="#F2F2EF" stroke-width="1"></path>
+      <polyline points="0,14 36,16 72,15 108,22 144,26 180,30 216,36 252,44 288,48 324,56" stroke="#4A7C59" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round"></polyline>
+      <circle cx="324" cy="56" r="4" fill="#4A7C59" transform="translate(-4 0)"></circle>
+    </svg>
+    <div style="display: flex; justify-content: space-between; font-size: 12px; color: #6B726E; margin-top: 4px"><span>Jul 4 · 4.9</span><span>Oct 2 · 4.6</span></div>
+  </div>
+
+  <div style="margin-top: 8px; background: #FFFFFF; border: 1px solid #E4E5E1; border-radius: 16px">
+    <div style="padding: 12px 16px 4px; font-size: 16px; font-weight: 600">This week</div>
+    <div style="min-height: 44px; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; font-size: 15px; border-bottom: 1px solid #F2F2EF"><span>Vomited</span><span style="color: #6B726E">2 times · last today</span></div>
+    <div style="min-height: 44px; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; font-size: 15px"><span>Appetite</span><span style="color: #6B726E">Normal</span></div>
+  </div>
+
+  <a href="Vet-Report.dc.html" style="margin-top: 8px; height: 48px; border-radius: 14px; border: 1px solid #E4E5E1; background: #FFFFFF; display: flex; align-items: center; justify-content: center; gap: 8px; color: #3D6A4B; font-size: 16px; font-weight: 600; text-decoration: none"><svg width="18" height="18" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"></path><path d="M14 3v5h5M9 13h6M9 17h6"></path></svg>Prepare vet report</a>
+
+  <nav aria-label="Tabs" style="position: absolute; left: 0; right: 0; bottom: 0; height: 84px; background: #FBFBFA; border-top: 1px solid #E4E5E1; display: flex; padding: 8px 8px 0; box-sizing: border-box">
+    <a href="Today.dc.html" style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; text-decoration: none; color: #6B726E; font-size: 11px; font-weight: 500; min-height: 44px"><svg width="24" height="24" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4.5" width="18" height="16.5" rx="2.5"></rect><path d="M3 9.5h18M8 2.5v4M16 2.5v4"></path></svg>Today</a>
+    <a href="Pet-Profile.dc.html" aria-current="page" style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; text-decoration: none; color: #4A7C59; font-size: 11px; font-weight: 600; min-height: 44px"><svg width="24" height="24" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5.5" cy="10" r="2"></circle><circle cx="9.5" cy="5.5" r="2"></circle><circle cx="14.5" cy="5.5" r="2"></circle><circle cx="18.5" cy="10" r="2"></circle><path d="M12 12c-3 0-6 4-6 6.5 0 1.5 1.2 2.5 2.7 2.2 1.2-.3 2.1-.7 3.3-.7s2.1.4 3.3.7c1.5.3 2.7-.7 2.7-2.2 0-2.5-3-6.5-6-6.5z"></path></svg>Pets</a>
+    <a href="Household.dc.html" style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; text-decoration: none; color: #6B726E; font-size: 11px; font-weight: 500; min-height: 44px"><svg width="24" height="24" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="8" r="3.5"></circle><path d="M2.5 20c0-3.6 2.9-6 6.5-6s6.5 2.4 6.5 6"></path><path d="M16 4.6a3.5 3.5 0 010 6.8M18.5 14.3c1.9.8 3 2.9 3 5.7"></path></svg>Household</a>
+    <a href="Vet-Report.dc.html" style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; text-decoration: none; color: #6B726E; font-size: 11px; font-weight: 500; min-height: 44px"><svg width="24" height="24" sc-camel-view-box="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"></path><path d="M14 3v5h5M9 13h6M9 17h6"></path></svg>Reports</a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script="" data-props="{&quot;$preview&quot;:{&quot;width&quot;:390,&quot;height&quot;:844}}">
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+
+
+</body></html>
