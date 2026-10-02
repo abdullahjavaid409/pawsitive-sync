@@ -34,7 +34,7 @@ class CaregiversScreen extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               OnboardingHeader(
-                step: 3,
+                step: 4,
                 onBack: () => context.go(AppRoutes.conditions),
               ),
               Expanded(

@@ -6,7 +6,6 @@ import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/domain/models.dart';
-import 'package:pawsitive_sync/ui/household/invite_paywall_sheet.dart';
 import 'package:provider/provider.dart';
 
 /// Lists household members and the doses logged today.
@@ -56,7 +55,13 @@ class HouseholdScreen extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             OutlinedButton.icon(
-              onPressed: () => _invite(context, care),
+              onPressed: () {
+                if (care.isPro) {
+                  context.push(AppRoutes.invite);
+                } else {
+                  context.push(AppRoutes.paywall);
+                }
+              },
               style: OutlinedButton.styleFrom(
                 minimumSize: const Size.fromHeight(48),
                 foregroundColor: tokens.brandDark,
@@ -102,14 +107,6 @@ class HouseholdScreen extends StatelessWidget {
     );
   }
 
-  Future<void> _invite(BuildContext context, CareRepository care) async {
-    if (!care.isPro) {
-      final started = await showInvitePaywall(context);
-      if (!context.mounted || started != true) return;
-    }
-    if (!context.mounted) return;
-    context.push(AppRoutes.invite);
-  }
 }
 
 class _MemberRow extends StatelessWidget {

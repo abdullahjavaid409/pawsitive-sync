@@ -2,7 +2,9 @@
 abstract final class AppRoutes {
   static const welcome = '/';
   static const onboarding = '/onboarding';
+  static const day = '/onboarding/day';
   static const pet = '/onboarding/pet';
+  static const petDetails = '/onboarding/details';
   static const conditions = '/onboarding/conditions';
   static const caregivers = '/onboarding/caregivers';
   static const notifications = '/onboarding/notifications';

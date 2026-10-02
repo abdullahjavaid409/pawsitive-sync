@@ -52,7 +52,7 @@ class NotificationsScreen extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               OnboardingHeader(
-                step: 4,
+                step: 5,
                 onBack: () => context.go(AppRoutes.caregivers),
               ),
               Expanded(

@@ -28,8 +28,8 @@ class ConditionsScreen extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               OnboardingHeader(
-                step: 2,
-                onBack: () => context.go(AppRoutes.pet),
+                step: 3,
+                onBack: () => context.go(AppRoutes.petDetails),
               ),
               Expanded(
                 child: ListView(

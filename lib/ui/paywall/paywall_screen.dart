@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
+import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/data/dose_reminders.dart';
@@ -8,163 +9,139 @@ import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
 
-/// Offers a free trial and a free path that keeps one pet.
+/// Compares Free and Pro. Free is one pet. Pro is the whole household.
 class PaywallScreen extends StatelessWidget {
   const PaywallScreen({super.key});
+
+  static const _rows = [
+    ('Today\'s list', true, true),
+    ('I gave this', true, true),
+    ('A reminder', true, true),
+    ('One pet', true, true),
+    ('Every pet', false, true),
+    ('Invite the family', false, true),
+    ('Running low', false, true),
+    ('For the vet', false, true),
+  ];
 
   @override
   Widget build(BuildContext context) {
     final care = context.watch<CareRepository>();
-    final onboarding = context.read<OnboardingViewModel>();
     final scheme = Theme.of(context).colorScheme;
+    final tokens = context.paws;
     final text = Theme.of(context).textTheme;
-    final name = onboarding.petName.trim().isEmpty
-        ? 'them'
-        : onboarding.petName.trim();
     final priceLine = care.plan == BillingPlan.yearly
         ? 'No charge today. Then \$29.99 per year.'
         : 'No charge today. Then \$4.99 per month.';
 
     return Scaffold(
       body: SafeArea(
-        child: SingleChildScrollView(
-          child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 4, 24, 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                IconButton(
+                  tooltip: 'Continue free',
+                  onPressed: () => _enter(context, trial: false),
+                  icon: StrokeIcon(
+                    StrokeIconKind.close,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+                const Spacer(),
+                TextButton(
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('No purchase on this phone to restore.'),
+                      ),
+                    );
+                  },
+                  child: const Text('Restore'),
+                ),
+              ],
+            ),
+            Expanded(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 16),
                 children: [
-                  IconButton(
-                    tooltip: 'Close and continue free',
-                    onPressed: () => _enter(context, trial: false),
-                    icon: StrokeIcon(
-                      StrokeIconKind.close,
+                  Text('Pro vs Free', style: text.displaySmall),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Free is for one pet. Pro is for everyone who helps.',
+                    style: text.bodyLarge?.copyWith(
                       color: scheme.onSurfaceVariant,
                     ),
                   ),
-                  const Spacer(),
-                  TextButton(
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'No purchase on this phone to restore.',
+                  const SizedBox(height: 20),
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: scheme.surfaceContainerLowest,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: tokens.hairline),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
+                      child: Column(
+                        children: [
+                          _CompareRow(
+                            label: '',
+                            free: false,
+                            pro: false,
+                            header: true,
                           ),
-                        ),
-                      );
-                    },
-                    child: const Text('Restore'),
+                          for (final row in _rows)
+                            _CompareRow(
+                              label: row.$1,
+                              free: row.$2,
+                              pro: row.$3,
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  _PlanTile(
+                    selected: care.plan == BillingPlan.yearly,
+                    title: 'Yearly',
+                    subtitle: '\$29.99 per year',
+                    price: '\$2.50/mo',
+                    badge: 'Save 50%',
+                    onPressed: () => care.setPlan(BillingPlan.yearly),
+                  ),
+                  const SizedBox(height: 8),
+                  _PlanTile(
+                    selected: care.plan == BillingPlan.monthly,
+                    title: 'Monthly',
+                    price: '\$4.99/mo',
+                    onPressed: () => care.setPlan(BillingPlan.monthly),
                   ),
                 ],
               ),
-              Padding(
-                padding: const EdgeInsets.only(left: 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Care for $name together.',
-                      style: text.displaySmall,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Try every Pro feature free. Cancel anytime.',
-                      style: text.bodyLarge?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 8, 24, 8),
+              child: Column(
+                children: [
+                  FilledButton(
+                    onPressed: () => _enter(context, trial: true),
+                    child: const Text('Start 7-day free trial'),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    priceLine,
+                    style: text.bodyMedium,
+                    textAlign: TextAlign.center,
+                  ),
+                  TextButton(
+                    onPressed: () => _enter(context, trial: false),
+                    child: const Text('Continue free with 1 pet'),
+                  ),
+                ],
               ),
-              const SizedBox(height: 24),
-              const Padding(
-                padding: EdgeInsets.only(left: 12),
-                child: Column(
-                  children: [
-                    _TimelineStep(
-                      title: 'Today',
-                      body: 'Household sync, refill alerts, vet reports, unlimited pets',
-                      done: true,
-                      showLine: true,
-                    ),
-                    _TimelineStep(
-                      title: 'Day 5',
-                      body: 'We remind you before the trial ends',
-                      done: false,
-                      showLine: true,
-                      icon: StrokeIconKind.bell,
-                    ),
-                    _TimelineStep(
-                      title: 'Day 7',
-                      body: 'Your plan starts. Cancel before and pay nothing.',
-                      done: false,
-                      showLine: false,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 16),
-              Padding(
-                padding: const EdgeInsets.only(left: 12),
-                child: Column(
-                  children: [
-                    _PlanTile(
-                      selected: care.plan == BillingPlan.yearly,
-                      title: 'Yearly',
-                      subtitle: '\$29.99 per year',
-                      price: '\$2.50/mo',
-                      badge: 'Save 50%',
-                      onPressed: () => care.setPlan(BillingPlan.yearly),
-                    ),
-                    const SizedBox(height: 8),
-                    _PlanTile(
-                      selected: care.plan == BillingPlan.monthly,
-                      title: 'Monthly',
-                      price: '\$4.99/mo',
-                      onPressed: () => care.setPlan(BillingPlan.monthly),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-              Padding(
-                padding: const EdgeInsets.only(left: 12),
-                child: Column(
-                  children: [
-                    FilledButton(
-                      onPressed: () => _enter(context, trial: true),
-                      child: const Text('Start 7-day free trial'),
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      priceLine,
-                      style: text.bodyMedium,
-                      textAlign: TextAlign.center,
-                    ),
-                    Wrap(
-                      alignment: WrapAlignment.center,
-                      children: [
-                        TextButton(
-                          onPressed: () {},
-                          child: const Text('Terms'),
-                        ),
-                        TextButton(
-                          onPressed: () {},
-                          child: const Text('Privacy'),
-                        ),
-                        TextButton(
-                          onPressed: () => _enter(context, trial: false),
-                          child: const Text('Continue free with 1 pet'),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -184,83 +161,83 @@ class PaywallScreen extends StatelessWidget {
   }
 }
 
-class _TimelineStep extends StatelessWidget {
-  const _TimelineStep({
-    required this.title,
-    required this.body,
-    required this.done,
-    required this.showLine,
-    this.icon,
+class _CompareRow extends StatelessWidget {
+  const _CompareRow({
+    required this.label,
+    required this.free,
+    required this.pro,
+    this.header = false,
   });
 
-  final String title;
-  final String body;
-  final bool done;
-  final bool showLine;
-  final StrokeIconKind? icon;
+  final String label;
+  final bool free;
+  final bool pro;
+  final bool header;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return IntrinsicHeight(
+    final text = Theme.of(context).textTheme;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 24,
-            child: Column(
-              children: [
-                Container(
-                  width: 24,
-                  height: 24,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: done
-                        ? scheme.primary
-                        : scheme.surfaceContainerLowest,
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: done || icon != null
-                          ? scheme.primary
-                          : scheme.outline,
-                      width: 2,
-                    ),
-                  ),
-                  child: done
-                      ? StrokeIcon(
-                          StrokeIconKind.check,
-                          size: 14,
-                          color: scheme.onPrimary,
-                        )
-                      : icon == null
-                      ? null
-                      : StrokeIcon(icon!, size: 12, color: scheme.primary),
-                ),
-                if (showLine)
-                  Expanded(
-                    child: Container(
-                      width: 2,
-                      color: done ? scheme.primary : scheme.outlineVariant,
-                    ),
-                  ),
-              ],
+          Expanded(
+            child: Text(
+              label,
+              style: header ? text.bodyMedium : text.titleSmall,
             ),
           ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: Theme.of(context).textTheme.titleMedium),
-                  Text(body, style: Theme.of(context).textTheme.bodyMedium),
-                ],
-              ),
-            ),
+          SizedBox(
+            width: 52,
+            child: header
+                ? Text(
+                    'Free',
+                    textAlign: TextAlign.center,
+                    style: text.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  )
+                : _Mark(included: free, color: scheme.onSurfaceVariant),
+          ),
+          SizedBox(
+            width: 52,
+            child: header
+                ? Text(
+                    'Pro',
+                    textAlign: TextAlign.center,
+                    style: text.bodyMedium?.copyWith(
+                      color: scheme.primary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  )
+                : _Mark(included: pro, color: scheme.primary),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _Mark extends StatelessWidget {
+  const _Mark({required this.included, required this.color});
+
+  final bool included;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!included) {
+      return Text(
+        '—',
+        textAlign: TextAlign.center,
+        style: Theme.of(context).textTheme.titleMedium?.copyWith(
+          color: Theme.of(context).colorScheme.outline,
+        ),
+      );
+    }
+    return Center(
+      child: StrokeIcon(StrokeIconKind.check, size: 18, color: color),
     );
   }
 }
@@ -300,47 +277,37 @@ class _PlanTile extends StatelessWidget {
           child: InkWell(
             onTap: onPressed,
             borderRadius: BorderRadius.circular(16),
-            child: ConstrainedBox(
-              constraints: BoxConstraints(minHeight: selected ? 72 : 64),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 22,
-                      height: 22,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: selected ? scheme.primary : scheme.outline,
-                          width: selected ? 6 : 1.5,
-                        ),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              child: Row(
+                children: [
+                  Container(
+                    width: 22,
+                    height: 22,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: selected ? scheme.primary : scheme.outline,
+                        width: selected ? 6 : 1.5,
                       ),
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(title, style: Theme.of(context).textTheme.titleMedium),
+                        if (subtitle != null)
                           Text(
-                            title,
-                            style: Theme.of(context).textTheme.titleMedium,
+                            subtitle!,
+                            style: Theme.of(context).textTheme.bodyMedium,
                           ),
-                          if (subtitle != null)
-                            Text(
-                              subtitle!,
-                              style: Theme.of(context).textTheme.bodyMedium,
-                            ),
-                        ],
-                      ),
+                      ],
                     ),
-                    Text(price, style: Theme.of(context).textTheme.titleMedium),
-                  ],
-                ),
+                  ),
+                  Text(price, style: Theme.of(context).textTheme.titleMedium),
+                ],
               ),
             ),
           ),
