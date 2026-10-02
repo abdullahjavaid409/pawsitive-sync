@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pawsitive_sync/core/motion/app_motion.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
+import 'package:pawsitive_sync/core/widgets/step_picture.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
@@ -50,7 +52,38 @@ class WelcomeScreen extends StatelessWidget {
                             Text('PawsitiveSync', style: text.titleLarge),
                           ],
                         ),
-                        const SizedBox(height: 48),
+                        const SizedBox(height: 28),
+                        const Row(
+                          children: [
+                            Expanded(
+                              child: SoftEnter(
+                                child: StepPicture(
+                                  icon: StrokeIconKind.paw,
+                                  caption: 'The pet',
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: SoftEnter(
+                                delay: Duration(milliseconds: 70),
+                                child: StepPicture(
+                                  icon: StrokeIconKind.check,
+                                  caption: 'Who gave it',
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: SoftEnter(
+                                delay: Duration(milliseconds: 140),
+                                child: StepPicture(
+                                  icon: StrokeIconKind.people,
+                                  caption: 'The family',
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 28),
                         _PreviewRow(
                           filled: true,
                           title: 'Morning insulin · Miso',
@@ -121,9 +154,12 @@ class WelcomeScreen extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 32),
-                        FilledButton(
-                          onPressed: () => context.go(AppRoutes.pet),
-                          child: const Text('Get started'),
+                        SoftEnter(
+                          delay: const Duration(milliseconds: 180),
+                          child: FilledButton(
+                            onPressed: () => context.go(AppRoutes.pet),
+                            child: const Text('Get started'),
+                          ),
                         ),
                         const SizedBox(height: 8),
                         OutlinedButton(

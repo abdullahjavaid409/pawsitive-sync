@@ -3,6 +3,8 @@ import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
+import 'package:pawsitive_sync/core/motion/app_motion.dart';
+import 'package:pawsitive_sync/core/widgets/step_picture.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
@@ -38,7 +40,16 @@ class NotificationsScreen extends StatelessWidget {
                       'Answer reminders from your lock screen',
                       style: text.headlineMedium,
                     ),
-                    const SizedBox(height: 32),
+                    const SizedBox(height: 16),
+                    const Center(
+                      child: SoftEnter(
+                        child: StepPicture(
+                          icon: StrokeIconKind.bell,
+                          caption: 'A reminder',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
                     DecoratedBox(
                       decoration: BoxDecoration(
                         color: tokens.neutral,

@@ -47,6 +47,10 @@
 			</array>
 		</dict>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Take a photo so people know which pet this is.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Choose a photo so people know which pet this is.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>

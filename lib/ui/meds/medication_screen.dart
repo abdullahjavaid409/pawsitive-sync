@@ -142,7 +142,7 @@ class MedicationScreen extends StatelessWidget {
                       Text(
                         '${medication.dosesLeft}',
                         style: text.displaySmall?.copyWith(
-                          fontSize: 44,
+                          fontSize: 32,
                           height: 1,
                         ),
                       ),

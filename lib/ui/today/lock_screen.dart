@@ -36,7 +36,7 @@ class LockScreen extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   color: AppColors.white,
-                  fontSize: 92,
+                  fontSize: 64,
                   fontWeight: FontWeight.w600,
                   letterSpacing: -3.7,
                   height: 1,

@@ -26,7 +26,8 @@ class PaywallScreen extends StatelessWidget {
 
     return Scaffold(
       body: SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
+          child: Padding(
           padding: const EdgeInsets.fromLTRB(12, 4, 24, 16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -63,7 +64,7 @@ class PaywallScreen extends StatelessWidget {
                   children: [
                     Text(
                       'Care for $name together.',
-                      style: text.displaySmall?.copyWith(fontSize: 32),
+                      style: text.displaySmall,
                     ),
                     const SizedBox(height: 8),
                     Text(
@@ -125,7 +126,7 @@ class PaywallScreen extends StatelessWidget {
                   ],
                 ),
               ),
-              const Spacer(),
+              const SizedBox(height: 24),
               Padding(
                 padding: const EdgeInsets.only(left: 12),
                 child: Column(
@@ -140,8 +141,8 @@ class PaywallScreen extends StatelessWidget {
                       style: text.bodyMedium,
                       textAlign: TextAlign.center,
                     ),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                    Wrap(
+                      alignment: WrapAlignment.center,
                       children: [
                         TextButton(
                           onPressed: () {},
@@ -161,6 +162,7 @@ class PaywallScreen extends StatelessWidget {
                 ),
               ),
             ],
+          ),
           ),
         ),
       ),

@@ -24,7 +24,8 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
     return Scaffold(
       body: SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
+          child: Padding(
           padding: const EdgeInsets.fromLTRB(24, 4, 24, 16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -79,7 +80,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
               const SizedBox(height: 16),
               Text(
                 'When should the next dose be due?',
-                style: text.headlineMedium?.copyWith(fontSize: 28),
+                style: text.headlineMedium,
               ),
               const SizedBox(height: 16),
               DecoratedBox(
@@ -160,7 +161,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                   ),
                 ],
               ),
-              const Spacer(),
+              const SizedBox(height: 24),
               FilledButton(
                 onPressed: () {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -175,6 +176,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                 child: const Text('Save medication'),
               ),
             ],
+          ),
           ),
         ),
       ),
@@ -439,22 +441,26 @@ class _Mini extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: scheme.outlineVariant),
       ),
-      child: SizedBox(
-        height: 52,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label, style: Theme.of(context).textTheme.bodySmall),
-              Text(
-                value,
-                style: Theme.of(context).textTheme.bodyLarge
-                    ?.copyWith(fontWeight: FontWeight.w500),
-              ),
-            ],
-          ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodyLarge
+                  ?.copyWith(fontWeight: FontWeight.w500),
+            ),
+          ],
         ),
       ),
     );

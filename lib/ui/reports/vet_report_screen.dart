@@ -29,7 +29,8 @@ class _VetReportScreenState extends State<VetReportScreen> {
 
     return Scaffold(
       body: SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
+          child: Padding(
           padding: const EdgeInsets.fromLTRB(24, 4, 24, 16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -63,7 +64,7 @@ class _VetReportScreenState extends State<VetReportScreen> {
               const SizedBox(height: 16),
               Text(
                 "Ready for ${pet.name}'s checkup",
-                style: text.headlineMedium?.copyWith(fontSize: 28),
+                style: text.headlineMedium,
               ),
               const SizedBox(height: 16),
               DecoratedBox(
@@ -93,9 +94,7 @@ class _VetReportScreenState extends State<VetReportScreen> {
                   color: tokens.neutral,
                   borderRadius: BorderRadius.circular(18),
                 ),
-                child: SizedBox(
-                  height: 300,
-                  child: Padding(
+                child: Padding(
                     padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
                     child: DecoratedBox(
                       decoration: BoxDecoration(
@@ -118,17 +117,26 @@ class _VetReportScreenState extends State<VetReportScreen> {
                           children: [
                             Row(
                               children: [
-                                Text(
-                                  '${pet.name} · Care report',
-                                  style: text.bodySmall?.copyWith(
-                                    color: scheme.onSurface,
-                                    fontWeight: FontWeight.w700,
+                                Expanded(
+                                  child: Text(
+                                    '${pet.name} · Care report',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: text.bodySmall?.copyWith(
+                                      color: scheme.onSurface,
+                                      fontWeight: FontWeight.w700,
+                                    ),
                                   ),
                                 ),
-                                const Spacer(),
-                                Text(
-                                  _rangeLabel(),
-                                  style: text.bodySmall?.copyWith(fontSize: 10),
+                                const SizedBox(width: 8),
+                                Flexible(
+                                  child: Text(
+                                    _rangeLabel(),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    textAlign: TextAlign.end,
+                                    style: text.bodySmall,
+                                  ),
                                 ),
                               ],
                             ),
@@ -194,7 +202,6 @@ class _VetReportScreenState extends State<VetReportScreen> {
                     ),
                   ),
                 ),
-              ),
               const SizedBox(height: 16),
               SurfaceCard(
                 child: Column(
@@ -250,7 +257,7 @@ class _VetReportScreenState extends State<VetReportScreen> {
                   ],
                 ),
               ),
-              const Spacer(),
+              const SizedBox(height: 24),
               Row(
                 children: [
                   Expanded(
@@ -298,6 +305,7 @@ class _VetReportScreenState extends State<VetReportScreen> {
                 ],
               ),
             ],
+          ),
           ),
         ),
       ),

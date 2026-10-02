@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
+import 'package:pawsitive_sync/core/motion/app_motion.dart';
+import 'package:pawsitive_sync/core/widgets/pet_mark.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
@@ -43,7 +45,13 @@ class ConditionsScreen extends StatelessWidget {
                       style: Theme.of(context).textTheme.bodyLarge
                           ?.copyWith(color: scheme.onSurfaceVariant),
                     ),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 16),
+                    Center(
+                      child: SoftEnter(
+                        child: PetMark(species: model.species, size: 72),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
                     for (final option
                         in OnboardingViewModel.conditionOptions) ...[
                       SelectableOption(

@@ -110,7 +110,7 @@ class _InvitePaywall extends StatelessWidget {
             alignment: Alignment.centerLeft,
             child: Text(
               "Bring Sara onto Miso's schedule",
-              style: text.headlineSmall?.copyWith(fontSize: 26, height: 1.15),
+              style: text.headlineSmall,
             ),
           ),
           const SizedBox(height: 8),

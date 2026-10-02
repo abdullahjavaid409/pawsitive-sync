@@ -72,7 +72,7 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
                 InitialsAvatar(
                   label: pet.name.characters.first,
                   size: 72,
-                  fontSize: 30,
+                  fontSize: 26,
                   background: tokens.brandSoft,
                   foreground: tokens.brandDark,
                 ),
@@ -146,8 +146,15 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
                 children: [
                   Row(
                     children: [
-                      Text('Weight · 90 days', style: text.titleMedium),
-                      const Spacer(),
+                      Expanded(
+                        child: Text(
+                          'Weight · 90 days',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: text.titleMedium,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
                       Text(
                         '−0.3 kg',
                         style: text.bodyMedium?.copyWith(
@@ -305,13 +312,25 @@ class _WeekRow extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Text(
-            label,
-            style: Theme.of(context).textTheme.titleSmall
-                ?.copyWith(fontWeight: FontWeight.w400),
+          Expanded(
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleSmall
+                  ?.copyWith(fontWeight: FontWeight.w400),
+            ),
           ),
-          const Spacer(),
-          Text(value, style: Theme.of(context).textTheme.bodyMedium),
+          const SizedBox(width: 8),
+          Flexible(
+            child: Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.end,
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+          ),
         ],
       ),
     );

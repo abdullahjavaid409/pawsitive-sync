@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:pawsitive_sync/core/layout/adaptive.dart';
+import 'package:pawsitive_sync/core/motion/app_motion.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
+import 'package:pawsitive_sync/core/widgets/pet_mark.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
@@ -53,48 +57,47 @@ class PetBasicsScreen extends StatelessWidget {
                                   color: scheme.onSurfaceVariant,
                                 ),
                               ),
-                              const SizedBox(height: 32),
-                              Row(
-                                children: [
-                                  Semantics(
-                                    button: true,
-                                    label: 'Add photo',
-                                    child: Container(
-                                      width: 80,
-                                      height: 80,
-                                      alignment: Alignment.center,
-                                      decoration: BoxDecoration(
-                                        color: context.paws.neutral,
-                                        shape: BoxShape.circle,
-                                        border: Border.all(
-                                          color: scheme.outline,
-                                          width: 1.5,
-                                        ),
-                                      ),
-                                      child: StrokeIcon(
-                                        StrokeIconKind.camera,
-                                        color: scheme.onSurfaceVariant,
+                              const SizedBox(height: 20),
+                              Center(
+                                child: SoftEnter(
+                                  child: PetMark(
+                                    species: model.species,
+                                    size: 88,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 20),
+                              InkWell(
+                                onTap: () => _choosePhoto(context, model),
+                                borderRadius: BorderRadius.circular(16),
+                                child: Row(
+                                  children: [
+                                    _PhotoCircle(bytes: model.photoBytes),
+                                    const SizedBox(width: 16),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            model.photoBytes == null
+                                                ? 'Add a photo'
+                                                : 'Photo added',
+                                            style: text.bodyLarge?.copyWith(
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                          Text(
+                                            model.photoBytes == null
+                                                ? 'Tap here. Take one or choose one.'
+                                                : 'Tap here to change it.',
+                                            style: text.bodyMedium,
+                                          ),
+                                        ],
                                       ),
                                     ),
-                                  ),
-                                  const SizedBox(width: 16),
-                                  Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Add a photo',
-                                        style: text.bodyLarge?.copyWith(
-                                          fontWeight: FontWeight.w500,
-                                        ),
-                                      ),
-                                      Text(
-                                        'Helps sitters spot the right pet',
-                                        style: text.bodyMedium,
-                                      ),
-                                    ],
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
                               const SizedBox(height: 24),
                               Text(
@@ -201,6 +204,121 @@ class PetBasicsScreen extends StatelessWidget {
     Species.rabbit => 'Rabbit',
     Species.other => 'Other',
   };
+}
+
+class _PhotoCircle extends StatelessWidget {
+  const _PhotoCircle({required this.bytes});
+
+  final Uint8List? bytes;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: 80,
+      height: 80,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: context.paws.neutral,
+        shape: BoxShape.circle,
+        border: Border.all(color: scheme.outline, width: 1.5),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: bytes == null
+          ? StrokeIcon(
+              StrokeIconKind.camera,
+              color: scheme.onSurfaceVariant,
+            )
+          : Image.memory(
+              bytes!,
+              width: 80,
+              height: 80,
+              fit: BoxFit.cover,
+            ),
+    );
+  }
+}
+
+Future<void> _choosePhoto(BuildContext context, OnboardingViewModel model) {
+  final scheme = Theme.of(context).colorScheme;
+  return showModalBottomSheet<void>(
+    context: context,
+    sheetAnimationStyle: AppMotion.sheet(context),
+    constraints: AdaptiveLayout.sheetConstraints,
+    backgroundColor: scheme.surfaceContainerLowest,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+    ),
+    builder: (sheetContext) {
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Pet photo',
+                style: Theme.of(sheetContext).textTheme.headlineSmall,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'People use this to know which pet they are looking at.',
+                style: Theme.of(sheetContext).textTheme.bodyLarge,
+              ),
+              const SizedBox(height: 16),
+              FilledButton(
+                onPressed: () => _pick(context, sheetContext, ImageSource.camera),
+                child: const Text('Take a photo'),
+              ),
+              const SizedBox(height: 8),
+              OutlinedButton(
+                onPressed: () =>
+                    _pick(context, sheetContext, ImageSource.gallery),
+                child: const Text('Choose from photos'),
+              ),
+              if (model.photoBytes != null) ...[
+                const SizedBox(height: 8),
+                TextButton(
+                  onPressed: () {
+                    model.setPhoto(null);
+                    Navigator.of(sheetContext).pop();
+                  },
+                  child: const Text('Remove photo'),
+                ),
+              ],
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+Future<void> _pick(
+  BuildContext context,
+  BuildContext sheetContext,
+  ImageSource source,
+) async {
+  Navigator.of(sheetContext).pop();
+  try {
+    final file = await ImagePicker().pickImage(
+      source: source,
+      maxWidth: 800,
+      imageQuality: 80,
+    );
+    if (file == null || !context.mounted) return;
+    final bytes = await file.readAsBytes();
+    if (!context.mounted) return;
+    context.read<OnboardingViewModel>().setPhoto(bytes);
+  } on PlatformException {
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Could not open the camera or photos. Try the other one.'),
+      ),
+    );
+  }
 }
 
 class _SpeciesChip extends StatelessWidget {

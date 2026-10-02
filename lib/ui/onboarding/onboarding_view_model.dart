@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/foundation.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/domain/models.dart';
@@ -12,6 +14,7 @@ class OnboardingViewModel extends ChangeNotifier {
   final Set<String> conditions = {'Diabetes', 'Kidney disease'};
   final Set<String> caregivers = {'Partner or family', 'Pet sitter or walker'};
   bool remindersOn = false;
+  Uint8List? photoBytes;
 
   static const conditionOptions = [
     ('Diabetes', 'Insulin, usually twice a day'),
@@ -33,6 +36,11 @@ class OnboardingViewModel extends ChangeNotifier {
     final wasEmpty = petName.trim().isEmpty;
     petName = value;
     if (wasEmpty != value.trim().isEmpty) notifyListeners();
+  }
+
+  void setPhoto(Uint8List? bytes) {
+    photoBytes = bytes;
+    notifyListeners();
   }
 
   void setSpecies(Species value) {

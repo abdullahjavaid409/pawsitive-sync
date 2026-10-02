@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/app.dart';
 import 'package:pawsitive_sync/core/routing/app_router.dart';
+import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/app_theme.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
@@ -89,6 +91,45 @@ void main() {
     expect(dose?.status.name, 'given');
     expect(care.givenCount, 4);
     expect(care.activity.first.actor, 'You');
+  });
+
+  testWidgets('every screen lays out on a phone and a wide window', (
+    tester,
+  ) async {
+    final errors = <String>[];
+    final previous = FlutterError.onError;
+    FlutterError.onError = (details) {
+      errors.add(details.exceptionAsString());
+      previous?.call(details);
+    };
+    addTearDown(() => FlutterError.onError = previous);
+
+    const paths = [
+      AppRoutes.today,
+      AppRoutes.pets,
+      AppRoutes.household,
+      AppRoutes.reports,
+      AppRoutes.schedule,
+      AppRoutes.invite,
+      AppRoutes.lock,
+      '/medication/insulin',
+      AppRoutes.paywall,
+    ];
+
+    for (final size in const [Size(360, 780), Size(1024, 1366)]) {
+      await _pumpHome(tester, size);
+      final router = GoRouter.of(
+        tester.element(find.byType(Scaffold).first),
+      );
+      for (final path in paths) {
+        router.go(path);
+        await tester.pumpAndSettle();
+        expect(find.byType(Scaffold), findsWidgets, reason: '$path at $size');
+      }
+    }
+
+    final overflows = errors.where((error) => error.contains('overflowed'));
+    expect(overflows, isEmpty, reason: overflows.join('\n'));
   });
 }
 

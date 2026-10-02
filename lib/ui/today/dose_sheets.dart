@@ -349,7 +349,7 @@ class _DoubleDoseSheet extends StatelessWidget {
           const SizedBox(height: 16),
           Text(
             '$who already gave this dose',
-            style: text.headlineSmall?.copyWith(fontSize: 26, height: 1.15),
+            style: text.headlineSmall,
           ),
           const SizedBox(height: 8),
           Text(

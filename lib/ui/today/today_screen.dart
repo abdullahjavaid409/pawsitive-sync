@@ -5,6 +5,7 @@ import 'package:pawsitive_sync/core/motion/app_motion.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
+import 'package:pawsitive_sync/core/widgets/pet_mark.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/domain/models.dart';
@@ -41,12 +42,12 @@ class _TodayScreenState extends State<TodayScreen> {
     }
     final slots = doses.length;
     final low = care.lowSupply;
-    final summary = doses.isEmpty ? 'Nothing due' : '$given of $slots given';
-    final nextLine = doses.isEmpty
-        ? ''
-        : next == null
-        ? 'Nothing else due'
-        : 'Next: ${next.name} at ${_dueTime(next)}';
+    final left = slots - given;
+    final summary = doses.isEmpty
+        ? 'Nothing to give today.'
+        : left == 0
+        ? 'Every medicine today is given.'
+        : '$given given. $left still to give.';
     final faces = care.members.length >= 3
         ? [care.members[1], care.members[2], care.members[0]]
         : care.members;
@@ -98,39 +99,21 @@ class _TodayScreenState extends State<TodayScreen> {
               ],
             ),
             const SizedBox(height: 16),
-            Row(
-              children: [
-                AnimatedSwitcher(
-                  duration: AppMotion.enterOf(context),
-                  switchInCurve: AppMotion.enterCurve,
-                  switchOutCurve: AppMotion.exitCurve,
-                  child: Text(
-                    summary,
-                    key: ValueKey(summary),
-                    style: text.bodyMedium?.copyWith(
-                      color: scheme.onSurface,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
+            if (next != null)
+              SoftEnter(
+                child: _NowCard(
+                  dose: next,
+                  pet: care.petById(next.petId),
+                  time: _dueTime(next),
+                  onPressed: () => _openDose(context, next!),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: AnimatedSwitcher(
-                    duration: AppMotion.enterOf(context),
-                    switchInCurve: AppMotion.enterCurve,
-                    switchOutCurve: AppMotion.exitCurve,
-                    child: Text(
-                      nextLine,
-                      key: ValueKey(nextLine),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.end,
-                      style: text.bodyMedium,
-                    ),
-                  ),
-                ),
-              ],
-            ),
+              )
+            else if (doses.isNotEmpty)
+              const SoftEnter(child: _CalmCard()),
+            if (doses.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text(summary, style: text.bodyLarge),
+            ],
             if (slots > 0) ...[
               const SizedBox(height: 8),
               Row(
@@ -154,7 +137,7 @@ class _TodayScreenState extends State<TodayScreen> {
             ],
             const SizedBox(height: 16),
             SizedBox(
-              height: 36,
+              height: 44,
               child: ListView(
                 scrollDirection: Axis.horizontal,
                 children: [
@@ -167,6 +150,7 @@ class _TodayScreenState extends State<TodayScreen> {
                     const SizedBox(width: 8),
                     _FilterChip(
                       label: pet.name,
+                      species: pet.species,
                       selected: _petId == pet.id,
                       onPressed: () => setState(() => _petId = pet.id),
                     ),
@@ -246,7 +230,7 @@ class _TodayScreenState extends State<TodayScreen> {
             else
               for (final part in DayPart.values) ...[
                 if (doses.any((dose) => dose.part == part)) ...[
-                  SectionLabel(part.name.toUpperCase()),
+                  SectionLabel(_partLabel(part)),
                   _DoseGroup(
                     doses: doses.where((dose) => dose.part == part).toList(),
                     onDose: (dose) => _openDose(context, dose),
@@ -258,6 +242,12 @@ class _TodayScreenState extends State<TodayScreen> {
       ),
     );
   }
+
+  String _partLabel(DayPart part) => switch (part) {
+    DayPart.morning => 'Morning',
+    DayPart.afternoon => 'Afternoon',
+    DayPart.evening => 'Evening',
+  };
 
   String _dueTime(Dose dose) {
     final match = RegExp(r'\d{1,2}:\d{2} [AP]M').firstMatch(dose.subtitle);
@@ -296,9 +286,11 @@ class _FilterChip extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onPressed,
+    this.species,
   });
 
   final String label;
+  final Species? species;
   final bool selected;
   final VoidCallback onPressed;
 
@@ -319,12 +311,21 @@ class _FilterChip extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Center(
-            child: Text(
-              label,
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                color: selected ? scheme.onSecondary : scheme.onSurface,
-                fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
-              ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (species != null) ...[
+                  PetMark(species: species!, size: 22),
+                  const SizedBox(width: 6),
+                ],
+                Text(
+                  label,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: selected ? scheme.onSecondary : scheme.onSurface,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
@@ -468,10 +469,14 @@ class _DueRow extends StatelessWidget {
               children: [
                 Text(
                   dose.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 Text(
                   dose.subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodyMedium
                       ?.copyWith(color: tokens.brandDark),
                 ),
@@ -488,7 +493,108 @@ class _DueRow extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
               ),
             ),
-            child: const Text('Mark given'),
+            child: const Text('I gave this'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NowCard extends StatelessWidget {
+  const _NowCard({
+    required this.dose,
+    required this.pet,
+    required this.time,
+    required this.onPressed,
+  });
+
+  final Dose dose;
+  final Pet pet;
+  final String time;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    return SurfaceCard(
+      borderColor: scheme.primary,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Give this now',
+            style: text.titleSmall?.copyWith(
+              color: context.paws.brandDark,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              PetMark(species: pet.species, size: 52),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      dose.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: text.titleMedium,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '${pet.name} · $time',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: text.bodyLarge,
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          FilledButton(
+            onPressed: onPressed,
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(48),
+            ),
+            child: const Text('I gave this'),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Tap the button after you give the medicine.',
+            style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CalmCard extends StatelessWidget {
+  const _CalmCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return SurfaceCard(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Nothing to give right now', style: text.titleMedium),
+          const SizedBox(height: 4),
+          Text(
+            'You can rest. Later medicines stay in the list below.',
+            style: text.bodyLarge?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
         ],
       ),

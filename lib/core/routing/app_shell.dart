@@ -62,7 +62,7 @@ class _CompactShell extends StatelessWidget {
               child: SafeArea(
                 top: false,
                 child: SizedBox(
-                  height: 64,
+                  height: 56,
                   child: Row(
                     children: [
                       for (var i = 0; i < AppShell._tabs.length; i++)
@@ -85,6 +85,8 @@ class _CompactShell extends StatelessWidget {
                                   const SizedBox(height: 4),
                                   Text(
                                     AppShell._tabs[i].$2,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                     style: Theme.of(context).textTheme.bodySmall
                                         ?.copyWith(
                                           fontSize: 11,

@@ -57,9 +57,9 @@ class _InviteScreenState extends State<InviteScreen> {
               Text(
                 'Who are you inviting?',
                 style: text.headlineMedium?.copyWith(
-                  fontSize: 28,
-                  height: 1.15,
-                  letterSpacing: -0.98,
+                  fontSize: 24,
+                  height: 1.2,
+                  letterSpacing: -0.4,
                 ),
               ),
               const SizedBox(height: 16),
@@ -303,14 +303,22 @@ class _InfoRow extends StatelessWidget {
               Expanded(
                 child: Text(
                   label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.bodyLarge
                       ?.copyWith(color: scheme.onSurfaceVariant),
                 ),
               ),
-              Text(
-                value,
-                style: Theme.of(context).textTheme.bodyLarge
-                    ?.copyWith(fontWeight: FontWeight.w500),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.end,
+                  style: Theme.of(context).textTheme.bodyLarge
+                      ?.copyWith(fontWeight: FontWeight.w500),
+                ),
               ),
             ],
           ),

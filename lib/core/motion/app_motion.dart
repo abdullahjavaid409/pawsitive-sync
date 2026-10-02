@@ -28,3 +28,61 @@ abstract final class AppMotion {
     );
   }
 }
+
+/// Slides a block in a few pixels. No fade, so it stays cheap to paint.
+///
+/// The system "reduce motion" setting shows the block in place.
+class SoftEnter extends StatefulWidget {
+  const SoftEnter({super.key, required this.child, this.delay = Duration.zero});
+
+  final Widget child;
+  final Duration delay;
+
+  @override
+  State<SoftEnter> createState() => _SoftEnterState();
+}
+
+class _SoftEnterState extends State<SoftEnter>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  var _started = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this, duration: AppMotion.enter);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (AppMotion.reduced(context)) {
+      _controller.value = 1;
+      return;
+    }
+    if (_started) return;
+    _started = true;
+    if (widget.delay == Duration.zero) {
+      _controller.forward();
+    } else {
+      Future<void>.delayed(widget.delay, () {
+        if (mounted) _controller.forward();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final slide = Tween<Offset>(
+      begin: const Offset(0, 0.06),
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _controller, curve: AppMotion.enterCurve));
+    return SlideTransition(position: slide, child: widget.child);
+  }
+}
