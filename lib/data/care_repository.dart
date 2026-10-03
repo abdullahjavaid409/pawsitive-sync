@@ -687,7 +687,9 @@ class CareRepository extends ChangeNotifier {
           token: _api?.token,
           memberId: _memberId,
           inviteCode: _inviteCode,
-          isPro: _isPro,
+          // Includes this phone's store subscription so a paying user stays
+          // Pro on a launch where RevenueCat can't start (outage, offline).
+          isPro: isPro,
           plan: _plan,
           members: _members,
           pets: _pets,
@@ -1415,6 +1417,21 @@ class CareRepository extends ChangeNotifier {
     'has_household': '$hasHousehold',
     'is_pro': '$isPro',
   };
+
+  /// Live store updates (late purchase, Ask to Buy approval, renewal,
+  /// expiry, refund) from [RevenueCatService.onEntitlementChanged].
+  void applyStoreEntitlement(bool active, BillingPlan? plan) {
+    if (_storePro == active) return;
+    _storePro = active;
+    AppLog.event('billing.store.entitlement_changed', {
+      'active': active,
+      'plan': plan?.name ?? 'unknown',
+      'serverPro': _isPro,
+    });
+    _changed();
+    // Share a new subscription with the household so partners get Pro too.
+    if (active && !_isPro && isConnected) unawaited(startTrial());
+  }
 
   /// Pulls Pro status from RevenueCat on app start or resume.
   Future<void> syncBillingFromStore() async {

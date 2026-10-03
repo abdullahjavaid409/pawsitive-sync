@@ -25,6 +25,7 @@ Future<Widget> bootstrap() async {
       : null;
   final care = CareRepository(api: api, store: HouseholdStore());
   await care.restore();
+  RevenueCatService.onEntitlementChanged = care.applyStoreEntitlement;
   await RevenueCatService.identifyMember(care.billingUserId);
   await care.syncBillingFromStore();
   final onboarding = await OnboardingViewModel.load();

@@ -396,7 +396,16 @@ void main() {
         seconds: 15,
         what: 'partner sees refilled supply',
       );
-      await qa.tap(find.text('Back'));
+      // Refill opens from the medication page; back out until the tabs show.
+      final petsTab = find.byWidgetPredicate(
+        (w) =>
+            w is Semantics &&
+            w.properties.button == true &&
+            w.properties.label == 'Pets',
+      );
+      for (var i = 0; i < 3 && petsTab.evaluate().isEmpty; i++) {
+        await qa.tap(find.text('Back').last);
+      }
     });
 
     await qa.step('Pro: second pet allowed and synced', () async {

@@ -15,6 +15,15 @@ enum PurchaseErrorKind {
   network,
   entitlementMissing,
   notConfigured,
+
+  /// Ask to Buy or bank approval — Pro unlocks via the listener when approved.
+  pending,
+
+  /// This Apple ID already owns it — restore instead of buying again.
+  alreadyOwned,
+
+  /// Screen Time / parental controls block purchases on this device.
+  notAllowed,
   unknown,
 }
 
@@ -98,6 +107,12 @@ abstract final class RevenueCatService {
 
   static bool get isReady => _initialized;
 
+  /// Called whenever the store's view of Pro changes while the app runs:
+  /// a purchase that finishes after our timeout, Ask to Buy approval,
+  /// renewal, expiry, refund. [CareRepository] wires this at launch.
+  static void Function(bool isPro, BillingPlan? plan)? onEntitlementChanged;
+  static bool? _lastActive;
+
   static Future<void> initialize() async {
     if (_initialized) return;
     if (kIsWeb) {
@@ -141,6 +156,13 @@ abstract final class RevenueCatService {
       'active': active,
       'entitlements': info.entitlements.active.keys.join(','),
     });
+    if (_lastActive == active) return;
+    _lastActive = active;
+    try {
+      onEntitlementChanged?.call(active, active ? planFromStore(info) : null);
+    } catch (error, stack) {
+      AppLog.error('billing.rc.entitlement_handler_failed', error, stack);
+    }
   }
 
   /// Older builds logged every owner in as 'you', one store account shared by
@@ -465,8 +487,6 @@ abstract final class RevenueCatService {
           kind: PurchaseErrorKind.entitlementMissing,
           message: 'Purchase finished but Pro did not activate. Try Restore or contact support.',
         );
-      } on PurchasesError catch (error) {
-        return _mapPurchasesError(error);
       } on PlatformException catch (error) {
         return _mapPlatformError(error);
       } on TimeoutException {
@@ -539,53 +559,82 @@ abstract final class RevenueCatService {
     }
   }
 
-  static PurchaseResult _mapPurchasesError(PurchasesError error) {
+  /// The SDK reports every store failure as a [PlatformException]; map its
+  /// code to copy the user can act on. Every branch is logged.
+  @visibleForTesting
+  static PurchaseResult mapPlatformErrorForTest(PlatformException error) =>
+      _mapPlatformError(error);
+
+  /// SDK helper throws on a non-numeric code, which would escape our catch
+  /// and leave the paywall spinner stuck. Parse defensively instead.
+  static PurchasesErrorCode _codeOf(PlatformException error) {
+    final raw = int.tryParse(error.code);
+    if (raw == null || raw < 0 || raw >= PurchasesErrorCode.values.length) {
+      return PurchasesErrorCode.unknownError;
+    }
+    return PurchasesErrorCode.values[raw];
+  }
+
+  static PurchaseResult _mapPlatformError(PlatformException error) {
+    final code = _codeOf(error);
     AppLog.event('billing.rc.purchase_error', {
-      'code': error.code.name,
-      'message': error.message,
+      'code': code.name,
+      'message': error.message ?? '',
     });
-    return switch (error.code) {
+    return switch (code) {
       PurchasesErrorCode.purchaseCancelledError => const PurchaseResult(
         success: false,
         kind: PurchaseErrorKind.cancelled,
       ),
-      PurchasesErrorCode.networkError => const PurchaseResult(
+      PurchasesErrorCode.paymentPendingError => const PurchaseResult(
+        success: false,
+        kind: PurchaseErrorKind.pending,
+        message: 'Waiting for approval. Pro turns on automatically once it goes through.',
+      ),
+      PurchasesErrorCode.productAlreadyPurchasedError ||
+      PurchasesErrorCode.receiptAlreadyInUseError ||
+      PurchasesErrorCode.receiptInUseByOtherSubscriberError =>
+        const PurchaseResult(
+          success: false,
+          kind: PurchaseErrorKind.alreadyOwned,
+          message: 'This Apple ID already has Pro. Tap Restore to turn it on.',
+        ),
+      PurchasesErrorCode.purchaseNotAllowedError ||
+      PurchasesErrorCode.insufficientPermissionsError => const PurchaseResult(
+        success: false,
+        kind: PurchaseErrorKind.notAllowed,
+        message: 'Purchases are turned off on this device. Check Screen Time settings.',
+      ),
+      PurchasesErrorCode.networkError ||
+      PurchasesErrorCode.offlineConnectionError => const PurchaseResult(
         success: false,
         kind: PurchaseErrorKind.network,
-        message: 'Network error. Check your connection and try again.',
+        message: 'No connection. Check your internet and try again.',
       ),
+      PurchasesErrorCode.operationAlreadyInProgressError =>
+        const PurchaseResult(
+          success: false,
+          kind: PurchaseErrorKind.pending,
+          message: 'A purchase is already in progress.',
+        ),
       PurchasesErrorCode.productNotAvailableForPurchaseError ||
-      PurchasesErrorCode.configurationError => const PurchaseResult(
+      PurchasesErrorCode.configurationError ||
+      PurchasesErrorCode.ineligibleError => const PurchaseResult(
         success: false,
         kind: PurchaseErrorKind.unavailable,
-        message: 'This plan is not available right now.',
+        message: 'This plan is not available right now. Try again later.',
       ),
-      _ => PurchaseResult(
+      PurchasesErrorCode.storeProblemError => const PurchaseResult(
         success: false,
         kind: PurchaseErrorKind.unknown,
-        message: error.message,
+        message:
+            'The App Store had a problem. You were not charged — try again.',
+      ),
+      _ => const PurchaseResult(
+        success: false,
+        kind: PurchaseErrorKind.unknown,
+        message: 'Something went wrong. You were not charged — try again.',
       ),
     };
-  }
-
-  static PurchaseResult _mapPlatformError(PlatformException error) {
-    AppLog.event('billing.rc.platform_error', {
-      'code': error.code,
-      'message': error.message ?? '',
-    });
-    final cancelled =
-        error.code == '1' ||
-        (error.message?.toLowerCase().contains('cancel') ?? false);
-    if (cancelled) {
-      return const PurchaseResult(
-        success: false,
-        kind: PurchaseErrorKind.cancelled,
-      );
-    }
-    return PurchaseResult(
-      success: false,
-      kind: PurchaseErrorKind.unknown,
-      message: error.message ?? 'Purchase failed.',
-    );
   }
 }
