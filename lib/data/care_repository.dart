@@ -279,6 +279,7 @@ class CareRepository extends ChangeNotifier {
               DoseStatus.upcoming => '${pet.name} · ${part.timeLabel}',
             },
             givenById: log?.memberId,
+            givenAt: log?.timeLabel ?? '',
           ),
         );
       }

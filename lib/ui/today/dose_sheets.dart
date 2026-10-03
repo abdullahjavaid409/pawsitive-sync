@@ -16,7 +16,7 @@ Future<void> showLogDoseSheet(BuildContext context, Dose dose) {
   AppLog.event('dose.opened', {'doseId': dose.id, 'part': dose.part.name});
   return showModalBottomSheet<void>(
     context: context, sheetAnimationStyle: AppMotion.sheet(context),
-    isScrollControlled: true, useSafeArea: true, useRootNavigator: true,
+    showDragHandle: false, isScrollControlled: true, useSafeArea: true, useRootNavigator: true,
     constraints: AdaptiveLayout.sheetConstraints,
     backgroundColor: Theme.of(context).colorScheme.surface,
     shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
@@ -28,6 +28,7 @@ Future<void> showDoubleDoseGuard(BuildContext context, Dose dose) {
   AppLog.event('dose.already', {'doseId': dose.id});
   return showModalBottomSheet<void>(
     context: context, useRootNavigator: true, isScrollControlled: true, useSafeArea: true,
+    showDragHandle: false,
     sheetAnimationStyle: AppMotion.sheet(context), constraints: AdaptiveLayout.sheetConstraints,
     backgroundColor: Theme.of(context).colorScheme.surface,
     shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(28))),
@@ -192,7 +193,11 @@ class _DoubleDoseSheet extends StatelessWidget {
 
     final detail =
         '${pet.name}\'s ${dose.name.toLowerCase()} was already logged. Giving it again could be unsafe.';
-    final when = 'Given by $who · ${dose.subtitle}';
+    final when = [
+      'Given by $who',
+      pet.name,
+      if (dose.givenAt.isNotEmpty) dose.givenAt,
+    ].join(' · ');
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),

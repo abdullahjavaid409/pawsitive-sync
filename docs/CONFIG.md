@@ -4,6 +4,24 @@ You can run the app with **zero configuration**. Everything below is optional.
 
 ---
 
+## App identifiers
+
+One identifier on both stores. Use it when creating the App Store Connect app,
+the Google Play app, and the RevenueCat apps. It can never change after the
+first store upload.
+
+| What | Value |
+|------|-------|
+| iOS bundle ID | `com.pawsitivesync.app` |
+| iOS widget extension | `com.pawsitivesync.app.PawsitiveWidgets` |
+| iOS App Group (app ↔ widget) | `group.com.pawsitivesync.app` |
+| Android application ID | `com.pawsitivesync.app` |
+| Apple developer team | `U2Y7U5RMWV` |
+
+The Dart package stays `pawsitive_sync` — that is the code name, not the store ID.
+
+---
+
 ## Run locally (no setup)
 
 ```bash

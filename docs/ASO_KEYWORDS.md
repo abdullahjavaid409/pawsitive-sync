@@ -54,21 +54,26 @@ maxing it out risks mid-word truncation on narrower App Store search rows;
 23 chars reads cleanly on every device):
 > `PawsitiveSync: Pet Meds`
 
-**Subtitle** (24/30 chars):
-> `Household Dose Reminders`
+**Subtitle** (30/30 chars):
+> `Shared Dog & Cat Dose Reminder`
 
-Together these seed the tokens: pawsitivesync, pet, meds, household, dose,
-reminder(s) — all for free, no keyword-field budget spent.
+Together these seed the tokens: pawsitivesync, pet, meds, shared, dog, cat,
+dose, reminder — all for free, no keyword-field budget spent. "Shared" is the
+differentiator no competitor claims.
 
-**Keywords field** (99/100 chars, no spaces, no repeats of words already in
+**Keywords field** (97/100 chars, no spaces, no repeats of words already in
 Name/Subtitle, singular forms only — Apple's algorithm already matches
 plurals and recombines individual words from Name + Subtitle + Keywords):
-> `tracker,pill,med,schedule,sync,log,vet,export,dog,cat,multi,supply,alert,offline,care,refill,invite`
+> `tracker,pill,medication,medicine,schedule,log,household,family,vet,refill,insulin,diabetes,kitten`
 
-Covers: "pet medication tracker" / "dog medication tracker" (the exact-match
-niche terms), "pill tracker app" (390/mo), "medicine schedule app" (50/mo),
-the Pro-gate terms from AGENTS.md (multi-pet, household invite, vet export,
-low-supply alert), offline-first positioning, and dog/cat species modifiers.
+Covers: "medication reminder app" (3,600/mo), "pill tracker app" (390/mo),
+"pet medication tracker" / "dog medication tracker" (exact-match niche),
+"medicine schedule app" (50/mo), insulin/diabetes (the most common daily-med
+pets), household/family shared care, and vet/refill intent.
+
+Full-30 alternative name if truncation stops mattering:
+`PawsitiveSync: Pet Med Tracker` (30/30) — then swap `tracker` out of the
+keywords for `puppy,sync`.
 
 **Note:** the device home-screen icon label is a *separate* field
 (`CFBundleDisplayName` in `ios/Runner/Info.plist`, `android:label` in

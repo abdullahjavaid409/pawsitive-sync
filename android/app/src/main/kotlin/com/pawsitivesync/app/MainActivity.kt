@@ -1,4 +1,4 @@
-package com.pawsitivesync.pawsitive_sync
+package com.pawsitivesync.app
 
 import io.flutter.embedding.android.FlutterActivity
 

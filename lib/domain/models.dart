@@ -134,6 +134,7 @@ class Dose {
     required this.status,
     required this.subtitle,
     this.givenById,
+    this.givenAt = '',
   });
 
   final String id;
@@ -145,6 +146,9 @@ class Dose {
   final DoseStatus status;
   final String subtitle;
   final String? givenById;
+
+  /// Time the logged dose was given, e.g. "8:02 AM". Empty when not logged.
+  final String givenAt;
 
   String get title => amount.isEmpty ? name : '$name · $amount';
 
@@ -164,6 +168,7 @@ class Dose {
       status: status ?? this.status,
       subtitle: subtitle ?? this.subtitle,
       givenById: givenById ?? this.givenById,
+      givenAt: givenAt,
     );
   }
 }

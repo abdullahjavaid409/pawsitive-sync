@@ -26,7 +26,7 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>com.pawsitivesync.widgets</string>
+			<string>com.pawsitivesync.app.widgets</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>pawsitivesync</string>
@@ -50,7 +50,7 @@
 	<key>NSUserNotificationsUsageDescription</key>
 	<string>PawsitiveSync sends reminders when your pet's medicine is due, so doses are not missed.</string>
 	<key>PawsitiveAppGroup</key>
-	<string>group.com.pawsitivesync.pawsitiveSync</string>
+	<string>group.com.pawsitivesync.app</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

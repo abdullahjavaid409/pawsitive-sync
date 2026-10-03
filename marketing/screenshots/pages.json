@@ -1,0 +1,59 @@
+{
+  "_note": "One entry per App Store product page. Shots come from marketing/screenshots/raw (scripts/store_screenshots.sh). Render: python3 scripts/compose_store_screenshots.py",
+  "pages": [
+    {
+      "id": "default",
+      "purpose": "Default page + PPO control. Broad intent: pet meds, dose reminder, shared care.",
+      "keywords": "pet,meds,dose,reminder,tracker,medication,dog,cat",
+      "promo": "One shared list for everyone who cares for your pet. See who gave each dose, get warned before a repeat, and log in one tap — even offline.",
+      "frames": [
+        {"shot": "guard.png", "theme": "brand", "headline": "Did anyone give the dose?", "subline": "See who gave it. Get warned before a repeat."},
+        {"shot": "today_schedule.png", "theme": "light", "headline": "Everyone sees it, instantly", "subline": "Every dose, with who gave it and when."},
+        {"shot": "household.png", "theme": "light", "headline": "Share care with your household", "subline": "Partners, family and sitters, on iPhone or Android."},
+        {"shot": "today.png", "theme": "light", "headline": "One tap. Even offline.", "subline": "No account needed to log your first dose."},
+        {"shot": "medicine_low.png", "theme": "warm", "headline": "Know before it runs out", "subline": "A heads-up while there are still doses left."},
+        {"shot": "reports.png", "theme": "light", "headline": "A clear record for your vet", "subline": "Doses given and skipped, ready to share."},
+        {"shot": "pets.png", "theme": "light", "headline": "Every pet, one calm place", "subline": "Cats, dogs and rabbits, each with its own routine."}
+      ]
+    },
+    {
+      "id": "cpp-insulin",
+      "purpose": "CPP A. Diabetic cats and dogs on twice-daily insulin. Highest willingness to pay.",
+      "keywords": "insulin,diabetes,diabetic,cat,dog,tracker,reminder,log",
+      "promo": "Twice-daily insulin, shared by the whole house. See who gave each shot, get warned before a repeat, and know when supply runs low.",
+      "frames": [
+        {"shot": "guard.png", "theme": "brand", "headline": "Insulin given? Know for sure.", "subline": "See who gave the dose, and when."},
+        {"shot": "today_schedule.png", "theme": "light", "headline": "Morning and evening, covered", "subline": "Each insulin dose logged with a name and time."},
+        {"shot": "medicine_low.png", "theme": "warm", "headline": "Never be caught short", "subline": "Know days ahead when doses run low."},
+        {"shot": "reports.png", "theme": "light", "headline": "Real numbers for the vet", "subline": "30 days of doses in one shareable report."},
+        {"shot": "onboarding_conditions.png", "theme": "light", "headline": "Made for diabetic pets", "subline": "Set up insulin in under a minute."}
+      ]
+    },
+    {
+      "id": "cpp-household",
+      "purpose": "CPP B. Couples, families and sitters sharing one pet's meds.",
+      "keywords": "shared,household,family,partner,sitter,sync,together,care",
+      "promo": "No more “did you give it?” texts. One list for partners, family and sitters — iPhone or Android, and sitters need no app.",
+      "frames": [
+        {"shot": "today_schedule.png", "theme": "brand", "headline": "No more “did you give it?” texts", "subline": "One shared list for the whole household."},
+        {"shot": "guard.png", "theme": "light", "headline": "Warned before a second dose", "subline": "It tells you who already gave it."},
+        {"shot": "household.png", "theme": "light", "headline": "Partners, family, sitters", "subline": "iPhone or Android. Sitters need no app."},
+        {"shot": "today.png", "theme": "light", "headline": "Handovers made easy", "subline": "What’s done and what’s next, at a glance."},
+        {"shot": "reports.png", "theme": "light", "headline": "Everyone’s doses, one record", "subline": "Share a clean history with your vet."}
+      ]
+    },
+    {
+      "id": "cpp-multipet",
+      "purpose": "CPP C. Homes with 2+ pets on different meds (Pro gate: multi-pet).",
+      "keywords": "multi,pets,dogs,cats,schedule,refill,planner,organizer",
+      "promo": "Two pets, three medicines, one calm list. Each pet keeps its own schedule, supply count and vet record.",
+      "frames": [
+        {"shot": "pets.png", "theme": "brand", "headline": "Every pet’s meds in one place", "subline": "Each with its own schedule and care needs."},
+        {"shot": "today_schedule.png", "theme": "light", "headline": "One list for the whole crew", "subline": "Every pet’s doses, morning to evening."},
+        {"shot": "guard.png", "theme": "light", "headline": "No mix-ups between pets", "subline": "Warned before any repeat dose."},
+        {"shot": "medicine_low.png", "theme": "warm", "headline": "Refills, never a surprise", "subline": "Supply counts for every medicine."},
+        {"shot": "reports.png", "theme": "light", "headline": "A vet record for each pet", "subline": "Switch pets, share the report."}
+      ]
+    }
+  ]
+}
