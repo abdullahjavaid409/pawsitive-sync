@@ -3,7 +3,7 @@
  * Backend smoke test — run against local or Railway API.
  * Usage: node scripts/smoke_backend.mjs [baseUrl]
  */
-const base = (process.argv[2] ?? process.env.API_BASE_URL ?? 'https://pawsitive-api-production.up.railway.app').replace(/\/$/, '');
+const base = (process.argv[2] ?? process.env.API_BASE_URL ?? 'http://127.0.0.1:3100').replace(/\/$/, '');
 
 const results = [];
 
