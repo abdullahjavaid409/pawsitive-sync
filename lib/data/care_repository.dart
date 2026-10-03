@@ -119,7 +119,14 @@ class CareRepository extends ChangeNotifier {
   final List<Medication> _medications = [];
   final List<DoseRecord> _logs = [];
   final List<CareEvent> _careEvents = [];
+
+  /// Household Pro from the server (webhook or trial) — shared with partners.
   bool _isPro = false;
+
+  /// This phone's own App Store / Play subscription, straight from RevenueCat.
+  /// Kept apart so a server refresh can never lock out a paying user while
+  /// the purchase webhook is still in flight.
+  bool _storePro = false;
   BillingPlan _plan = BillingPlan.yearly;
   Future<String?>? _connecting;
   DateTime? _lastSyncedAt;
@@ -143,23 +150,26 @@ class CareRepository extends ChangeNotifier {
   String get billingUserId =>
       isConnected && _householdId.isNotEmpty ? '$_householdId:$_memberId' : '';
 
-  bool get isPro => _isPro;
+  bool get isPro => _isPro || _storePro;
+
+  @visibleForTesting
+  set debugStorePro(bool value) => _storePro = value;
 
   BillingPlan get plan => _plan;
 
   /// Pro-only: invite caregivers to a shared household.
-  bool get canInviteHousehold => _isPro;
+  bool get canInviteHousehold => isPro;
 
   /// Pro-only: export/share vet reports.
-  bool get canShareVetReport => _isPro;
+  bool get canShareVetReport => isPro;
 
   /// Pro-only: running-low supply alerts on Today and medication detail.
-  bool get canShowLowSupplyAlerts => _isPro;
+  bool get canShowLowSupplyAlerts => isPro;
 
   /// Free tier allows one pet; Pro allows up to [PetLimits.maxPetsPerHousehold].
   bool get canAddPet {
     if (_pets.length >= PetLimits.maxPetsPerHousehold) return false;
-    return _isPro || _pets.length < PetLimits.maxPetsFree;
+    return isPro || _pets.length < PetLimits.maxPetsFree;
   }
 
   String get memberId => _memberId;
@@ -1187,11 +1197,11 @@ class CareRepository extends ChangeNotifier {
       return null;
     }
     if (!canAddPet) {
-      lastError = _isPro
+      lastError = isPro
           ? 'A household can have up to ${PetLimits.maxPetsPerHousehold} pets.'
           : 'Free includes one pet. Upgrade to Pro for every pet in your household.';
       AppLog.event('pet.add.blocked', {
-        'reason': _isPro ? 'household_limit' : 'free_tier',
+        'reason': isPro ? 'household_limit' : 'free_tier',
         'count': _pets.length,
       });
       return null;
@@ -1347,10 +1357,11 @@ class CareRepository extends ChangeNotifier {
       package: package,
     );
     if (result.success) {
+      _storePro = true;
       await startTrial();
       AppLog.event('billing.purchase.completed', {
         'plan': _plan.name,
-        'isPro': _isPro,
+        'isPro': isPro,
       });
     } else {
       lastError = result.message;
@@ -1381,6 +1392,7 @@ class CareRepository extends ChangeNotifier {
     }
     final status = await RevenueCatService.currentStatus();
     if (status.isPro) {
+      _storePro = true;
       await startTrial();
       final storePlan = status.plan;
       if (storePlan != null && storePlan != _plan) {
@@ -1401,7 +1413,7 @@ class CareRepository extends ChangeNotifier {
     'medication_count': '${_medications.length}',
     'household_members': '${_members.length}',
     'has_household': '$hasHousehold',
-    'is_pro': '$_isPro',
+    'is_pro': '$isPro',
   };
 
   /// Pulls Pro status from RevenueCat on app start or resume.
@@ -1413,7 +1425,10 @@ class CareRepository extends ChangeNotifier {
     await RevenueCatService.identifyMember(billingUserId);
     unawaited(RevenueCatService.syncAttributes(billingAttributes));
     final status = await RevenueCatService.currentStatus();
+    final storeChanged = _storePro != status.isPro;
+    _storePro = status.isPro;
     if (status.isPro && !_isPro) {
+      // Push the subscription to the household so partners get Pro too.
       await startTrial();
       if (status.plan != null && status.plan != _plan) {
         await setPlan(status.plan!);
@@ -1426,8 +1441,10 @@ class CareRepository extends ChangeNotifier {
       _changed();
       AppLog.event('billing.sync.pro_revoked');
     } else {
+      if (storeChanged) _changed();
       AppLog.event('billing.sync.unchanged', {
-        'isPro': _isPro,
+        'isPro': isPro,
+        'storePro': _storePro,
         'plan': _plan.name,
       });
     }
@@ -1490,6 +1507,7 @@ class CareRepository extends ChangeNotifier {
     await _store?.clear();
     _careEvents.clear();
     await _eventsStore.clear();
+    _storePro = false;
     await RevenueCatService.logOut();
     await UpgradeNudgeState.clear();
     _lastSyncedAt = null;

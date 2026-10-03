@@ -116,13 +116,21 @@ abstract final class RevenueCatService {
       return;
     }
 
-    await AppLog.trace('billing.rc.init', () async {
-      final config = PurchasesConfiguration(apiKey);
-      await Purchases.configure(config);
-      Purchases.addCustomerInfoUpdateListener(_onCustomerInfo);
-      _initialized = true;
-      AppLog.event('billing.rc.ready', {'platform': Platform.operatingSystem});
-    });
+    // Never throw: launch must work offline and through a RevenueCat outage.
+    // Billing stays off for this session; dose logging is unaffected.
+    try {
+      await AppLog.trace('billing.rc.init', () async {
+        final config = PurchasesConfiguration(apiKey);
+        await Purchases.configure(config);
+        Purchases.addCustomerInfoUpdateListener(_onCustomerInfo);
+        _initialized = true;
+        AppLog.event('billing.rc.ready', {
+          'platform': Platform.operatingSystem,
+        });
+      });
+    } catch (error, stack) {
+      AppLog.error('billing.rc.init_failed', error, stack);
+    }
   }
 
   static void _onCustomerInfo(CustomerInfo info) {
@@ -151,11 +159,18 @@ abstract final class RevenueCatService {
       return;
     }
     if (_memberId == memberId) return;
-    await AppLog.trace('billing.rc.identify', () async {
-      await Purchases.logIn(memberId).timeout(_networkTimeout);
-      _memberId = memberId;
-      AppLog.event('billing.rc.identified', {'memberId': memberId});
-    });
+    // Offline or slow network: keep the cached identity and retry on the next
+    // resume. Throwing here would block app launch.
+    try {
+      await AppLog.trace('billing.rc.identify', () async {
+        await Purchases.logIn(memberId).timeout(_networkTimeout);
+        _memberId = memberId;
+        _offerCache.clear();
+        AppLog.event('billing.rc.identified', {'memberId': memberId});
+      });
+    } catch (error, stack) {
+      AppLog.error('billing.rc.identify_failed', error, stack);
+    }
   }
 
   static Future<void> logOut() async {
@@ -177,6 +192,15 @@ abstract final class RevenueCatService {
     if (!_initialized) return const [];
     if (!force && _cachedPackages != null) return _cachedPackages!;
 
+    try {
+      return await _loadPackages();
+    } catch (error, stack) {
+      AppLog.error('billing.rc.load_packages_failed', error, stack);
+      return const [];
+    }
+  }
+
+  static Future<List<Package>> _loadPackages() {
     return AppLog.trace('billing.rc.load_packages', () async {
       final offerings = await Purchases.getOfferings().timeout(_networkTimeout);
       Offering? offering = offerings.current;

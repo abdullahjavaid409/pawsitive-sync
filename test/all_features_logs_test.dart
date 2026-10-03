@@ -359,6 +359,40 @@ void main() {
       expectLogged('billing.pro.carried_online');
     });
 
+    test('paying subscriber keeps Pro when the server lags behind', () async {
+      // Webhook not processed yet: server still says Free on every refresh.
+      final care = CareRepository(
+        api: fakeHouseholdApi(FakeHouseholdAdapter([
+          (201, connectHouseholdBody(isPro: false)),
+          (200, {'ok': true}), // push device register
+          (200, connectHouseholdBody(isPro: false)), // sync refresh
+        ])),
+        clock: () => DateTime(2026, 10, 3, 14),
+      );
+      await care.addPet(name: 'Milo', species: Species.cat);
+      await care.connect();
+      expect(care.isPro, isFalse);
+      care.debugStorePro = true; // App Store says this phone paid
+      await care.sync();
+      expect(care.isPro, isTrue);
+      expect(care.canInviteHousehold, isTrue);
+      expect(care.canAddPet, isTrue);
+    });
+
+    test('partner gets Pro from the server without their own subscription', () async {
+      final care = CareRepository(
+        api: fakeHouseholdApi(FakeHouseholdAdapter([
+          (201, connectHouseholdBody(isPro: true)),
+          (200, {'ok': true}),
+        ])),
+        clock: () => DateTime(2026, 10, 3, 14),
+      );
+      await care.addPet(name: 'Milo', species: Species.cat);
+      await care.connect();
+      care.debugStorePro = false;
+      expect(care.isPro, isTrue);
+    });
+
     test('store account id is per household, never the shared "you"', () async {
       final care = CareRepository(
         api: fakeHouseholdApi(FakeHouseholdAdapter([
