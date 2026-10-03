@@ -100,10 +100,14 @@ flutter build ios --dart-define=ANALYTICS_ENABLED=false   # turn off in release
 ## Release build example
 
 ```bash
-flutter build ipa \
-  --dart-define=REVENUECAT_IOS_KEY=appl_xxxx \
-  --dart-define=API_BASE_URL=https://pawsitive-api-production.up.railway.app
+flutter build ipa --dart-define-from-file=config/release.json
 ```
+
+`config/release.json` holds only public client values (API URL, RevenueCat
+`appl_` SDK key). Server secrets — the RevenueCat webhook secret and the
+Railway SSH target — live in `config/secrets.local.env` (gitignored; template
+in `config/secrets.example.env`). The webhook secret is also stored in Railway
+and in the RevenueCat webhook's Authorization header; change all three together.
 
 ---
 
