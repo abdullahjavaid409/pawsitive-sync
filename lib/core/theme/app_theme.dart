@@ -11,6 +11,13 @@ abstract final class AppTheme {
 
   static ThemeData _build(Brightness brightness) {
     final isLight = brightness == Brightness.light;
+    final tokens = isLight ? PawsTokens.light : PawsTokens.dark;
+    final surfaces = tokens.surfaces;
+    final borders = tokens.borders;
+    final states = tokens.states;
+    final spacing = tokens.spacing;
+    final radii = tokens.radii;
+    final heights = tokens.controlHeights;
     final scheme = ColorScheme(
       brightness: brightness,
       primary: AppColors.brand,
@@ -23,30 +30,26 @@ abstract final class AppTheme {
       onSecondary: AppColors.white,
       secondaryContainer: isLight ? AppColors.neutral : AppColors.darkNeutral,
       onSecondaryContainer: isLight ? AppColors.ink : AppColors.darkInk,
-      error: AppColors.error,
-      onError: AppColors.white,
-      errorContainer: AppColors.errorContainer,
+      error: states.error,
+      onError: states.onError,
+      errorContainer: states.errorContainer,
       onErrorContainer: AppColors.onErrorContainer,
-      surface: isLight ? AppColors.background : AppColors.darkSurface,
+      surface: surfaces.background,
       onSurface: isLight ? AppColors.ink : AppColors.darkInk,
       onSurfaceVariant: isLight ? AppColors.muted : AppColors.darkMuted,
-      outline: isLight ? AppColors.stroke : AppColors.darkStroke,
-      outlineVariant: isLight ? AppColors.hairline : AppColors.darkHairline,
+      outline: borders.standard,
+      outlineVariant: borders.subtle,
       shadow: AppColors.ink,
       scrim: AppColors.scrim,
-      inverseSurface: isLight ? AppColors.ink : AppColors.background,
+      inverseSurface: surfaces.inverse,
       onInverseSurface: isLight ? AppColors.background : AppColors.ink,
       inversePrimary: AppColors.brandSoft,
       surfaceTint: Colors.transparent,
-      surfaceContainerLowest: isLight ? AppColors.white : AppColors.darkCard,
-      surfaceContainerLow: isLight
-          ? AppColors.background
-          : AppColors.darkSurface,
-      surfaceContainer: isLight ? AppColors.neutral : AppColors.darkNeutral,
+      surfaceContainerLowest: surfaces.card,
+      surfaceContainerLow: surfaces.background,
+      surfaceContainer: surfaces.subtle,
       surfaceContainerHigh: isLight ? AppColors.divider : AppColors.darkDivider,
-      surfaceContainerHighest: isLight
-          ? AppColors.hairline
-          : AppColors.darkHairline,
+      surfaceContainerHighest: borders.subtle,
     );
 
     final base = isLight
@@ -57,83 +60,84 @@ abstract final class AppTheme {
       bodyColor: scheme.onSurface,
       displayColor: scheme.onSurface,
     );
+    TextStyle role(TextStyle? source, PawsTypeStyle token, {Color? color}) {
+      return (source ?? const TextStyle()).copyWith(
+        fontFamily: 'Geist',
+        fontSize: token.fontSize,
+        height: token.height,
+        fontWeight: token.weight,
+        letterSpacing: token.letterSpacing,
+        color: color,
+      );
+    }
+
+    final typography = tokens.typography;
     final text = geist.copyWith(
-      displaySmall: geist.displaySmall?.copyWith(
-        fontSize: 28,
-        height: 1.15,
-        fontWeight: FontWeight.w600,
-        letterSpacing: -0.6,
+      displaySmall: role(
+        geist.displaySmall,
+        typography.display,
         color: scheme.onSurface,
       ),
-      headlineMedium: geist.headlineMedium?.copyWith(
-        fontSize: 24,
-        height: 1.2,
-        fontWeight: FontWeight.w600,
-        letterSpacing: -0.4,
+      headlineMedium: role(
+        geist.headlineMedium,
+        typography.headline,
         color: scheme.onSurface,
       ),
-      headlineSmall: geist.headlineSmall?.copyWith(
-        fontSize: 20,
-        height: 1.25,
-        fontWeight: FontWeight.w600,
-        letterSpacing: -0.3,
+      headlineSmall: role(
+        geist.headlineSmall,
+        typography.section,
         color: scheme.onSurface,
       ),
-      titleLarge: geist.titleLarge?.copyWith(
-        fontSize: 16,
-        height: 1.3,
-        fontWeight: FontWeight.w600,
-        letterSpacing: -0.1,
+      titleLarge: role(
+        geist.titleLarge,
+        typography.title,
         color: scheme.onSurface,
       ),
-      titleMedium: geist.titleMedium?.copyWith(
-        fontSize: 15,
-        height: 1.3,
-        fontWeight: FontWeight.w600,
-        letterSpacing: -0.1,
+      titleMedium: role(
+        geist.titleMedium,
+        typography.subtitle,
         color: scheme.onSurface,
       ),
-      titleSmall: geist.titleSmall?.copyWith(
-        fontSize: 14,
-        height: 1.3,
-        fontWeight: FontWeight.w600,
+      titleSmall: role(
+        geist.titleSmall,
+        typography.label,
         color: scheme.onSurface,
       ),
-      bodyLarge: geist.bodyLarge?.copyWith(
-        fontSize: 15,
-        height: 1.4,
-        fontWeight: FontWeight.w400,
+      bodyLarge: role(
+        geist.bodyLarge,
+        typography.body,
         color: scheme.onSurface,
       ),
-      bodyMedium: geist.bodyMedium?.copyWith(
-        fontSize: 13,
-        height: 1.35,
-        fontWeight: FontWeight.w400,
+      bodyMedium: role(
+        geist.bodyMedium,
+        typography.bodySecondary,
         color: scheme.onSurfaceVariant,
       ),
-      bodySmall: geist.bodySmall?.copyWith(
-        fontSize: 12,
-        height: 1.35,
-        fontWeight: FontWeight.w400,
+      bodySmall: role(
+        geist.bodySmall,
+        typography.caption,
         color: scheme.onSurfaceVariant,
       ),
-      labelLarge: geist.labelLarge?.copyWith(
-        fontSize: 14,
-        height: 1.2,
-        fontWeight: FontWeight.w600,
-        letterSpacing: 0,
-      ),
-      labelSmall: geist.labelSmall?.copyWith(
-        fontSize: 11,
-        height: 1.2,
-        fontWeight: FontWeight.w600,
-        letterSpacing: 0.4,
+      labelLarge: role(geist.labelLarge, typography.label),
+      labelSmall: role(
+        geist.labelSmall,
+        typography.labelSmall,
         color: scheme.onSurfaceVariant,
       ),
     );
 
-    final radius14 = RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(14),
+    final buttonShape = RoundedRectangleBorder(borderRadius: radii.buttonShape);
+    final inputBorder = OutlineInputBorder(
+      borderRadius: radii.inputShape,
+      borderSide: BorderSide(color: borders.subtle),
+    );
+    final focusedInputBorder = OutlineInputBorder(
+      borderRadius: radii.inputShape,
+      borderSide: BorderSide(color: borders.focus, width: 1.5),
+    );
+    final errorInputBorder = OutlineInputBorder(
+      borderRadius: radii.inputShape,
+      borderSide: BorderSide(color: borders.error),
     );
 
     return ThemeData(
@@ -160,55 +164,79 @@ abstract final class AppTheme {
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          minimumSize: const Size(48, 48),
+          minimumSize: Size.fromHeight(heights.button),
+          padding: EdgeInsets.symmetric(horizontal: spacing.xl),
           backgroundColor: scheme.primary,
           foregroundColor: scheme.onPrimary,
           textStyle: text.titleLarge?.copyWith(color: scheme.onPrimary),
-          shape: radius14,
+          shape: buttonShape,
           elevation: 0,
         ),
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          minimumSize: const Size(48, 48),
+          minimumSize: Size.fromHeight(heights.button),
+          padding: EdgeInsets.symmetric(horizontal: spacing.xl),
           foregroundColor: scheme.onSurface,
           textStyle: text.titleLarge?.copyWith(fontWeight: FontWeight.w500),
-          side: BorderSide(color: scheme.outlineVariant),
-          shape: radius14,
-          backgroundColor: scheme.surfaceContainerLowest,
+          side: BorderSide(color: borders.subtle),
+          shape: buttonShape,
+          backgroundColor: surfaces.card,
         ),
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: scheme.onSurfaceVariant,
           textStyle: text.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
-          minimumSize: const Size(48, 48),
+          minimumSize: Size.fromHeight(heights.standard),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: scheme.surfaceContainerLowest,
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 16,
-          vertical: 16,
+        fillColor: surfaces.input,
+        contentPadding: EdgeInsets.symmetric(
+          horizontal: spacing.inputHorizontal,
+          vertical: spacing.inputVertical,
         ),
         hintStyle: text.bodyLarge?.copyWith(color: scheme.onSurfaceVariant),
         labelStyle: text.bodyMedium,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: scheme.outlineVariant),
+        border: inputBorder,
+        enabledBorder: inputBorder,
+        focusedBorder: focusedInputBorder,
+        errorBorder: errorInputBorder,
+        focusedErrorBorder: errorInputBorder.copyWith(
+          borderSide: BorderSide(color: borders.error, width: 1.5),
         ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: scheme.outlineVariant),
+        disabledBorder: inputBorder.copyWith(
+          borderSide: BorderSide(color: states.disabledContent),
         ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: scheme.primary, width: 1.5),
+        errorStyle: text.bodySmall?.copyWith(color: states.error),
+      ),
+      chipTheme: ChipThemeData(
+        backgroundColor: surfaces.input,
+        disabledColor: states.disabled,
+        selectedColor: states.selected,
+        padding: EdgeInsets.symmetric(
+          horizontal: spacing.md,
+          vertical: spacing.xs,
         ),
+        labelStyle: text.titleSmall,
+        secondaryLabelStyle: text.titleSmall,
+        shape: RoundedRectangleBorder(borderRadius: radii.chipShape),
+        side: BorderSide(color: borders.subtle),
+      ),
+      bottomSheetTheme: BottomSheetThemeData(
+        backgroundColor: surfaces.card,
+        modalBackgroundColor: surfaces.card,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        shape: RoundedRectangleBorder(borderRadius: radii.sheetShape),
+        showDragHandle: true,
+        dragHandleColor: borders.subtle,
+        dragHandleSize: Size(36, spacing.xs),
       ),
       dividerTheme: DividerThemeData(
-        color: scheme.outlineVariant,
+        color: borders.subtle,
         thickness: 1,
         space: 1,
       ),
@@ -220,10 +248,10 @@ abstract final class AppTheme {
         ),
       ),
       switchTheme: SwitchThemeData(
-        thumbColor: const WidgetStatePropertyAll(AppColors.white),
+        thumbColor: WidgetStatePropertyAll(surfaces.elevated),
         trackColor: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.selected)) return AppColors.brand;
-          return isLight ? AppColors.stroke : AppColors.darkStroke;
+          if (states.contains(WidgetState.selected)) return scheme.primary;
+          return borders.standard;
         }),
         trackOutlineColor: const WidgetStatePropertyAll(Colors.transparent),
       ),

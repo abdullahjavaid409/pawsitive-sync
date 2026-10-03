@@ -1,30 +1,32 @@
 import 'package:flutter/material.dart';
+import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 
 /// Short motion from the Flutter animation guidance.
 ///
 /// Arrivals decelerate over 200 ms. Departures are a little faster.
 /// The system "reduce motion" setting turns both off.
 abstract final class AppMotion {
-  static const enter = Duration(milliseconds: 200);
-  static const exit = Duration(milliseconds: 140);
-  static const enterCurve = Curves.easeOutCubic;
-  static const exitCurve = Curves.easeInCubic;
+  static const enter = PawsMotion.enterDuration;
+  static const exit = PawsMotion.exitDuration;
+  static const enterCurve = PawsMotion.enterCurveValue;
+  static const exitCurve = PawsMotion.exitCurveValue;
 
   static bool reduced(BuildContext context) =>
       MediaQuery.disableAnimationsOf(context);
 
   static Duration enterOf(BuildContext context) =>
-      reduced(context) ? Duration.zero : enter;
+      reduced(context) ? Duration.zero : context.paws.motion.enter;
 
   static Duration exitOf(BuildContext context) =>
-      reduced(context) ? Duration.zero : exit;
+      reduced(context) ? Duration.zero : context.paws.motion.exit;
 
   static AnimationStyle sheet(BuildContext context) {
+    final motion = context.paws.motion;
     return AnimationStyle(
       duration: enterOf(context),
       reverseDuration: exitOf(context),
-      curve: enterCurve,
-      reverseCurve: exitCurve,
+      curve: motion.enterCurve,
+      reverseCurve: motion.exitCurve,
     );
   }
 }
