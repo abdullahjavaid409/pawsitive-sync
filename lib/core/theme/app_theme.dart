@@ -164,7 +164,7 @@ abstract final class AppTheme {
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          minimumSize: Size.fromHeight(heights.button),
+          minimumSize: Size(heights.button, heights.button),
           padding: EdgeInsets.symmetric(horizontal: spacing.xl),
           backgroundColor: scheme.primary,
           foregroundColor: scheme.onPrimary,
@@ -175,7 +175,7 @@ abstract final class AppTheme {
       ),
       outlinedButtonTheme: OutlinedButtonThemeData(
         style: OutlinedButton.styleFrom(
-          minimumSize: Size.fromHeight(heights.button),
+          minimumSize: Size(heights.button, heights.button),
           padding: EdgeInsets.symmetric(horizontal: spacing.xl),
           foregroundColor: scheme.onSurface,
           textStyle: text.titleLarge?.copyWith(fontWeight: FontWeight.w500),
@@ -188,7 +188,7 @@ abstract final class AppTheme {
         style: TextButton.styleFrom(
           foregroundColor: scheme.onSurfaceVariant,
           textStyle: text.bodyLarge?.copyWith(fontWeight: FontWeight.w500),
-          minimumSize: Size.fromHeight(heights.standard),
+          minimumSize: Size(heights.standard, heights.standard),
         ),
       ),
       inputDecorationTheme: InputDecorationTheme(
