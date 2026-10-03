@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/legal/app_links.dart';
@@ -148,9 +149,17 @@ class _PaywallScreenState extends State<PaywallScreen> {
         });
         return;
       }
-    } else {
+    } else if (!kReleaseMode) {
       AppLog.event('billing.trial.local_fallback');
       await care.startTrial();
+    } else {
+      AppLog.event('billing.trial.store_unavailable');
+      setState(() {
+        _busy = false;
+        _error = 'Purchases are not available right now. '
+            'Check your connection and try again.';
+      });
+      return;
     }
 
     await _finishSetup();

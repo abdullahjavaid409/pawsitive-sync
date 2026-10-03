@@ -4,6 +4,7 @@ import 'package:pawsitive_sync/core/legal/app_links.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/data/household_api.dart';
+import 'package:pawsitive_sync/data/household_store.dart';
 import 'package:pawsitive_sync/data/push_service.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
@@ -339,6 +340,56 @@ void main() {
       expect(care.canShowLowSupplyAlerts, isTrue);
       expect(care.canAddPet, isTrue);
       expectLogged('billing.pro.unlocked', fields: {'source': 'trial'});
+    });
+
+    test('trial started before sharing survives going online', () async {
+      final adapter = FakeHouseholdAdapter([
+        (201, connectHouseholdBody(isPro: false)),
+        (200, {'isPro': true, 'plan': 'yearly'}), // trial pushed online
+        (200, {'ok': true}), // push device register
+      ]);
+      final care = CareRepository(
+        api: fakeHouseholdApi(adapter),
+        clock: () => DateTime(2026, 10, 3, 14),
+      );
+      await care.addPet(name: 'Milo', species: Species.cat);
+      await care.startTrial();
+      expect(await care.connect(), isNull);
+      expect(care.isPro, isTrue);
+      expectLogged('billing.pro.carried_online');
+    });
+
+    test('store account id is per household, never the shared "you"', () async {
+      final care = CareRepository(
+        api: fakeHouseholdApi(FakeHouseholdAdapter([
+          (201, connectHouseholdBody(householdId: 'hh_42')),
+          (200, {'ok': true}), // push device register
+        ])),
+        clock: () => DateTime(2026, 10, 3, 14),
+      );
+      await care.addPet(name: 'Milo', species: Species.cat);
+      expect(care.billingUserId, isEmpty, reason: 'offline stays anonymous');
+      await care.connect();
+      expect(care.billingUserId, 'hh_42:you');
+    });
+
+    test('shared household id survives a restart', () async {
+      final care = CareRepository(
+        api: fakeHouseholdApi(FakeHouseholdAdapter([
+          (201, connectHouseholdBody(householdId: 'hh_42')),
+          (200, {'ok': true}),
+        ])),
+        store: HouseholdStore(),
+        clock: () => DateTime(2026, 10, 3, 14),
+      );
+      await care.addPet(name: 'Milo', species: Species.cat);
+      await care.connect();
+      final reloaded = CareRepository(
+        api: HouseholdApi(Uri.parse('https://example.test')),
+        store: HouseholdStore(),
+      );
+      await reloaded.restore();
+      expect(reloaded.billingUserId, 'hh_42:you');
     });
 
     test('reset revokes Pro and logs household.reset', () async {

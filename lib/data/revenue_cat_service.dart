@@ -75,8 +75,21 @@ abstract final class RevenueCatService {
     });
   }
 
+  /// Older builds logged every owner in as 'you', one store account shared by
+  /// strangers. Send those phones back to their own anonymous id.
+  static const _legacySharedId = 'you';
+
   static Future<void> identifyMember(String memberId) async {
-    if (!_initialized || memberId.isEmpty) return;
+    if (!_initialized) return;
+    if (memberId.isEmpty || memberId == _legacySharedId) {
+      try {
+        final current = await Purchases.appUserID.timeout(_networkTimeout);
+        if (current == _legacySharedId) await logOut();
+      } catch (error, stack) {
+        AppLog.error('billing.rc.legacy_check_failed', error, stack);
+      }
+      return;
+    }
     if (_memberId == memberId) return;
     await AppLog.trace('billing.rc.identify', () async {
       await Purchases.logIn(memberId).timeout(_networkTimeout);

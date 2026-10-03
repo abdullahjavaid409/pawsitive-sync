@@ -17,8 +17,11 @@ class HouseholdSnapshot {
     required this.medications,
     required this.logs,
     this.careEvents = const [],
+    this.householdId = '',
   });
 
+  /// Server id for the household. Opaque and globally unique.
+  final String householdId;
   final String inviteCode;
   final bool isPro;
   final BillingPlan plan;
@@ -409,6 +412,7 @@ HouseholdSnapshot _snapshot(Map<String, dynamic> body) {
       ? body['household'] as Map<String, dynamic>
       : const <String, dynamic>{};
   return HouseholdSnapshot(
+    householdId: '${house['id'] ?? ''}',
     inviteCode: '${house['inviteCode'] ?? ''}',
     isPro: house['isPro'] == true,
     plan: _plan(house['plan']),

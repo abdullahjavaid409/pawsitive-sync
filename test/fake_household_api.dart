@@ -55,10 +55,16 @@ Map<String, Object?> connectHouseholdBody({
   bool isPro = true,
   String memberId = 'you',
   List<Map<String, Object?>> logs = const [],
+  String householdId = 'hh_test',
 }) {
   return {
     'token': 'house-token',
-    'household': {'inviteCode': inviteCode, 'isPro': isPro, 'plan': 'yearly'},
+    'household': {
+      'id': householdId,
+      'inviteCode': inviteCode,
+      'isPro': isPro,
+      'plan': 'yearly',
+    },
     'memberId': memberId,
     'members': [
       {'id': 'you', 'name': 'You', 'role': 'owner', 'isYou': true},

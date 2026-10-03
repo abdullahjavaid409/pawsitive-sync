@@ -1,10 +1,14 @@
+import 'package:flutter/foundation.dart' show kReleaseMode;
+
 /// One place for app settings. Everything here has a safe default — no keys required to run.
 abstract final class AppConfig {
+  static const _productionApi = 'https://pawsitive-api-production.up.railway.app';
+
   /// Household sync server. Empty = fully offline (pets and doses stay on this phone).
-  static const apiBaseUrl = String.fromEnvironment(
-    'API_BASE_URL',
-    defaultValue: 'https://pawsitive-api-production.up.railway.app',
-  );
+  /// Only release builds default to production, so debug runs never write real data.
+  static const apiBaseUrl = bool.hasEnvironment('API_BASE_URL')
+      ? String.fromEnvironment('API_BASE_URL')
+      : (kReleaseMode ? _productionApi : '');
 
   /// RevenueCat iOS public key. Empty = Pro trial works locally; store purchases need a key.
   static const revenueCatIosKey = String.fromEnvironment('REVENUECAT_IOS_KEY');
@@ -17,7 +21,7 @@ abstract final class AppConfig {
   /// Anonymous usage counts (no names, no pets). Off when API is empty.
   static const analyticsEnabled = bool.fromEnvironment(
     'ANALYTICS_ENABLED',
-    defaultValue: true,
+    defaultValue: kReleaseMode,
   );
 
   static bool get hasApi => apiBaseUrl.trim().isNotEmpty;

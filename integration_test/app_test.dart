@@ -295,6 +295,7 @@ void main() {
         what: 'invite code from server',
       );
       expect(_care(t).isConnected, isTrue);
+      expect(_care(t).isPro, isTrue, reason: 'trial must survive going online');
       qa.event('household.connected');
       await qa.tap(find.byTooltip('Back'));
     });
@@ -395,6 +396,7 @@ void main() {
         seconds: 15,
         what: 'partner sees refilled supply',
       );
+      await qa.tap(find.text('Back'));
     });
 
     await qa.step('Pro: second pet allowed and synced', () async {

@@ -23,12 +23,20 @@ Lets partners and sitters see doses in real time.
 
 | Setting | What to pass | Default |
 |---------|--------------|---------|
-| API server | `--dart-define=API_BASE_URL=https://your-api.example.com` | Railway production URL |
+| API server | `--dart-define=API_BASE_URL=https://your-api.example.com` | Release builds: Railway production URL. Debug/profile builds: offline |
 
-**Fully offline:** pass an empty URL:
+Debug and profile builds never touch production unless you ask them to, so
+testing cannot write real households or analytics. To try sync locally, run the
+backend (see `backend/`) and point the app at it:
 
 ```bash
-flutter run --dart-define=API_BASE_URL=
+flutter run --dart-define=API_BASE_URL=http://127.0.0.1:3100
+```
+
+**Fully offline release build:** pass an empty URL:
+
+```bash
+flutter build ios --dart-define=API_BASE_URL=
 ```
 
 ---
@@ -50,12 +58,13 @@ flutter run \
 
 ---
 
-## Optional: turn off analytics
+## Optional: analytics
 
 Anonymous funnel counts only (onboarding finished, first dose, etc.). No pet names or emails.
+On by default in release builds, off in debug/profile builds.
 
 ```bash
-flutter run --dart-define=ANALYTICS_ENABLED=false
+flutter build ios --dart-define=ANALYTICS_ENABLED=false   # turn off in release
 ```
 
 ---

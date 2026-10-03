@@ -110,6 +110,7 @@ class CareRepository extends ChangeNotifier {
 
   String _memberId = 'you';
   String _inviteCode = '';
+  String _householdId = '';
   final List<Member> _members = [];
   final List<Pet> _pets = [];
   final List<Medication> _medications = [];
@@ -133,6 +134,11 @@ class CareRepository extends ChangeNotifier {
   bool get hasHousehold => _members.isNotEmpty;
 
   String get inviteCode => _inviteCode;
+
+  /// Store account id. Empty until shared, so RevenueCat keeps its own
+  /// per-install id; never the bare member id (every owner is 'you').
+  String get billingUserId =>
+      isConnected && _householdId.isNotEmpty ? '$_householdId:$_memberId' : '';
 
   bool get isPro => _isPro;
 
@@ -449,6 +455,7 @@ class CareRepository extends ChangeNotifier {
     final saved = await _store?.read();
     if (saved == null) return;
     _apply(
+      householdId: saved.householdId,
       token: saved.token,
       memberId: saved.memberId,
       inviteCode: saved.inviteCode,
@@ -470,6 +477,7 @@ class CareRepository extends ChangeNotifier {
   }
 
   void _apply({
+    String householdId = '',
     required String? token,
     required String memberId,
     required String inviteCode,
@@ -483,6 +491,7 @@ class CareRepository extends ChangeNotifier {
     _api?.token = token;
     _memberId = memberId.isEmpty ? 'you' : memberId;
     _inviteCode = inviteCode;
+    _householdId = householdId;
     _isPro = isPro;
     _plan = plan;
     _members
@@ -502,6 +511,7 @@ class CareRepository extends ChangeNotifier {
   void _applySession(HouseholdSession session) {
     final house = session.snapshot;
     _apply(
+      householdId: house.householdId,
       token: session.token,
       memberId: house.memberId,
       inviteCode: house.inviteCode,
@@ -519,6 +529,7 @@ class CareRepository extends ChangeNotifier {
     final knownLogIds = {for (final log in _logs) log.id};
     _notifyPartnerLogs(house, knownLogIds);
     _apply(
+      householdId: house.householdId.isEmpty ? _householdId : house.householdId,
       token: _api?.token,
       memberId: house.memberId,
       inviteCode: house.inviteCode,
@@ -648,6 +659,7 @@ class CareRepository extends ChangeNotifier {
     unawaited(
       store.write(
         StoredHousehold(
+          householdId: _householdId,
           token: _api?.token,
           memberId: _memberId,
           inviteCode: _inviteCode,
@@ -685,6 +697,7 @@ class CareRepository extends ChangeNotifier {
       return 'Set up your pet first.';
     }
     try {
+      final wasPro = _isPro;
       final session = await AppLog.trace(
         'household.create',
         () => api.createHousehold(
@@ -696,6 +709,7 @@ class CareRepository extends ChangeNotifier {
         ),
       );
       _applySession(session);
+      if (wasPro && !_isPro) await _carryProOnline(api);
       syncError = null;
       await _afterConnected();
       AppLog.event('household.connected');
@@ -787,8 +801,23 @@ class CareRepository extends ChangeNotifier {
   // ---------------------------------------------------------------------------
   // Writes
 
+  /// A trial or purchase started before sharing lives only on this phone; the
+  /// new household starts as Free, so push Pro up instead of losing it.
+  Future<void> _carryProOnline(HouseholdApi api) async {
+    try {
+      final billing = await api.startTrial();
+      _isPro = billing.isPro;
+      _plan = billing.plan;
+      AppLog.event('billing.pro.carried_online', {'plan': _plan.name});
+    } on HouseholdException catch (error) {
+      _isPro = true;
+      AppLog.event('billing.pro.carry_failed', {'kind': error.kind.name});
+    }
+  }
+
   Future<void> _afterConnected() async {
     _changed();
+    await RevenueCatService.identifyMember(billingUserId);
     await PushService.registerIfConnected(_api);
     await _flushOutbox(silent: true);
   }
@@ -1354,7 +1383,7 @@ class CareRepository extends ChangeNotifier {
       AppLog.event('billing.sync.skipped', {'reason': 'not_configured'});
       return;
     }
-    await RevenueCatService.identifyMember(_memberId);
+    await RevenueCatService.identifyMember(billingUserId);
     final status = await RevenueCatService.currentStatus();
     if (status.isPro && !_isPro) {
       await startTrial();
@@ -1362,7 +1391,9 @@ class CareRepository extends ChangeNotifier {
         await setPlan(status.plan!);
       }
       AppLog.event('billing.sync.pro_unlocked', {'plan': _plan.name});
-    } else if (!status.isPro && _isPro) {
+    } else if (!status.isPro && _isPro && !isConnected) {
+      // Shared households get Pro from the server (purchase webhook or trial);
+      // a partner without their own subscription must not switch it off.
       _isPro = false;
       _changed();
       AppLog.event('billing.sync.pro_revoked');

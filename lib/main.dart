@@ -25,7 +25,7 @@ Future<Widget> bootstrap() async {
       : null;
   final care = CareRepository(api: api, store: HouseholdStore());
   await care.restore();
-  await RevenueCatService.identifyMember(care.memberId);
+  await RevenueCatService.identifyMember(care.billingUserId);
   await care.syncBillingFromStore();
   final onboarding = await OnboardingViewModel.load();
   if (onboarding.isComplete && care.pets.isEmpty && !care.isConnected) {

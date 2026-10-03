@@ -16,8 +16,10 @@ class StoredHousehold {
     required this.pets,
     required this.medications,
     required this.logs,
+    this.householdId = '',
   });
 
+  final String householdId;
   final String? token;
   final String memberId;
   final String inviteCode;
@@ -44,6 +46,7 @@ class HouseholdStore {
           if (item is Map<String, dynamic>) map(item),
       ];
       return StoredHousehold(
+        householdId: json['householdId'] as String? ?? '',
         token: json['token'] as String?,
         memberId: json['memberId'] as String? ?? 'you',
         inviteCode: json['inviteCode'] as String? ?? '',
@@ -67,6 +70,7 @@ class HouseholdStore {
     await prefs.setString(
       _key,
       jsonEncode({
+        'householdId': house.householdId,
         'token': house.token,
         'memberId': house.memberId,
         'inviteCode': house.inviteCode,

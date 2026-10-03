@@ -3,7 +3,15 @@ import pg from "pg";
 
 const { Pool } = pg;
 
-const schemaVersion = "4";
+const schemaVersion = "5";
+const trialDays = 7;
+
+/** Paid (store webhook) or inside the one free trial. */
+function hasPro(household) {
+  if (!household) return false;
+  if (household.is_pro) return true;
+  return household.trial_ends_at != null && new Date(household.trial_ends_at) > new Date();
+}
 const parts = ["morning", "afternoon", "evening"];
 const species = ["cat", "dog", "rabbit", "other"];
 const roles = ["owner", "caregiver", "sitter"];
@@ -139,6 +147,9 @@ export async function migrate(pool, log) {
   await pool.query(`
     ALTER TABLE households ADD COLUMN IF NOT EXISTS rc_expires_at timestamptz;
     ALTER TABLE households ADD COLUMN IF NOT EXISTS rc_product_id text;
+  `);
+  await pool.query(`
+    ALTER TABLE households ADD COLUMN IF NOT EXISTS trial_ends_at timestamptz;
   `);
   await pool.query(
     `INSERT INTO meta (key, value) VALUES ('schema_version', $1)
@@ -504,7 +515,7 @@ export async function loadHousehold(pool, { householdId, memberId }) {
     household: {
       id: household.id,
       inviteCode: household.invite_code,
-      isPro: household.is_pro,
+      isPro: hasPro(household),
       plan: household.plan,
     },
     memberId,
@@ -626,12 +637,16 @@ export async function setPlan(pool, { householdId }, plan) {
   return plan;
 }
 
+/** One free trial per household; asking again never extends it. */
 export async function startTrial(pool, { householdId }) {
   const result = await pool.query(
-    "UPDATE households SET is_pro = true WHERE id = $1 RETURNING plan",
-    [householdId],
+    `UPDATE households
+     SET trial_ends_at = COALESCE(trial_ends_at, now() + make_interval(days => $2))
+     WHERE id = $1 RETURNING plan, is_pro, trial_ends_at`,
+    [householdId, trialDays],
   );
-  return { isPro: true, plan: result.rows[0]?.plan ?? "yearly" };
+  const row = result.rows[0];
+  return { isPro: hasPro(row), plan: row?.plan ?? "yearly" };
 }
 
 export async function addCareEvent(pool, { householdId }, body) {
@@ -834,8 +849,10 @@ function formatTimeLabel(date = new Date()) {
 }
 
 export async function createSitterLink(pool, auth, body) {
-  const pro = await pool.query("SELECT is_pro FROM households WHERE id = $1", [auth.householdId]);
-  if (!pro.rows[0]?.is_pro) {
+  const pro = await pool.query("SELECT is_pro, trial_ends_at FROM households WHERE id = $1", [
+    auth.householdId,
+  ]);
+  if (!hasPro(pro.rows[0])) {
     throw new InputError("Browser sitter links need PawsitiveSync Pro.");
   }
   const label = text(body?.label, "label", { max: 40, required: false }) || "Sitter";
@@ -991,10 +1008,17 @@ export async function handleRevenueCatWebhook(pool, body, logFn) {
   if (typeof appUserId !== "string" || !appUserId) {
     return { status: "ignored", reason: "no_app_user_id" };
   }
-  const member = await pool.query(
-    "SELECT household_id FROM members WHERE id = $1 LIMIT 1",
-    [appUserId],
-  );
+  // Apps identify purchasers as "<householdId>:<memberId>". A bare member id is
+  // only trusted when it is unique; every owner used to be "you".
+  const split = appUserId.indexOf(":");
+  const member =
+    split > 0
+      ? await pool.query("SELECT household_id FROM members WHERE household_id = $1 AND id = $2", [
+          appUserId.slice(0, split),
+          appUserId.slice(split + 1),
+        ])
+      : await pool.query("SELECT household_id FROM members WHERE id = $1 LIMIT 2", [appUserId]);
+  if (member.rowCount > 1) return { status: "ignored", reason: "ambiguous_member" };
   const householdId = member.rows[0]?.household_id;
   if (!householdId) return { status: "ignored", reason: "member_not_found" };
   const type = event?.type ?? body?.type ?? "";
