@@ -1,15 +1,24 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import pg from "pg";
 
 const { Pool } = pg;
 
-const schemaVersion = "5";
+const schemaVersion = "6";
 const trialDays = 7;
+
+/** A missed RENEWAL webhook must not cut off a paying household right away. */
+const storeExpirySlackMs = 24 * 60 * 60 * 1000;
 
 /** Paid (store webhook) or inside the one free trial. */
 function hasPro(household) {
   if (!household) return false;
-  if (household.is_pro) return true;
+  if (household.is_pro) {
+    // Expiry from the last webhook also ends Pro if EXPIRATION never arrives.
+    const expires = household.rc_expires_at;
+    if (expires == null || new Date(expires).getTime() + storeExpirySlackMs > Date.now()) {
+      return true;
+    }
+  }
   return household.trial_ends_at != null && new Date(household.trial_ends_at) > new Date();
 }
 const parts = ["morning", "afternoon", "evening"];
@@ -150,6 +159,9 @@ export async function migrate(pool, log) {
   `);
   await pool.query(`
     ALTER TABLE households ADD COLUMN IF NOT EXISTS trial_ends_at timestamptz;
+  `);
+  await pool.query(`
+    ALTER TABLE households ADD COLUMN IF NOT EXISTS rc_event_at timestamptz;
   `);
   await pool.query(
     `INSERT INTO meta (key, value) VALUES ('schema_version', $1)
@@ -642,7 +654,7 @@ export async function startTrial(pool, { householdId }) {
   const result = await pool.query(
     `UPDATE households
      SET trial_ends_at = COALESCE(trial_ends_at, now() + make_interval(days => $2))
-     WHERE id = $1 RETURNING plan, is_pro, trial_ends_at`,
+     WHERE id = $1 RETURNING plan, is_pro, trial_ends_at, rc_expires_at`,
     [householdId, trialDays],
   );
   const row = result.rows[0];
@@ -849,7 +861,7 @@ function formatTimeLabel(date = new Date()) {
 }
 
 export async function createSitterLink(pool, auth, body) {
-  const pro = await pool.query("SELECT is_pro, trial_ends_at FROM households WHERE id = $1", [
+  const pro = await pool.query("SELECT is_pro, trial_ends_at, rc_expires_at FROM households WHERE id = $1", [
     auth.householdId,
   ]);
   if (!hasPro(pro.rows[0])) {
@@ -998,42 +1010,147 @@ export async function notifyHouseholdOnDose(pool, auth, logEntry, logFn) {
   }
 }
 
+const proEntitlement = "pro";
+
+/** Events that carry the subscription's current expiry; Pro = not yet expired. */
+const stateEvents = new Set([
+  "INITIAL_PURCHASE",
+  "RENEWAL",
+  "PRODUCT_CHANGE",
+  "UNCANCELLATION",
+  // Auto-renew off or billing retry: the user keeps Pro until expiry/grace end.
+  "CANCELLATION",
+  "BILLING_ISSUE",
+  "SUBSCRIPTION_EXTENDED",
+  "TEMPORARY_ENTITLEMENT_GRANT",
+  "NON_RENEWING_PURCHASE",
+  "REFUND_REVERSED",
+]);
+
+function secretMatches(given, secret) {
+  if (typeof given !== "string") return false;
+  const a = Buffer.from(given);
+  const b = Buffer.from(secret);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/** Household for a RevenueCat customer. Apps log in as "<householdId>:<memberId>";
+ * purchases made before joining arrive with that id in `aliases`. A bare member
+ * id is only trusted when unique — every owner used to be "you". */
+async function householdForCustomer(pool, ids) {
+  for (const id of ids) {
+    const split = id.indexOf(":");
+    if (split <= 0) continue;
+    const row = await pool.query(
+      "SELECT household_id FROM members WHERE household_id = $1 AND id = $2",
+      [id.slice(0, split), id.slice(split + 1)],
+    );
+    if (row.rows[0]) return { householdId: row.rows[0].household_id };
+  }
+  for (const id of ids) {
+    if (id.includes(":") || id.startsWith("$RCAnonymousID")) continue;
+    const row = await pool.query("SELECT household_id FROM members WHERE id = $1 LIMIT 2", [id]);
+    if (row.rowCount > 1) return { reason: "ambiguous_member" };
+    if (row.rows[0]) return { householdId: row.rows[0].household_id };
+  }
+  return { reason: "member_not_found" };
+}
+
+function customerIds(event, ...keys) {
+  const ids = [];
+  for (const key of keys) {
+    const value = event?.[key];
+    for (const id of Array.isArray(value) ? value : [value]) {
+      if (typeof id === "string" && id && !ids.includes(id)) ids.push(id);
+    }
+  }
+  return ids.slice(0, 20);
+}
+
+async function applyProState(pool, householdId, { isPro, expiresAt, productId, eventAt }) {
+  // Retries and out-of-order deliveries: never let an older event win.
+  const result = await pool.query(
+    `UPDATE households
+     SET is_pro = $2, rc_expires_at = $3, rc_product_id = COALESCE($4, rc_product_id), rc_event_at = $5
+     WHERE id = $1 AND (rc_event_at IS NULL OR rc_event_at <= $5)
+     RETURNING id`,
+    [householdId, isPro, expiresAt, productId, eventAt],
+  );
+  return result.rowCount > 0;
+}
+
 export async function handleRevenueCatWebhook(pool, body, logFn) {
   const secret = process.env.REVENUECAT_WEBHOOK_SECRET;
-  if (secret && body?.authorization !== secret) {
+  if (!secret) {
+    // Fail closed: without a secret anyone could grant themselves Pro.
+    logFn("billing.webhook_secret_missing", {});
     return { status: "unauthorized" };
   }
+  if (!secretMatches(body?.authorization, secret)) return { status: "unauthorized" };
+
   const event = body?.event;
-  const appUserId = event?.app_user_id ?? body?.app_user_id;
-  if (typeof appUserId !== "string" || !appUserId) {
-    return { status: "ignored", reason: "no_app_user_id" };
+  const type = typeof event?.type === "string" ? event.type : "";
+  if (type === "TEST") {
+    logFn("billing.webhook_test", { environment: event?.environment ?? "" });
+    return { status: "ok", test: true };
   }
-  // Apps identify purchasers as "<householdId>:<memberId>". A bare member id is
-  // only trusted when it is unique; every owner used to be "you".
-  const split = appUserId.indexOf(":");
-  const member =
-    split > 0
-      ? await pool.query("SELECT household_id FROM members WHERE household_id = $1 AND id = $2", [
-          appUserId.slice(0, split),
-          appUserId.slice(split + 1),
-        ])
-      : await pool.query("SELECT household_id FROM members WHERE id = $1 LIMIT 2", [appUserId]);
-  if (member.rowCount > 1) return { status: "ignored", reason: "ambiguous_member" };
-  const householdId = member.rows[0]?.household_id;
-  if (!householdId) return { status: "ignored", reason: "member_not_found" };
-  const type = event?.type ?? body?.type ?? "";
-  const active =
-    type.includes("INITIAL_PURCHASE") ||
-    type.includes("RENEWAL") ||
-    type.includes("UNCANCELLATION") ||
-    type.includes("PRODUCT_CHANGE");
-  const inactive =
-    type.includes("EXPIRATION") || type.includes("CANCELLATION") || type.includes("BILLING_ISSUE");
-  let isPro = null;
-  if (active) isPro = true;
-  if (inactive) isPro = false;
-  if (isPro === null) return { status: "ignored", reason: "event_type" };
-  await pool.query("UPDATE households SET is_pro = $1 WHERE id = $2", [isPro, householdId]);
-  logFn("billing.webhook", { householdId, type, isPro });
+  if (!type) return { status: "ignored", reason: "no_event" };
+
+  const entitlements = event.entitlement_ids;
+  if (Array.isArray(entitlements) && entitlements.length > 0 && !entitlements.includes(proEntitlement)) {
+    return { status: "ignored", reason: "other_entitlement" };
+  }
+
+  const eventAt = new Date(
+    Number.isFinite(event.event_timestamp_ms) ? event.event_timestamp_ms : Date.now(),
+  );
+  const productId = typeof event.product_id === "string" ? event.product_id.slice(0, 200) : null;
+
+  if (type === "TRANSFER") {
+    // The subscription moved to another store account; the old owner loses it.
+    // The new owner's app re-syncs Pro and the next renewal confirms it.
+    const from = await householdForCustomer(pool, customerIds(event, "transferred_from"));
+    if (!from.householdId) return { status: "ignored", reason: from.reason };
+    await applyProState(pool, from.householdId, { isPro: false, expiresAt: eventAt, productId: null, eventAt });
+    logFn("billing.webhook", { householdId: from.householdId, type, isPro: false });
+    return { status: "ok", isPro: false };
+  }
+
+  let isPro;
+  let expiresAt = null;
+  if (type === "EXPIRATION") {
+    isPro = false;
+    expiresAt = eventAt;
+  } else if (stateEvents.has(type)) {
+    const expiresMs = Number.isFinite(event.grace_period_expiration_at_ms)
+      ? event.grace_period_expiration_at_ms
+      : event.expiration_at_ms;
+    if (Number.isFinite(expiresMs)) {
+      expiresAt = new Date(expiresMs);
+      isPro = expiresMs > Date.now();
+    } else {
+      isPro = true; // lifetime / non-expiring
+    }
+  } else {
+    return { status: "ignored", reason: "event_type" };
+  }
+
+  const found = await householdForCustomer(
+    pool,
+    customerIds(event, "app_user_id", "original_app_user_id", "aliases"),
+  );
+  if (!found.householdId) return { status: "ignored", reason: found.reason };
+
+  const applied = await applyProState(pool, found.householdId, { isPro, expiresAt, productId, eventAt });
+  if (!applied) {
+    logFn("billing.webhook_stale", { householdId: found.householdId, type });
+    return { status: "ignored", reason: "stale_event" };
+  }
+  logFn("billing.webhook", {
+    householdId: found.householdId,
+    type,
+    isPro,
+    environment: event.environment ?? "",
+  });
   return { status: "ok", isPro };
 }

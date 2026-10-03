@@ -298,10 +298,11 @@ async function route(req, url, requestId) {
 
   if (req.method === "POST" && path === "/v1/webhooks/revenuecat") {
     const body = await readJson(req, importBody);
-    const headerSecret = req.headers.authorization?.replace(/^Bearer\s+/i, "");
+    // Header only — a secret inside the JSON body is never accepted.
+    const headerSecret = req.headers.authorization?.replace(/^Bearer\s+/i, "").trim();
     const result = await handleRevenueCatWebhook(
       pool,
-      { ...body, authorization: headerSecret ?? body?.authorization },
+      { ...body, authorization: headerSecret },
       log,
     );
     if (result.status === "unauthorized") return { status: 401, body: { error: "Invalid webhook secret" } };
