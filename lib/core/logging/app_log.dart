@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:developer' as developer;
 
+import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
 import 'package:pawsitive_sync/data/analytics_service.dart';
 
 /// One structured line for the DevTools Logging view.
@@ -53,6 +54,7 @@ abstract final class AppLog {
       level: 800,
       error: _json(fields),
     );
+    if (kDebugMode) debugPrint('[applog] ${_line(name, fields)}');
     AnalyticsService.track(name);
   }
 
@@ -74,6 +76,7 @@ abstract final class AppLog {
       error: error,
       stackTrace: stack,
     );
+    if (kDebugMode) debugPrint('[applog:error] ${_line(name, fields)} — $error');
   }
 
   /// Marks one async case on the DevTools performance timeline.

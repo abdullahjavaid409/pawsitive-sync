@@ -6,6 +6,7 @@ import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/care_widgets.dart';
+import 'package:pawsitive_sync/core/widgets/post_frame.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart'
     show CareRepository, dayKey;
@@ -115,11 +116,13 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
         content: Text('${_name.text.trim()} is on ${pet.name}’s Today list.'),
       ),
     );
-    if (context.canPop()) {
-      context.pop();
-    } else {
-      context.go(AppRoutes.today);
-    }
+    afterThisFrame(context, () {
+      if (context.canPop()) {
+        context.pop();
+      } else {
+        context.go(AppRoutes.today);
+      }
+    });
   }
 
   @override

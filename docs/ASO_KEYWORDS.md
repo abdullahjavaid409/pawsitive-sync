@@ -49,23 +49,32 @@ the open wedge.
 
 ## Recommendation
 
-**App Name** (30/30 chars):
-> `PawsitiveSync: Pet Med Tracker`
+**App Name** (23/30 chars — kept well under the 30-char cap on purpose:
+maxing it out risks mid-word truncation on narrower App Store search rows;
+23 chars reads cleanly on every device):
+> `PawsitiveSync: Pet Meds`
 
 **Subtitle** (24/30 chars):
 > `Household Dose Reminders`
 
-Together these seed the tokens: pawsitivesync, pet, med, tracker, household,
-dose, reminder(s) — all for free, no keyword-field budget spent.
+Together these seed the tokens: pawsitivesync, pet, meds, household, dose,
+reminder(s) — all for free, no keyword-field budget spent.
 
-**Keywords field** (98/100 chars, no spaces, no repeats of words already in
+**Keywords field** (99/100 chars, no spaces, no repeats of words already in
 Name/Subtitle, singular forms only — Apple's algorithm already matches
-plurals):
-> `pill,schedule,sync,log,vet,export,dog,cat,multi,supply,alert,offline,care,diary,refill,meds,invite`
+plurals and recombines individual words from Name + Subtitle + Keywords):
+> `tracker,pill,med,schedule,sync,log,vet,export,dog,cat,multi,supply,alert,offline,care,refill,invite`
 
-Covers: pill tracker (390/mo), medicine schedule (50/mo), the Pro-gate terms
-from AGENTS.md (multi-pet, household invite, vet export, low-supply alert),
-offline-first positioning, and dog/cat species modifiers.
+Covers: "pet medication tracker" / "dog medication tracker" (the exact-match
+niche terms), "pill tracker app" (390/mo), "medicine schedule app" (50/mo),
+the Pro-gate terms from AGENTS.md (multi-pet, household invite, vet export,
+low-supply alert), offline-first positioning, and dog/cat species modifiers.
+
+**Note:** the device home-screen icon label is a *separate* field
+(`CFBundleDisplayName` in `ios/Runner/Info.plist`, `android:label` in
+`AndroidManifest.xml`) — already set to the short `PawsitiveSync` and
+untouched by this ASO work. Only the App Store Connect "Name" metadata field
+(entered in App Store Connect, not in this repo) needs the value above.
 
 **Screenshot keyword callouts** (first 3 screenshots carry the most weight —
 these don't affect indexing but drive tap-through/conversion, so lead with

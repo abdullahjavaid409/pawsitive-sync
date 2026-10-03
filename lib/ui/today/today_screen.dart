@@ -329,7 +329,7 @@ class _TodayHeaderActions extends StatelessWidget {
     final tokens = context.paws;
     return Row(
       mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         CarePlanBadge(isPro: isPro, onUpgrade: onUpgrade),
         SizedBox(width: tokens.spacing.sm),

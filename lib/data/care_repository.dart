@@ -231,6 +231,10 @@ class CareRepository extends ChangeNotifier {
     return member.isYou ? 'You' : member.name;
   }
 
+  /// "are" for the current user, "is" for anyone else — keeps "not sure" grammatical.
+  String _isOrAre(String memberId) =>
+      memberById(memberId).isYou ? 'are' : 'is';
+
   /// Today's doses, built from the schedules and what has been logged today.
   List<Dose> get doses {
     final time = now;
@@ -264,7 +268,7 @@ class CareRepository extends ChangeNotifier {
               DoseStatus.given =>
                 '${pet.name} · ${_who(log!.memberId)}, ${log.timeLabel}',
               DoseStatus.due when uncertain =>
-                '${pet.name} · ${_who(log!.memberId)} is not sure — check first',
+                '${pet.name} · ${_who(log!.memberId)} ${_isOrAre(log.memberId)} not sure — check first',
               DoseStatus.due => '${pet.name} · due ${part.timeLabel}',
               DoseStatus.upcoming => '${pet.name} · ${part.timeLabel}',
             },
@@ -341,7 +345,8 @@ class CareRepository extends ChangeNotifier {
             action: switch (log.outcome) {
               LogOutcome.given => 'gave $petName',
               LogOutcome.skipped => 'skipped for $petName',
-              LogOutcome.uncertain => 'is not sure about $petName',
+              LogOutcome.uncertain =>
+                '${_isOrAre(log.memberId)} not sure about $petName',
             },
             emphasis: amount.isEmpty ? name : '$name · $amount',
             timeLabel: day == 'Today' ? log.timeLabel : '$day · ${log.timeLabel}',

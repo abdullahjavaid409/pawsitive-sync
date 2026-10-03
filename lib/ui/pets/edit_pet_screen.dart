@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/constants/pet_limits.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
+import 'package:pawsitive_sync/core/widgets/post_frame.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/domain/models.dart';
@@ -128,11 +129,13 @@ class _EditPetScreenState extends State<EditPetScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('${_name.text.trim()} was updated.')),
     );
-    if (context.canPop()) {
-      context.pop();
-    } else {
-      context.go(AppRoutes.pets);
-    }
+    afterThisFrame(context, () {
+      if (context.canPop()) {
+        context.pop();
+      } else {
+        context.go(AppRoutes.pets);
+      }
+    });
   }
 
   @override

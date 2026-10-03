@@ -6,6 +6,7 @@ import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/moment_art.dart';
 import 'package:pawsitive_sync/core/widgets/care_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
+import 'package:pawsitive_sync/core/widgets/post_frame.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/domain/models.dart';
@@ -460,7 +461,7 @@ class MedicationScreen extends StatelessWidget {
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(SnackBar(content: Text('${medication.name} was stopped.')));
-    context.go(AppRoutes.today);
+    afterThisFrame(context, () => context.go(AppRoutes.today));
   }
 }
 
