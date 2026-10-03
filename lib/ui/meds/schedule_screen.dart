@@ -131,28 +131,24 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     final name = _name.text.trim();
 
     return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          tooltip: 'Back',
-          onPressed: _busy
-              ? null
-              : () => context.canPop()
-                    ? context.pop()
-                    : context.go(AppRoutes.today),
-          icon: const StrokeIcon(StrokeIconKind.chevronLeft),
-        ),
-        title: const Text('Daily care'),
-        centerTitle: true,
-      ),
       body: SafeArea(
-        top: false,
+        bottom: false,
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 600),
             child: pet == null
                 ? ListView(
-                    padding: carePagePadding,
+                    padding: carePagePaddingOf(context),
                     children: [
+                      CarePageHeader(
+                        title: 'Daily care',
+                        subtitle: 'Add a pet before adding medicine.',
+                        leading: CareBackButton(
+                          fallbackRoute: AppRoutes.today,
+                          enabled: !_busy,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
                       CareEmptyState(
                         title: 'Who are we caring for?',
                         description: 'Add your pet first to keep their medicines and doses together.',
@@ -181,12 +177,16 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                                 24,
                                 24,
                               ),
-                              children: [
-                                CarePageHeader(
-                                  title: 'Add medicine',
-                                  subtitle: 'A simple routine for ${pet.name}.',
-                                  action: PetPortrait(pet, size: 58),
-                                ),
+                               children: [
+                                 CarePageHeader(
+                                   title: 'Add medicine',
+                                   subtitle: 'A simple routine for ${pet.name}.',
+                                   leading: CareBackButton(
+                                     fallbackRoute: AppRoutes.today,
+                                     enabled: !_busy,
+                                   ),
+                                   action: PetPortrait(pet, size: 58),
+                                 ),
                                 if (care.pets.length > 1) ...[
                                   const SizedBox(height: 20),
                                   CarePetPicker(

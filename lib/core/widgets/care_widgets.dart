@@ -24,20 +24,30 @@ EdgeInsets carePagePaddingOf(BuildContext context) {
 
 /// The shared back affordance for pushed care pages.
 class CareBackButton extends StatelessWidget {
-  const CareBackButton({super.key, required this.fallbackRoute});
+  const CareBackButton({
+    super.key,
+    required this.fallbackRoute,
+    this.onPressed,
+    this.enabled = true,
+  });
 
   final String fallbackRoute;
+  final VoidCallback? onPressed;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) => IconButton(
     tooltip: 'Back',
-    onPressed: () {
-      if (context.canPop()) {
-        context.pop();
-      } else {
-        context.go(fallbackRoute);
-      }
-    },
+    onPressed: enabled
+        ? onPressed ??
+              () {
+                if (context.canPop()) {
+                  context.pop();
+                } else {
+                  context.go(fallbackRoute);
+                }
+              }
+        : null,
     style: IconButton.styleFrom(
       minimumSize: Size.square(context.paws.controlHeights.icon),
     ),

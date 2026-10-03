@@ -772,36 +772,52 @@ class _StartCare extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final narrow =
+                  constraints.maxWidth < 340 ||
+                  MediaQuery.textScalerOf(context).scale(1) > 1.2;
+              final copy = Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    pet == null
+                        ? 'Good care starts here.'
+                        : 'A fresh start for ${pet!.name}.',
+                    style: text.headlineSmall,
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    pet == null
+                        ? 'Bring their daily care into one place.'
+                        : 'Add their first medicine. We’ll keep the routine together.',
+                    style: text.bodyLarge?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              );
+              if (narrow && pet != null) {
+                return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      pet == null
-                          ? 'Good care starts here.'
-                          : 'A fresh start for ${pet!.name}.',
-                      style: text.headlineSmall?.copyWith(
-                        fontSize: 24,
-                        letterSpacing: -0.6,
-                      ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      pet == null ? 'Bring their daily care into one place.' : 'Add their first medicine. We’ll keep the routine together.',
-                      style: text.bodyLarge?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ),
+                    PetPortrait(pet!, size: 72),
+                    const SizedBox(height: 14),
+                    copy,
                   ],
-                ),
-              ),
-              if (pet != null) ...[
-                const SizedBox(width: 12),
-                PetPortrait(pet!, size: 80),
-              ],
-            ],
+                );
+              }
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: copy),
+                  if (pet != null) ...[
+                    const SizedBox(width: 12),
+                    PetPortrait(pet!, size: 80),
+                  ],
+                ],
+              );
+            },
           ),
           const SizedBox(height: 20),
           FilledButton.icon(
@@ -846,61 +862,76 @@ class _QuickActions extends StatelessWidget {
         () => context.go(AppRoutes.reports),
       ),
     ];
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        for (final action in actions)
-          Expanded(
-            child: Semantics(
-              button: true,
-              label: action.$2,
-              excludeSemantics: true,
-              child: InkWell(
-                onTap: () {
-                  AppLog.event(action.$3);
-                  action.$4();
-                },
-                borderRadius: BorderRadius.circular(16),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 4,
-                    vertical: 8,
-                  ),
-                  child: Column(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: Theme.of(context)
-                              .colorScheme
-                              .surfaceContainerLowest,
-                          borderRadius: BorderRadius.circular(18),
-                          border: Border.all(
-                            color: Theme.of(context).colorScheme.outlineVariant,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final narrow =
+            constraints.maxWidth < 340 ||
+            MediaQuery.textScalerOf(context).scale(1) > 1.2;
+        final columns = narrow ? 2 : actions.length;
+        final gap = context.paws.spacing.sm;
+        final width = (constraints.maxWidth - gap * (columns - 1)) / columns;
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: [
+            for (final action in actions)
+              SizedBox(
+                width: width,
+                child: Semantics(
+                  button: true,
+                  label: action.$2,
+                  excludeSemantics: true,
+                  child: InkWell(
+                    onTap: () {
+                      AppLog.event(action.$3);
+                      action.$4();
+                    },
+                    borderRadius: BorderRadius.circular(
+                      context.paws.radii.lg,
+                    ),
+                    child: Padding(
+                      padding: EdgeInsets.symmetric(
+                        horizontal: context.paws.spacing.xs,
+                        vertical: context.paws.spacing.sm,
+                      ),
+                      child: Column(
+                        children: [
+                          Container(
+                            padding: EdgeInsets.all(context.paws.spacing.md),
+                            decoration: BoxDecoration(
+                              color: context.paws.surfaces.card,
+                              borderRadius: context.paws.radii.optionShape,
+                              border: Border.all(
+                                color: context.paws.borders.subtle,
+                              ),
+                            ),
+                            child: StrokeIcon(
+                              action.$1,
+                              size: 23,
+                              color: context.paws.brandDark,
+                            ),
                           ),
-                        ),
-                        child: StrokeIcon(
-                          action.$1,
-                          size: 23,
-                          color: context.paws.brandDark,
-                        ),
+                          SizedBox(height: context.paws.spacing.sm + 2),
+                          Text(
+                            action.$2,
+                            textAlign: TextAlign.center,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.bodySmall
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w500,
+                                  color: Theme.of(context).colorScheme.onSurface,
+                                ),
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 10),
-                      Text(
-                        action.$2,
-                        textAlign: TextAlign.center,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.w500,
-                          color: Theme.of(context).colorScheme.onSurface,
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
               ),
-            ),
-          ),
-      ],
+          ],
+        );
+      },
     );
   }
 }
@@ -1207,7 +1238,7 @@ class _CareEventTile extends StatelessWidget {
   });
 
   final CareEvent event;
-  final Pet pet;
+  final Pet? pet;
   final bool showDivider;
   final VoidCallback onRemove;
 
@@ -1237,6 +1268,7 @@ class _CareEventTile extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     final due = _careDueLabel(event.dueDay, care.now);
+    final petName = pet?.name ?? 'Pet removed';
 
     return Column(
       children: [
@@ -1275,7 +1307,7 @@ class _CareEventTile extends StatelessWidget {
                       Text(event.title, style: text.titleSmall),
                       const SizedBox(height: 4),
                       Text(
-                        '${event.kindLabel} · $due · ${pet.name}',
+                         '${event.kindLabel} · $due · $petName',
                         style: text.bodyMedium?.copyWith(
                           color: scheme.onSurfaceVariant,
                         ),

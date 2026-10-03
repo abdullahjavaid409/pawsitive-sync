@@ -28,32 +28,20 @@ class MedicationScreen extends StatelessWidget {
     if (medication == null) {
       return Scaffold(
         body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                IconButton(
-                  tooltip: 'Back',
-                  onPressed: () => context.canPop()
-                      ? context.pop()
-                      : context.go(AppRoutes.today),
-                  icon: StrokeIcon(
-                    StrokeIconKind.chevronLeft,
-                    color: scheme.primary,
-                  ),
-                ),
-                Text(
-                  'This medication is not on the schedule.',
-                  style: text.bodyLarge,
-                ),
-                const SizedBox(height: 16),
-                FilledButton(
-                  onPressed: () => context.go(AppRoutes.today),
-                  child: const Text('Back to today'),
-                ),
-              ],
-            ),
+          child: ListView(
+            padding: carePagePaddingOf(context),
+            children: [
+              CarePageHeader(
+                title: 'Medication unavailable',
+                subtitle: 'This medication is not on the schedule.',
+                leading: CareBackButton(fallbackRoute: AppRoutes.today),
+              ),
+              const SizedBox(height: 24),
+              FilledButton(
+                onPressed: () => context.go(AppRoutes.today),
+                child: const Text('Back to today'),
+              ),
+            ],
           ),
         ),
       );
@@ -61,7 +49,8 @@ class MedicationScreen extends StatelessWidget {
 
     final showLowAlert = care.canShowLowSupplyAlerts && medication.isLow;
     final fraction = medication.supplyFraction;
-    final pet = care.petById(medication.petId);
+    final pet = care.tryPetById(medication.petId);
+    final petName = pet?.name ?? 'Pet removed';
     final history = care.historyFor(medication.id);
     final week = _week(care, medication);
     final givenThisWeek = week.fold<int>(0, (sum, day) => sum + day.given);
