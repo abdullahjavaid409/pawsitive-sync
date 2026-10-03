@@ -186,6 +186,13 @@ def compose(frame: dict) -> Image.Image:
     canvas.alpha_composite(blur_img, (left - pad, top - pad + 36))
     canvas.alpha_composite(phone, (left, top))
 
+    if frame.get("pop"):
+        card, cy = pop_card(frame["pop"], shot, phone, top)
+        cx = (W - card.width) // 2
+        blur_img, pad = shadow(card.size, 44, 40, 95)
+        canvas.alpha_composite(blur_img, (cx - pad, cy - pad + 28))
+        canvas.alpha_composite(card, (cx, cy))
+
     if frame.get("chip"):
         c = chip(frame["chip"], theme)
         cy = top + round(phone.height * frame.get("chip_y", 0.42))
@@ -193,6 +200,25 @@ def compose(frame: dict) -> Image.Image:
         canvas.alpha_composite(c, ((W - c.width) // 2, cy))
 
     return canvas.convert("RGB")
+
+
+def pop_card(pop: dict, shot: Image.Image, phone: Image.Image, top: int):
+    """Lifts one region of the UI out of the phone, larger, so the proof
+    reads at search-result thumbnail size. Returns the card and its y."""
+    source = Image.open(RAW / pop["from"]).convert("RGB") if pop.get("from") else shot
+    x0, y0, x1, y1 = pop["box"]
+    region = source.crop((x0, y0, x1, y1))
+    width = round(W * pop.get("width", 0.92))
+    region = region.resize((width, round(region.height * width / region.width)), Image.LANCZOS)
+    card = Image.new("RGBA", region.size, (0, 0, 0, 0))
+    card.paste(region, (0, 0), rounded_mask(region.size, 44))
+    ImageDraw.Draw(card).rounded_rectangle(
+        (0, 0, card.width - 1, card.height - 1), 44, outline="#E4E5E1", width=3
+    )
+    # Default: float where the region sits on the phone, so it "lifts out".
+    at = pop.get("at", (y0 + y1) / 2 / source.height)
+    cy = top + round(phone.height * at) - card.height // 2
+    return card, min(max(cy, top + 40), H - card.height - 90)
 
 
 def shadow_chip(c: Image.Image) -> Image.Image:

@@ -134,25 +134,39 @@ month is ___ because ___."
 4. Record results in `docs/ASO_KEYWORDS.md`. A winning CPP concept gets
    promoted to a PPO treatment on the default page.
 
-## Ready-made sets (first version, 2026-10-03)
+## Ready-made sets (v2, 2026-10-03)
 
-Rendered in `marketing/screenshots/out/<page>/{6.9,6.7}/`. Copy, keywords
-and promo text live in `marketing/screenshots/pages.json`.
+v2 was rebuilt from Claude's answer to the master prompt
+([chat](https://claude.ai/chat/f3252bd5-f01d-4000-a2f9-c159611778b1)).
+Each hero frame lifts the key UI out of the phone as a larger card, so it
+reads at search-result thumbnail size. Renders are in
+`marketing/screenshots/out/<page>/{6.9,6.7}/`. Copy, keywords and promo
+text are in `marketing/screenshots/pages.json`.
 
-| Page | Who it's for | Frame 1 hook | Keywords to assign |
-|------|--------------|--------------|--------------------|
-| `default` (7 frames) | Everyone; PPO control | "Did anyone give the dose?" over the double-dose guard | pet, meds, dose, reminder, tracker, medication |
-| `cpp-insulin` (5) | Diabetic cats/dogs | "Insulin given? Know for sure." | insulin, diabetes, diabetic, cat, dog |
-| `cpp-household` (5) | Couples, families, sitters | "No more "did you give it?" texts" | shared, household, family, partner, sitter |
-| `cpp-multipet` (5) | 2+ pets (Pro gate) | "Every pet's meds in one place" | multi, pets, dogs, cats, schedule, refill |
+| Page | Who it's for | Frames 1–3 |
+|------|--------------|------------|
+| `default` (6) | Everyone; PPO control | "Did anyone give the dose?" (guard) · "One tap. It's logged." · "Sitters join by link" |
+| `cpp-insulin` (5) | Diabetic cats/dogs | "Insulin given? Know for sure." · "Two shots a day, tracked" · "One tap after the shot" |
+| `cpp-household` (5) | Couples, families, sitters | ""Did you give it?" Solved." · "Your whole care circle" · "Sitters join by link" |
+| `cpp-multipet` (5) | 2+ pets (Pro gate) | "Every pet, one list" · "Whose dose is due?" · "One tap, logged" |
+| `default-v1` (7) | Reference / PPO treatment | v1 set: full phones, no pop-out cards |
+
+What changed from v1, and why (Claude's critique):
+- Frame 1's guard sheet sat on a dimmed screen and read as grey at thumbnail
+  size. It now pops out as a crisp card.
+- Frame 2 sold "instant sync", which a still image can't prove. It now shows
+  the one-tap Log dose card.
+- "Sitters join by link, no install" is the one claim no rival can make, so
+  it moved up to frame 3.
+- Multi-pet moved off the default page and into its own CPP.
 
 ### First A/B tests (one variable each)
 
-1. **PPO, frame 1 hook:** control = guard screen ("Did anyone give the
-   dose?") vs. treatment = shared schedule ("No more "did you give it?"
-   texts"). Tests fear relief vs. household convenience.
-2. **PPO, frame 1 colour:** brand green vs. light background, with the same
-   copy.
+1. **PPO, v2 vs. v1:** control = `default` (v2) vs. one treatment =
+   `default-v1`. One treatment only: 1,500 views a week is too thin to split
+   four ways.
+2. **Next, frame 3 alone:** "Sitters join by link" vs. "Share care with
+   your household". Claude's pick for the single biggest lift.
 3. **CPP vs. default on Apple Ads:** send the `insulin`/`diabetes` ad group
    to `cpp-insulin` and a matched group to the default page. Compare
    conversion rate, and trial starts in RevenueCat.
