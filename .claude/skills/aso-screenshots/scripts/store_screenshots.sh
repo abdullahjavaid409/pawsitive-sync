@@ -19,7 +19,7 @@ while IFS= read -r line; do
   echo "$line"
   if [[ "$line" =~ \[shot\]\ ([a-z_0-9]+) ]]; then
     name="${BASH_REMATCH[1]}"
-    sleep 0.4
+    sleep 0.6
     xcrun simctl io "$SIM" screenshot --type=png "$OUT/$name.png" >/dev/null 2>&1 &&
       echo "  -> saved $OUT/$name.png"
   fi

@@ -27,6 +27,10 @@ FONTS = ROOT / "assets/fonts"
 
 W, H = 1320, 2868  # 6.9" master; 6.7" is a resize (same aspect within 0.1%)
 SIZES = {"6.9": (1320, 2868), "6.7": (1290, 2796)}
+K = 1.0  # type/spacing scale; iPad renders larger text on its wider canvas
+
+# iPad 13" (2064x2752) renders from raw-ipad captures with an iPad frame.
+IPAD = {"raw": "marketing/screenshots/raw-ipad", "size": (2064, 2752), "k": 1.4, "scale": 0.74}
 
 THEMES = {
     # Calm off-white with a soft green wash. Most frames.
@@ -118,11 +122,12 @@ def rounded_mask(size, radius):
 
 def device(shot: Image.Image, width: int) -> Image.Image:
     """Draws a modern iPhone around the capture: thin titanium-dark bezel."""
-    bezel = round(width * 0.028)
+    tablet = shot.height / shot.width < 1.6
+    bezel = round(width * (0.022 if tablet else 0.028))
     screen_w = width - 2 * bezel
     screen = shot.resize((screen_w, round(shot.height * screen_w / shot.width)), Image.LANCZOS)
     height = screen.height + 2 * bezel
-    outer_r = round(width * 0.155)
+    outer_r = round(width * (0.055 if tablet else 0.155))
     inner_r = outer_r - bezel
 
     frame = Image.new("RGBA", (width, height), (0, 0, 0, 0))
@@ -163,27 +168,27 @@ def compose(frame: dict) -> Image.Image:
     theme = THEMES[frame.get("theme", "light")]
     canvas = gradient(*theme["bg"]).convert("RGBA")
     d = ImageDraw.Draw(canvas)
-    margin = 96
+    margin = round(96 * K)
 
     # Headline: big, tight, two lines max.
-    size = 124
+    size = round(124 * K)
     head_font = font("SemiBold", size)
     lines = balanced(d, frame["headline"], head_font, W - 2 * margin)
-    while len(lines) > 2 and size > 92:
+    while len(lines) > 2 and size > 92 * K:
         size -= 6
         head_font = font("SemiBold", size)
         lines = balanced(d, frame["headline"], head_font, W - 2 * margin)
-    y = 250
+    y = round(250 * K)
     for line in lines:
         d.text((W // 2, y), line, font=head_font, fill=theme["head"], anchor="mt")
         y += round(size * 1.08)
 
-    sub_font = font("Regular", 54)
-    y += 34
+    sub_font = font("Regular", round(54 * K))
+    y += round(34 * K)
     for line in balanced(d, frame.get("subline", ""), sub_font, W - 2 * margin - 40):
         if line:
             d.text((W // 2, y), line, font=sub_font, fill=theme["sub"], anchor="mt")
-            y += 70
+            y += round(70 * K)
 
     # Device bleeds off the bottom edge: reads larger and more premium than a
     # fully shown phone, and keeps the top of the UI (the story) in view.
@@ -191,9 +196,9 @@ def compose(frame: dict) -> Image.Image:
     phone_w = round(W * frame.get("scale", 0.80))
     phone = device(shot, phone_w)
     # Fixed position so the phones line up when the set is swiped.
-    top = max(y + 70, 760)
+    top = max(y + round(70 * K), round(760 * K))
     left = (W - phone_w) // 2
-    blur_img, pad = shadow(phone.size, round(phone_w * 0.155), 48, 70)
+    blur_img, pad = shadow(phone.size, round(phone_w * (0.055 if shot.height / shot.width < 1.6 else 0.155)), 48, 70)
     canvas.alpha_composite(blur_img, (left - pad, top - pad + 36))
     canvas.alpha_composite(phone, (left, top))
 
@@ -268,6 +273,37 @@ def main():
                 out.save(folder / f"{i:02d}.png", optimize=True)
         contact_sheet(rendered, OUT / page["id"] / "preview.png")
         print(f"{page['id']}: {len(rendered)} frames")
+    render_ipad(pages)
+
+
+def render_ipad(pages):
+    """iPad 13" set from raw-ipad captures. Pop-outs use each frame's
+    "ipad_box" (iPad pixel coordinates); frames without one show the screen."""
+    global RAW, W, H, K
+    raw_dir = ROOT / IPAD["raw"]
+    if not raw_dir.exists():
+        return
+    saved = (RAW, W, H, K)
+    RAW, (W, H), K = raw_dir, IPAD["size"], IPAD["k"]
+    try:
+        for page in pages["pages"]:
+            rendered = []
+            for i, frame in enumerate(page["frames"], 1):
+                ipad_frame = {k: v for k, v in frame.items() if k != "pop"}
+                if frame.get("pop", {}).get("ipad_box"):
+                    pop = dict(frame["pop"], box=frame["pop"]["ipad_box"])
+                    pop.pop("at", None)  # iPad layout differs; lift from its own spot
+                    ipad_frame["pop"] = pop
+                ipad_frame["scale"] = IPAD["scale"]
+                img = compose(ipad_frame)
+                rendered.append(img)
+                folder = OUT / page["id"] / "ipad-13"
+                folder.mkdir(parents=True, exist_ok=True)
+                img.save(folder / f"{i:02d}.png", optimize=True)
+            contact_sheet(rendered, OUT / page["id"] / "preview-ipad.png")
+            print(f"{page['id']}: {len(rendered)} iPad frames")
+    finally:
+        RAW, W, H, K = saved
 
 
 if __name__ == "__main__":

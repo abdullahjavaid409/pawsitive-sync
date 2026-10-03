@@ -1,0 +1,108 @@
+Privacy Policy
+
+PawsitiveSync: Pet Meds · Effective October 3, 2026
+
+The short version
+
+PawsitiveSync works without an account. Your pets, medicines and dose logs stay on your phone unless you choose to share care with a household.
+
+If you share, that household's data is stored on our server so everyone in it sees the same list.
+
+We don't sell your data, show ads, or track you across other apps and websites.
+
+1. Who we are
+
+PawsitiveSync ("we", "us") makes the PawsitiveSync app for iPhone and Android. It helps a household keep track of a pet's medicine. If you have questions about this policy, email support@pawsitivesync.app.
+
+2. What stays on your phone
+
+By default, everything you enter is stored only on your device:
+
+- Pet details: name, species, age, weight, health conditions and an optional photo.
+- Medicines, schedules, supply counts, care events and notes.
+- Dose logs: who gave each dose and when.
+
+Pet photos never leave your phone. Vet reports are created on your phone, and they are only shared if you send one yourself, for example to your vet.
+
+3. What we store when you share a household
+
+When you invite someone or join a household, the household's care data is stored on our server so each member's app stays in sync:
+
+- Pet details: name, species, age, weight, breed, sex, conditions. Photos are not included.: So everyone sees the same pets
+
+- Medicines, schedules, supply counts and care events: So everyone sees what's due
+
+- Dose logs: which dose, outcome, time and optional note: To show who gave each dose and to warn before a repeat dose
+
+- Member display names and roles (e.g. "Sara", caregiver): To show who gave each dose
+
+- Invite codes, sitter links and sign-in tokens. Tokens are stored as one-way hashes.: To let the right people in and keep others out
+
+- A device token for notifications, if you turn them on: To tell you when a partner logs a dose
+
+We don't ask for your email address, phone number or real name. The display name you choose can be anything.
+
+Sitter links: anyone who has a sitter link can see that day's doses for the household and mark them as given, without installing the app. Share these links only with people you trust. Links expire automatically.
+
+4. Purchases
+
+Subscriptions are processed by Apple (App Store) or Google (Google Play). We never see your payment card details. We use RevenueCat to check whether your subscription is active. RevenueCat receives purchase information together with a random ID that is not tied to your name. See RevenueCat's privacy policy (https://www.revenuecat.com/privacy).
+
+5. Analytics
+
+The app counts a few anonymous events, such as "onboarding finished" or "dose logged". Our server keeps only a daily total for each event name. These counts don't include a device ID, an advertising ID, pet names or anything that identifies you. We don't use third-party analytics or advertising SDKs.
+
+6. Notifications
+
+Dose reminders are scheduled on your device. If you share a household and allow notifications, we store a device token so we can tell you when someone else logs a dose. You can turn notifications off at any time in your phone's Settings.
+
+7. Sign in with Apple (optional)
+
+If you use Sign in with Apple to recover a household, we store only the anonymous user identifier that Apple gives us, linked to your household. We don't ask for or store your email address or name.
+
+8. Server logs and security
+
+Our server keeps short technical logs, such as request IDs and error codes, to keep the service running. To prevent abuse, your IP address is used briefly to rate-limit requests. It is held in memory, not saved with your data. Our hosting provider may keep standard network logs, including IP addresses, for a limited time for security. All traffic between the app and our server is encrypted (HTTPS).
+
+9. Who we share data with
+
+We don't sell or rent your data, and we don't share it for advertising. We share data only:
+
+- with the people in your household, which is the point of sharing;
+- with service providers who run the service for us: our cloud hosting and database provider, RevenueCat for subscriptions, and Apple and Google for purchases and notifications;
+- when required by law.
+
+10. How long we keep data
+
+- On your phone: until you delete it. Settings → "Delete account on this phone" erases everything on that device.
+- Household data on our server: for as long as the household exists. If you leave a household, your notification token is deleted and your sign-in is removed. If you ask us to delete a household, we delete all of its data from our server within 30 days.
+- Anonymous daily counts: may be kept indefinitely, because they contain no personal data.
+
+11. Your choices and rights
+
+- Use it offline: you never have to create a household or go online to log doses.
+- Get a copy of your data: household members can export the household's data. You can also email us to ask for a copy.
+- Delete your data: to delete a household from our server, email support@pawsitivesync.app with your household's invite code (shown under Household → Invite). We'll confirm when it's done.
+- Depending on where you live (for example the EU, UK or California), you may have the right to access, correct, delete or port your data, and to object to or restrict how we process it. Email us and we'll respond within 30 days. You can also complain to your local data protection authority.
+
+We process household data to provide the service you asked for (performance of a contract), and we use anonymous counts and security logs based on our legitimate interest in running a reliable, safe app.
+
+12. International transfers
+
+Our servers may be located outside your country, including in the United States. Where required, we rely on appropriate safeguards for these transfers.
+
+13. Children
+
+PawsitiveSync is not directed to children under 13 (or under 16 in the EU), and we don't knowingly collect personal data from them. If you believe a child has given us data, email us and we'll delete it.
+
+14. Not veterinary advice
+
+PawsitiveSync is a tracking tool. It does not give medical or veterinary advice. Always follow your veterinarian's instructions.
+
+15. Changes to this policy
+
+If we make a material change, we'll update the date at the top and tell you in the app before it takes effect.
+
+16. Contact
+
+Questions or requests: support@pawsitivesync.app

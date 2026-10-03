@@ -72,3 +72,20 @@ the worked example of every step below: `integration_test/store_screenshots_test
   Apple Ads ad group each. At low traffic (~1.5k views/week) run ONE PPO
   treatment at a time; validate bold ideas on CPPs with paid traffic first.
 - Never promise ROI numbers; state what would have to be true.
+
+## 7. iPad (required if TARGETED_DEVICE_FAMILY includes 2)
+- Boot the 13" iPad simulator. In Settings → Multitasking & Gestures pick
+  **Full-Screen Apps**: "Windowed Apps" captures a small window with black
+  around it, which looks like a layout bug but isn't.
+- The panel screenshot can be stale on iPad; verify with
+  `xcrun simctl io <udid> screenshot`.
+- Wide windows swap the bottom bar for a NavigationRail, so the test taps
+  tabs through a `tab(label)` helper that checks for a rail first.
+- Responsiveness check: full-screen routes must paint their side gutters
+  (a centered max-width column with nothing behind it shows black), sheets
+  stay a centered dialog width, and nothing overflows (grep the log for
+  "overflow"/"RenderFlex").
+- Capture into `marketing/screenshots/raw-ipad`; iPad screenshots need a
+  longer pause than iPhone (2064×2752 PNGs are slower).
+- Composer: add `ipad_box` (iPad pixel coords) to each `pop` so the iPad set
+  gets readable cards too → `out/<page>/ipad-13/NN.png` (2064×2752).

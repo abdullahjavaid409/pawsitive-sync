@@ -38,7 +38,7 @@ void main() {
       await qa.settle(1200);
       debugPrint('[shot] $name');
       // Real time, so the watcher script can capture before we move on.
-      for (var i = 0; i < 25; i++) {
+      for (var i = 0; i < 40; i++) {
         await t.pump(const Duration(milliseconds: 50));
         await Future<void>.delayed(const Duration(milliseconds: 100));
       }
@@ -56,6 +56,13 @@ void main() {
       await qa.waitFor(target);
       await Scrollable.ensureVisible(t.element(target.first));
       await qa.settle(800);
+    }
+
+    // Phones show a bottom bar; wide windows (iPad) show a NavigationRail.
+    Future<void> tab(String label) async {
+      final rail = find.byType(NavigationRail);
+      if (rail.evaluate().isEmpty) return qa.tapLabel(label);
+      await qa.tap(find.descendant(of: rail, matching: find.text(label)));
     }
 
     CareRepository care() => Provider.of<CareRepository>(
@@ -108,7 +115,7 @@ void main() {
     await addMedicine('Insulin', '2 units', evening: true, supply: 6);
 
     // Second pet: Biscuit the dog.
-    await qa.tapLabel('Pets');
+    await tab('Pets');
     await qa.tap(find.byTooltip('Add pet'));
     await qa.type(find.widgetWithText(TextField, 'Pet name'), 'Biscuit');
     await qa.tap(find.text('Dog'));
@@ -117,13 +124,13 @@ void main() {
     await qa.tap(find.text('Add medicine'));
     await addMedicine('Apoquel', '1 tablet');
     await qa.gone('Apoquel is on Biscuit’s Today list.', seconds: 10);
-    await qa.tapLabel('Today');
+    await tab('Today');
     await qa.tap(find.text('Add'));
     await qa.tap(find.text('Biscuit'));
     await addMedicine('Gabapentin', '100 mg', morning: false, evening: true);
 
     // Household goes online; a partner joins from her own phone.
-    await qa.tapLabel('Household');
+    await tab('Household');
     await qa.tap(find.text('Invite someone'));
     await qa.waitUntil(() => care().inviteCode.isNotEmpty, seconds: 20);
     await shot('invite');
@@ -158,7 +165,7 @@ void main() {
     await logAs(sitter, sitterSession, 'Apoquel', '1 tablet', '7:45 AM');
 
     // Pull everyone's doses in.
-    await qa.tapLabel('Today');
+    await tab('Today');
     await qa.pullToRefresh();
     await qa.settle(2500);
     await toTop();
@@ -172,19 +179,19 @@ void main() {
     await shot('guard');
     await qa.tap(find.text("Got it, don't log"));
 
-    await qa.tapLabel('Household');
+    await tab('Household');
     await toTop();
     await shot('household');
 
-    await qa.tapLabel('Pets');
+    await tab('Pets');
     await toTop();
     await shot('pets');
 
-    await qa.tapLabel('Reports');
+    await tab('Reports');
     await toTop();
     await shot('reports');
 
-    await qa.tapLabel('Today');
+    await tab('Today');
     await toTop();
     await qa.tap(find.text('Refill'));
     await toTop();

@@ -42,13 +42,18 @@ class AdaptivePage extends StatelessWidget {
         if (constraints.maxWidth <= AdaptiveLayout.maxPaneWidth) {
           return child;
         }
-        return Align(
-          alignment: Alignment.topCenter,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(
-              maxWidth: AdaptiveLayout.maxPaneWidth,
+        // Paint the gutters: full-screen routes have no Scaffold behind this,
+        // so on iPad the side margins would otherwise show black.
+        return ColoredBox(
+          color: Theme.of(context).scaffoldBackgroundColor,
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(
+                maxWidth: AdaptiveLayout.maxPaneWidth,
+              ),
+              child: child,
             ),
-            child: child,
           ),
         );
       },
