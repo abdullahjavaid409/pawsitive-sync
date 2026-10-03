@@ -63,13 +63,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _toggleReminders(bool on) async {
     AppLog.event('settings.reminders_toggled', {'on': on});
-    setState(() => _remindersOn = on);
-    await context.read<OnboardingViewModel>().saveReminders(on);
+    final onboarding = context.read<OnboardingViewModel>();
     final care = context.read<CareRepository>();
-    if (on) {
-      await DoseReminders.scheduleNext(care);
-    } else {
+    final messenger = ScaffoldMessenger.of(context);
+    if (!on) {
+      setState(() => _remindersOn = false);
+      await onboarding.saveReminders(false);
       await DoseReminders.cancel();
+      return;
+    }
+    final allowed = await DoseReminders.ask();
+    await onboarding.saveReminders(allowed);
+    if (allowed) await DoseReminders.scheduleNext(care);
+    if (!mounted) return;
+    setState(() => _remindersOn = allowed);
+    if (!allowed) {
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Reminders stay off. You can allow them in phone Settings.',
+          ),
+        ),
+      );
     }
   }
 

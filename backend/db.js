@@ -569,30 +569,43 @@ export async function logDose(pool, { householdId, memberId }, body) {
       ]);
       if (member.rowCount > 0) giver = entry.memberId;
     }
-    const inserted = await client.query(
-      `INSERT INTO dose_logs (household_id, id, medication_id, part, day, member_id, outcome, amount, note, time_label)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-       ON CONFLICT DO NOTHING RETURNING *`,
-      [
-        householdId,
-        entry.id,
-        entry.medicationId,
-        entry.part,
-        entry.day,
-        giver,
-        entry.outcome,
-        entry.amount,
-        entry.note,
-        entry.timeLabel,
-      ],
-    );
+    const insert = () =>
+      client.query(
+        `INSERT INTO dose_logs (household_id, id, medication_id, part, day, member_id, outcome, amount, note, time_label)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         ON CONFLICT DO NOTHING RETURNING *`,
+        [
+          householdId,
+          entry.id,
+          entry.medicationId,
+          entry.part,
+          entry.day,
+          giver,
+          entry.outcome,
+          entry.amount,
+          entry.note,
+          entry.timeLabel,
+        ],
+      );
+    let inserted = await insert();
     if (inserted.rowCount === 0) {
       const existing = await client.query(
         `SELECT * FROM dose_logs WHERE household_id = $1
          AND ((medication_id = $2 AND part = $3 AND day = $4) OR id = $5)`,
         [householdId, entry.medicationId, entry.part, entry.day, entry.id],
       );
-      return { conflict: existing.rows[0] ? mapLog(existing.rows[0]) : null };
+      const prior = existing.rows[0];
+      // "Not sure if given" stays open until someone confirms it was given or skipped.
+      const resolvesUncertain =
+        prior?.outcome === "uncertain" && entry.outcome !== "uncertain" && prior.id !== entry.id;
+      if (!resolvesUncertain) {
+        return { conflict: prior ? mapLog(prior) : null };
+      }
+      await client.query("DELETE FROM dose_logs WHERE household_id = $1 AND id = $2", [
+        householdId,
+        prior.id,
+      ]);
+      inserted = await insert();
     }
     let updated = mapMedication(medication.rows[0]);
     if (entry.outcome === "given" && updated.supplyTotal > 0) {

@@ -233,6 +233,17 @@ void main() {
       expectLogged('dose.skip.completed');
     });
 
+    test('uncertain dose can be resolved as skipped', () async {
+      final care = CareRepository.sample(
+        clock: () => DateTime(2026, 10, 3, 14),
+      );
+      final dose = care.doses.firstWhere((d) => d.status == DoseStatus.due);
+      await care.markDoseUncertain(dose.id);
+      expect(await care.skipDose(dose.id), isTrue);
+      expectLogged('dose.skip.completed');
+      expectNotLogged('dose.skip.rejected');
+    });
+
     test('log on removed medication logs dose.log.rejected', () async {
       final care = CareRepository.sample(
         clock: () => DateTime(2026, 10, 3, 14),

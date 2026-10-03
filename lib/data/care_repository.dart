@@ -885,7 +885,7 @@ class CareRepository extends ChangeNotifier {
     final existing = _logFor(medicationId, part, today);
     if (existing != null) {
       if (existing.outcome == LogOutcome.uncertain &&
-          outcome == LogOutcome.given) {
+          outcome != LogOutcome.uncertain) {
         _logs.remove(existing);
       } else {
         lastError =

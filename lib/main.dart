@@ -13,6 +13,11 @@ import 'package:provider/provider.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   installErrorHandlers();
+  runApp(await bootstrap());
+}
+
+/// Loads stored state and wires providers. Integration tests boot through here.
+Future<Widget> bootstrap() async {
   await DoseReminders.prepare();
   await RevenueCatService.initialize();
   final api = AppConfig.hasApi
@@ -38,13 +43,11 @@ void main() async {
     'isPro': care.isPro,
     'plan': care.plan.name,
   });
-  runApp(
-    MultiProvider(
-      providers: [
-        ChangeNotifierProvider.value(value: care),
-        ChangeNotifierProvider.value(value: onboarding),
-      ],
-      child: const PawsitiveApp(),
-    ),
+  return MultiProvider(
+    providers: [
+      ChangeNotifierProvider.value(value: care),
+      ChangeNotifierProvider.value(value: onboarding),
+    ],
+    child: const PawsitiveApp(),
   );
 }
