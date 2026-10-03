@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -14,7 +16,6 @@ import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/domain/paywall_reason.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
-import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// Compares Free and Pro. Free solves solo care; Pro solves shared / multi-pet pain.
@@ -68,8 +69,14 @@ class _PaywallScreenState extends State<PaywallScreen> {
   bool _busy = false;
   bool _restoring = false;
   String? _error;
-  List<Package> _packages = const [];
-  late final PaywallReason? _moment = PaywallReasonQuery.fromQuery(widget.reason);
+  PaywallOffer? _offer;
+  late final PaywallReason? _moment = PaywallReasonQuery.fromQuery(
+    widget.reason,
+  );
+
+  /// RevenueCat placement id — one per upgrade moment, so Targeting can serve
+  /// each moment its own offering (price or copy test) without a release.
+  String get _placement => (_moment ?? PaywallReason.onboarding).queryValue;
 
   bool get _isUpgradeFlow {
     final model = context.read<OnboardingViewModel>();
@@ -95,17 +102,43 @@ class _PaywallScreenState extends State<PaywallScreen> {
       care.setPlan(BillingPlan.yearly);
     }
     if (RevenueCatService.isReady) {
-      AppLog.event('billing.paywall.rc_ready');
-      final packages = await RevenueCatService.loadPackages();
-      if (mounted) setState(() => _packages = packages);
+      AppLog.event('billing.paywall.rc_ready', {'placement': _placement});
+      unawaited(RevenueCatService.syncAttributes({'last_paywall': _placement}));
+      final offer = await RevenueCatService.loadOffer(_placement);
+      if (mounted) setState(() => _offer = offer);
     } else {
       AppLog.event('billing.paywall.rc_fallback', {'reason': 'not_configured'});
     }
   }
 
-  String _priceFor(BillingPlan plan, String fallback) {
-    final package = RevenueCatService.packageForPlan(plan, _packages);
-    return package?.storeProduct.priceString ?? fallback;
+  /// Store's localized price; the US fallback only when no offer loaded.
+  String _price(BillingPlan plan) =>
+      _offer?.forPlan(plan)?.priceString ??
+      SubscriptionDisclosure.fallbackPrice(plan);
+
+  /// Trial days this user will actually get on [plan], or null.
+  int? _trialDays(BillingPlan plan) {
+    final offer = _offer?.forPlan(plan);
+    return offer != null
+        ? offer.trialDays
+        : SubscriptionDisclosure.fallbackTrialDays(plan);
+  }
+
+  String get _yearlyPerMonth =>
+      _offer?.yearly?.perMonthString ??
+      (_offer == null ? '\$2.50' : _price(BillingPlan.yearly));
+
+  String? get _yearlyBadge {
+    if (_offer == null) return 'Save 50%';
+    final pct = _offer!.yearlySavingsPercent;
+    return pct == null ? null : 'Save $pct%';
+  }
+
+  String _ctaLabel(BillingPlan plan) {
+    final name = plan == BillingPlan.yearly ? 'Yearly' : 'Monthly';
+    final days = _trialDays(plan);
+    if (days != null) return 'Start $days-day free trial · $name';
+    return 'Subscribe · ${_price(plan)}/${SubscriptionDisclosure.period(plan)}';
   }
 
   Future<void> _restore() async {
@@ -138,7 +171,9 @@ class _PaywallScreenState extends State<PaywallScreen> {
     AppLog.event('billing.trial.tap', {'plan': care.plan.name});
 
     if (RevenueCatService.isReady) {
-      final result = await care.purchasePlan();
+      final result = await care.purchasePlan(
+        package: _offer?.forPlan(care.plan)?.package,
+      );
       if (!mounted) return;
       if (!result.success) {
         setState(() {
@@ -156,7 +191,8 @@ class _PaywallScreenState extends State<PaywallScreen> {
       AppLog.event('billing.trial.store_unavailable');
       setState(() {
         _busy = false;
-        _error = 'Purchases are not available right now. '
+        _error =
+            'Purchases are not available right now. '
             'Check your connection and try again.';
       });
       return;
@@ -218,7 +254,12 @@ class _PaywallScreenState extends State<PaywallScreen> {
     final yearly = care.plan == BillingPlan.yearly;
     final locked = _busy || _restoring;
     final upgradeFlow = _isUpgradeFlow;
-    final copy = (_moment ?? PaywallReason.onboarding).copy;
+    final fallbackCopy = (_moment ?? PaywallReason.onboarding).copy;
+    // Offering metadata wins so headline tests run from RevenueCat.
+    final copy = (
+      _offer?.text('headline') ?? fallbackCopy.$1,
+      _offer?.text('subline') ?? fallbackCopy.$2,
+    );
 
     return PopScope(
       canPop: !locked,
@@ -233,7 +274,8 @@ class _PaywallScreenState extends State<PaywallScreen> {
                     tooltip: upgradeFlow ? 'Close' : 'Continue free',
                     onPressed: locked
                         ? null
-                        : () => upgradeFlow ? _dismissPaywall() : _continueFree(),
+                        : () =>
+                              upgradeFlow ? _dismissPaywall() : _continueFree(),
                     icon: StrokeIcon(
                       StrokeIconKind.close,
                       color: scheme.onSurfaceVariant,
@@ -272,9 +314,9 @@ class _PaywallScreenState extends State<PaywallScreen> {
                     _PlanTile(
                       selected: yearly,
                       title: 'Yearly',
-                      subtitle: _priceFor(BillingPlan.yearly, '\$29.99 per year'),
-                      price: '\$2.50/mo',
-                      badge: 'Save 50%',
+                      subtitle: '${_price(BillingPlan.yearly)} per year',
+                      price: '$_yearlyPerMonth/mo',
+                      badge: _yearlyBadge,
                       onPressed: locked
                           ? null
                           : () => care.setPlan(BillingPlan.yearly),
@@ -283,8 +325,8 @@ class _PaywallScreenState extends State<PaywallScreen> {
                     _PlanTile(
                       selected: !yearly,
                       title: 'Monthly',
-                      subtitle: _priceFor(BillingPlan.monthly, '\$4.99/mo'),
-                      price: '\$4.99/mo',
+                      subtitle: '${_price(BillingPlan.monthly)} per month',
+                      price: '${_price(BillingPlan.monthly)}/mo',
                       onPressed: locked
                           ? null
                           : () => care.setPlan(BillingPlan.monthly),
@@ -305,7 +347,9 @@ class _PaywallScreenState extends State<PaywallScreen> {
                         for (final (index, feature) in _freeFeatures.indexed)
                           Padding(
                             padding: EdgeInsets.only(
-                              bottom: index == _freeFeatures.length - 1 ? 0 : 16,
+                              bottom: index == _freeFeatures.length - 1
+                                  ? 0
+                                  : 16,
                             ),
                             child: _FeatureRow(
                               title: feature.$1,
@@ -327,7 +371,9 @@ class _PaywallScreenState extends State<PaywallScreen> {
                     const SizedBox(height: 12),
                     _FeatureCard(
                       hairline: scheme.primary.withValues(alpha: 0.35),
-                      background: scheme.primaryContainer.withValues(alpha: 0.25),
+                      background: scheme.primaryContainer.withValues(
+                        alpha: 0.25,
+                      ),
                       children: [
                         for (final (index, feature) in _proFeatures.indexed)
                           Padding(
@@ -364,15 +410,15 @@ class _PaywallScreenState extends State<PaywallScreen> {
                               dimension: 20,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
-                          : Text(
-                              yearly
-                                  ? 'Start 7-day free trial · Yearly'
-                                  : 'Start 7-day free trial · Monthly',
-                            ),
+                          : Text(_ctaLabel(care.plan)),
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      SubscriptionDisclosure.compactLine(care.plan),
+                      SubscriptionDisclosure.compactLine(
+                        care.plan,
+                        price: _price(care.plan),
+                        trialDays: _trialDays(care.plan),
+                      ),
                       style: text.bodySmall?.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),
@@ -468,11 +514,7 @@ class _FeatureRow extends StatelessWidget {
       children: [
         Padding(
           padding: const EdgeInsets.only(top: 2),
-          child: StrokeIcon(
-            StrokeIconKind.check,
-            size: 18,
-            color: accent,
-          ),
+          child: StrokeIcon(StrokeIconKind.check, size: 18, color: accent),
         ),
         const SizedBox(width: 12),
         Expanded(

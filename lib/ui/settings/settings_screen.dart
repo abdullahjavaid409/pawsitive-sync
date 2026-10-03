@@ -7,6 +7,7 @@ import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
+import 'package:pawsitive_sync/data/revenue_cat_service.dart';
 import 'package:pawsitive_sync/data/dose_reminders.dart';
 import 'package:pawsitive_sync/data/onboarding_state.dart';
 import 'package:pawsitive_sync/data/reminder_choice.dart';
@@ -44,7 +45,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Future<void> _restorePurchases(CareRepository care) async {
+  /// Customer Center keeps cancel, refund and retention offers in-app;
+  /// Apple's subscriptions page is the fallback when billing is off.
+  Future<void> _manageSubscription() async {
+    final shown = await RevenueCatService.presentCustomerCenter();
+    if (!shown) await _open(Uri.parse(AppLinks.manageAppleSubscriptions));
+  }
+
+    Future<void> _restorePurchases(CareRepository care) async {
     setState(() => _busy = true);
     AppLog.event('billing.restore.settings');
     final ok = await care.restoreBilling();
@@ -220,7 +228,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       size: 18,
                       color: scheme.onSurfaceVariant,
                     ),
-                    onTap: () => _open(Uri.parse(AppLinks.manageAppleSubscriptions)),
+                    onTap: _manageSubscription,
                   ),
                 ],
               ),

@@ -16,6 +16,7 @@ import 'package:pawsitive_sync/data/upgrade_nudge_state.dart';
 import 'package:pawsitive_sync/data/revenue_cat_service.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
+import 'package:purchases_flutter/purchases_flutter.dart' show Package;
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Local calendar day as YYYY-MM-DD.
@@ -89,12 +90,14 @@ class CareRepository extends ChangeNotifier {
     if (sample) loadSampleData();
   }
 
-  factory CareRepository.sample({HouseholdApi? api, DateTime Function()? clock}) =>
-      CareRepository(
-        api: api,
-        clock: clock ?? () => DateTime(2026, 10, 2, 13, 6),
-        sample: true,
-      );
+  factory CareRepository.sample({
+    HouseholdApi? api,
+    DateTime Function()? clock,
+  }) => CareRepository(
+    api: api,
+    clock: clock ?? () => DateTime(2026, 10, 2, 13, 6),
+    sample: true,
+  );
 
   final HouseholdApi? _api;
   final HouseholdStore? _store;
@@ -166,10 +169,8 @@ class CareRepository extends ChangeNotifier {
   List<Medication> get medications => List.unmodifiable(_medications);
   List<DoseRecord> get logs => List.unmodifiable(_logs);
 
-  Member get you => _members.firstWhere(
-    (member) => member.isYou,
-    orElse: () => _youMember,
-  );
+  Member get you =>
+      _members.firstWhere((member) => member.isYou, orElse: () => _youMember);
 
   /// Falls back to a neutral member so stale IDs never crash a screen.
   Member memberById(String id) => _members.firstWhere(
@@ -215,8 +216,10 @@ class CareRepository extends ChangeNotifier {
     return null;
   }
 
-  List<Medication> medicationsFor(String petId) =>
-      [for (final item in _medications) if (item.petId == petId) item];
+  List<Medication> medicationsFor(String petId) => [
+    for (final item in _medications)
+      if (item.petId == petId) item,
+  ];
 
   static String doseIdFor(String medicationId, DayPart part) =>
       '$medicationId.${part.name}';
@@ -238,8 +241,7 @@ class CareRepository extends ChangeNotifier {
   }
 
   /// "are" for the current user, "is" for anyone else — keeps "not sure" grammatical.
-  String _isOrAre(String memberId) =>
-      memberById(memberId).isYou ? 'are' : 'is';
+  String _isOrAre(String memberId) => memberById(memberId).isYou ? 'are' : 'is';
 
   /// Today's doses, built from the schedules and what has been logged today.
   List<Dose> get doses {
@@ -325,8 +327,18 @@ class CareRepository extends ChangeNotifier {
     if (parsed == null) return day;
     const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     return '${weekdays[parsed.weekday - 1]}, ${months[parsed.month - 1]} ${parsed.day}';
   }
@@ -337,9 +349,7 @@ class CareRepository extends ChangeNotifier {
       for (final log in _logs.take(40))
         () {
           final medication = medicationById(log.medicationId);
-          final pet = medication == null
-              ? null
-              : tryPetById(medication.petId);
+          final pet = medication == null ? null : tryPetById(medication.petId);
           final petName = pet?.name ?? 'your pet';
           final name = medication?.name ?? 'A medicine';
           final amount = log.amount.isNotEmpty
@@ -356,7 +366,9 @@ class CareRepository extends ChangeNotifier {
                 '${_isOrAre(log.memberId)} not sure about $petName',
             },
             emphasis: amount.isEmpty ? name : '$name · $amount',
-            timeLabel: day == 'Today' ? log.timeLabel : '$day · ${log.timeLabel}',
+            timeLabel: day == 'Today'
+                ? log.timeLabel
+                : '$day · ${log.timeLabel}',
             note: log.note,
           );
         }(),
@@ -366,8 +378,7 @@ class CareRepository extends ChangeNotifier {
   List<DoseLog> historyFor(String medicationId) {
     return [
       for (final log in _logs)
-        if (log.medicationId == medicationId &&
-            log.outcome == LogOutcome.given)
+        if (log.medicationId == medicationId && log.outcome == LogOutcome.given)
           DoseLog(
             when: '${_dayLabel(log.day)} · ${log.timeLabel}',
             who: _who(log.memberId),
@@ -631,7 +642,9 @@ class CareRepository extends ChangeNotifier {
         return null;
       }
       await prefs.setString(cacheKey, link.token);
-      AppLog.event('sitter.link_ready', {'expiresAt': link.expiresAt.toIso8601String()});
+      AppLog.event('sitter.link_ready', {
+        'expiresAt': link.expiresAt.toIso8601String(),
+      });
       return AppLinks.sitterWebLink(link.token);
     } on HouseholdException catch (error) {
       AppLog.event('sitter.link_failed', {'kind': error.kind.name});
@@ -703,7 +716,10 @@ class CareRepository extends ChangeNotifier {
         'household.create',
         () => api.createHousehold(
           owner: you,
-          caregivers: [for (final m in _members) if (!m.isYou) m],
+          caregivers: [
+            for (final m in _members)
+              if (!m.isYou) m,
+          ],
           pets: _pets,
           medications: _medications,
           logs: _logs,
@@ -860,10 +876,7 @@ class CareRepository extends ChangeNotifier {
         return true;
       } on HouseholdException catch (error) {
         lastError = error.message;
-        AppLog.event('$event.failed', {
-          ...fields,
-          'kind': error.kind.name,
-        });
+        AppLog.event('$event.failed', {...fields, 'kind': error.kind.name});
         notifyListeners();
         return false;
       }
@@ -1119,7 +1132,10 @@ class CareRepository extends ChangeNotifier {
       petId: petId,
       name: name.trim(),
       amount: amount.trim(),
-      parts: [for (final part in DayPart.values) if (parts.contains(part)) part],
+      parts: [
+        for (final part in DayPart.values)
+          if (parts.contains(part)) part,
+      ],
       supplyTotal: supplyTotal,
       dosesLeft: supplyTotal,
       startDay: dayKey(now),
@@ -1273,10 +1289,7 @@ class CareRepository extends ChangeNotifier {
         if (index >= 0) _pets[index] = updated;
         return true;
       },
-      fields: {
-        'petId': petId,
-        'conditions': updated.conditions.length,
-      },
+      fields: {'petId': petId, 'conditions': updated.conditions.length},
     );
 
     if (ok) {
@@ -1326,9 +1339,13 @@ class CareRepository extends ChangeNotifier {
   }
 
   /// Buys the selected plan through RevenueCat, then unlocks Pro locally.
-  Future<PurchaseResult> purchasePlan() async {
+  /// [package] is the exact one the paywall showed (placement offering).
+  Future<PurchaseResult> purchasePlan({Package? package}) async {
     AppLog.event('billing.purchase.requested', {'plan': _plan.name});
-    final result = await RevenueCatService.purchasePlan(_plan);
+    final result = await RevenueCatService.purchasePlan(
+      _plan,
+      package: package,
+    );
     if (result.success) {
       await startTrial();
       AppLog.event('billing.purchase.completed', {
@@ -1378,6 +1395,15 @@ class CareRepository extends ChangeNotifier {
     return false;
   }
 
+  /// Counts and flags for RevenueCat Audiences — never names or emails.
+  Map<String, String> get billingAttributes => {
+    'pet_count': '${_pets.length}',
+    'medication_count': '${_medications.length}',
+    'household_members': '${_members.length}',
+    'has_household': '$hasHousehold',
+    'is_pro': '$_isPro',
+  };
+
   /// Pulls Pro status from RevenueCat on app start or resume.
   Future<void> syncBillingFromStore() async {
     if (!RevenueCatService.isReady) {
@@ -1385,6 +1411,7 @@ class CareRepository extends ChangeNotifier {
       return;
     }
     await RevenueCatService.identifyMember(billingUserId);
+    unawaited(RevenueCatService.syncAttributes(billingAttributes));
     final status = await RevenueCatService.currentStatus();
     if (status.isPro && !_isPro) {
       await startTrial();

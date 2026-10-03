@@ -7,6 +7,7 @@ import 'package:pawsitive_sync/core/config/billing_config.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
+import 'package:purchases_ui_flutter/purchases_ui_flutter.dart';
 
 enum PurchaseErrorKind {
   cancelled,
@@ -17,12 +18,67 @@ enum PurchaseErrorKind {
   unknown,
 }
 
-class PurchaseResult {
-  const PurchaseResult({
-    required this.success,
-    this.message,
-    this.kind,
+/// One plan as the store sells it to this user — real localized prices and
+/// whether *this* user can still get the free trial.
+class PlanOffer {
+  const PlanOffer({
+    required this.package,
+    required this.priceString,
+    required this.price,
+    this.perMonthString,
+    this.trialDays,
   });
+
+  final Package package;
+  final String priceString;
+  final double price;
+  final String? perMonthString;
+
+  /// Free-trial length when the user is eligible; null when there is no trial
+  /// or they already used it. Drives honest CTA and disclosure copy.
+  final int? trialDays;
+
+  bool get hasTrial => trialDays != null;
+}
+
+/// What a paywall placement should show. [metadata] comes from the RevenueCat
+/// offering so copy can be A/B tested from the dashboard without a release.
+class PaywallOffer {
+  const PaywallOffer({
+    required this.offeringId,
+    required this.packages,
+    this.yearly,
+    this.monthly,
+    this.metadata = const {},
+  });
+
+  final String offeringId;
+  final List<Package> packages;
+  final PlanOffer? yearly;
+  final PlanOffer? monthly;
+  final Map<String, Object> metadata;
+
+  PlanOffer? forPlan(BillingPlan plan) =>
+      plan == BillingPlan.yearly ? yearly : monthly;
+
+  /// Real savings of yearly vs 12× monthly, rounded down so the badge never
+  /// overstates it. Null when either price is missing.
+  int? get yearlySavingsPercent {
+    final y = yearly?.price;
+    final m = monthly?.price;
+    if (y == null || m == null || m <= 0) return null;
+    final pct = ((1 - y / (m * 12)) * 100).floor();
+    return pct > 0 ? pct : null;
+  }
+
+  String? text(String key) {
+    final value = metadata[key];
+    return value is String && value.trim().isNotEmpty ? value.trim() : null;
+  }
+}
+
+class PurchaseResult {
+  const PurchaseResult({required this.success, this.message, this.kind});
 
   final bool success;
   final String? message;
@@ -37,6 +93,8 @@ abstract final class RevenueCatService {
   static bool _initialized = false;
   static String? _memberId;
   static List<Package>? _cachedPackages;
+  static final Map<String, PaywallOffer> _offerCache = {};
+  static Map<String, String> _sentAttributes = const {};
 
   static bool get isReady => _initialized;
 
@@ -68,7 +126,9 @@ abstract final class RevenueCatService {
   }
 
   static void _onCustomerInfo(CustomerInfo info) {
-    final active = info.entitlements.active.containsKey(BillingConfig.entitlementId);
+    final active = info.entitlements.active.containsKey(
+      BillingConfig.entitlementId,
+    );
     AppLog.event('billing.rc.customer_updated', {
       'active': active,
       'entitlements': info.entitlements.active.keys.join(','),
@@ -108,6 +168,8 @@ abstract final class RevenueCatService {
     } finally {
       _memberId = null;
       _cachedPackages = null;
+      _offerCache.clear();
+      _sentAttributes = const {};
     }
   }
 
@@ -133,7 +195,137 @@ abstract final class RevenueCatService {
     });
   }
 
-  static Package? packageForPlan(BillingPlan plan, List<Package> packages) {
+  /// Offering for a paywall moment. RevenueCat Targeting can serve a
+  /// different offering per placement (price test, copy test, country), and
+  /// falls back to the current offering when no rule matches.
+  static Future<PaywallOffer?> loadOffer(String placement) async {
+    if (!_initialized) return null;
+    final cached = _offerCache[placement];
+    if (cached != null) return cached;
+
+    try {
+      return await AppLog.trace('billing.rc.load_offer', () async {
+        Offering? offering = await Purchases.getCurrentOfferingForPlacement(
+          placement,
+        ).timeout(_networkTimeout);
+        if (offering == null) {
+          final offerings = await Purchases.getOfferings().timeout(
+            _networkTimeout,
+          );
+          offering = offerings.current;
+        }
+        if (offering == null) return null;
+
+        final packages = offering.availablePackages;
+        final yearlyPackage = _matchPackage(BillingPlan.yearly, packages);
+        final monthlyPackage = _matchPackage(BillingPlan.monthly, packages);
+        final eligibility = await _trialEligibility([
+          ?yearlyPackage?.storeProduct,
+          ?monthlyPackage?.storeProduct,
+        ]);
+
+        final offer = PaywallOffer(
+          offeringId: offering.identifier,
+          packages: packages,
+          yearly: _planOffer(yearlyPackage, eligibility),
+          monthly: _planOffer(monthlyPackage, eligibility),
+          metadata: offering.metadata,
+        );
+        _offerCache[placement] = offer;
+        AppLog.event('billing.rc.offer_loaded', {
+          'placement': placement,
+          'offering': offer.offeringId,
+          'yearlyTrial': offer.yearly?.trialDays ?? 0,
+          'monthlyTrial': offer.monthly?.trialDays ?? 0,
+        });
+        return offer;
+      });
+    } catch (error, stack) {
+      AppLog.error('billing.rc.load_offer_failed', error, stack);
+      return null;
+    }
+  }
+
+  static PlanOffer? _planOffer(Package? package, Map<String, bool> eligible) {
+    if (package == null) return null;
+    final product = package.storeProduct;
+    return PlanOffer(
+      package: package,
+      priceString: product.priceString,
+      price: product.price,
+      perMonthString: product.pricePerMonthString,
+      trialDays: eligible[product.identifier] == false
+          ? null
+          : _trialDays(product),
+    );
+  }
+
+  /// Days of free trial the store attached to [product], or null.
+  static int? _trialDays(StoreProduct product) {
+    final intro = product.introductoryPrice;
+    if (intro != null && intro.price == 0) {
+      return _days(intro.periodUnit, intro.periodNumberOfUnits * intro.cycles);
+    }
+    // Play only returns offers the user is eligible for.
+    final period = product.defaultOption?.freePhase?.billingPeriod;
+    if (period != null) return _days(period.unit, period.value);
+    return null;
+  }
+
+  static int? _days(PeriodUnit unit, int count) => switch (unit) {
+    PeriodUnit.day => count,
+    PeriodUnit.week => count * 7,
+    PeriodUnit.month => count * 30,
+    PeriodUnit.year => count * 365,
+    PeriodUnit.unknown => null,
+  };
+
+  /// iOS: asks StoreKit whether this Apple ID already used the intro offer.
+  /// Unknown counts as eligible — Apple then decides at checkout.
+  static Future<Map<String, bool>> _trialEligibility(
+    List<StoreProduct> products,
+  ) async {
+    if (products.isEmpty || !Platform.isIOS) return const {};
+    try {
+      final result = await Purchases.checkTrialOrIntroductoryPriceEligibility(
+        products.map((p) => p.identifier).toList(),
+      ).timeout(_networkTimeout);
+      return {
+        for (final entry in result.entries)
+          entry.key:
+              entry.value.status !=
+              IntroEligibilityStatus.introEligibilityStatusIneligible,
+      };
+    } catch (error, stack) {
+      AppLog.error('billing.rc.eligibility_failed', error, stack);
+      return const {};
+    }
+  }
+
+  /// Segments for RevenueCat Audiences, Targeting and Experiment breakdowns.
+  /// Counts and flags only — never pet names or emails. RevenueCat batches
+  /// attribute uploads itself; this only skips unchanged values.
+  static Future<void> syncAttributes(Map<String, String> attributes) async {
+    if (!_initialized) return;
+    final changed = {
+      for (final entry in attributes.entries)
+        if (_sentAttributes[entry.key] != entry.value) entry.key: entry.value,
+    };
+    if (changed.isEmpty) return;
+    try {
+      await Purchases.setAttributes(changed);
+      _sentAttributes = {..._sentAttributes, ...changed};
+      AppLog.event('billing.rc.attributes', {'keys': changed.keys.join(',')});
+    } catch (error, stack) {
+      AppLog.error('billing.rc.attributes_failed', error, stack);
+    }
+  }
+
+  static Package? packageForPlan(BillingPlan plan, List<Package> packages) =>
+      _matchPackage(plan, packages) ??
+      (packages.isEmpty ? null : packages.first);
+
+  static Package? _matchPackage(BillingPlan plan, List<Package> packages) {
     if (packages.isEmpty) return null;
     final type = plan == BillingPlan.yearly
         ? PackageType.annual
@@ -146,7 +338,7 @@ abstract final class RevenueCatService {
       final id = package.storeProduct.identifier.toLowerCase();
       if (id.contains(needle)) return package;
     }
-    return packages.first;
+    return null;
   }
 
   static Future<bool> hasActiveSubscription() async {
@@ -194,7 +386,12 @@ abstract final class RevenueCatService {
     }
   }
 
-  static Future<PurchaseResult> purchasePlan(BillingPlan plan) async {
+  /// Buys [plan]. Pass [package] from the [PaywallOffer] on screen so the
+  /// purchase matches the placement's offering and is attributed to it.
+  static Future<PurchaseResult> purchasePlan(
+    BillingPlan plan, {
+    Package? package,
+  }) async {
     if (!_initialized) {
       AppLog.event('billing.rc.purchase_skipped', {'reason': 'not_configured'});
       return const PurchaseResult(
@@ -206,9 +403,8 @@ abstract final class RevenueCatService {
 
     return AppLog.trace('billing.rc.purchase', () async {
       try {
-        final packages = await loadPackages();
-        final package = packageForPlan(plan, packages);
-        if (package == null) {
+        final chosen = package ?? packageForPlan(plan, await loadPackages());
+        if (chosen == null) {
           AppLog.event('billing.rc.purchase_no_package', {'plan': plan.name});
           return const PurchaseResult(
             success: false,
@@ -219,12 +415,13 @@ abstract final class RevenueCatService {
 
         AppLog.event('billing.rc.purchase_start', {
           'plan': plan.name,
-          'productId': package.storeProduct.identifier,
-          'price': package.storeProduct.priceString,
+          'productId': chosen.storeProduct.identifier,
+          'price': chosen.storeProduct.priceString,
+          'offering': chosen.presentedOfferingContext.offeringIdentifier,
         });
 
         final response = await Purchases.purchase(
-          PurchaseParams.package(package),
+          PurchaseParams.package(chosen),
         ).timeout(_purchaseTimeout);
 
         final hasPro = response.customerInfo.entitlements.active.containsKey(
@@ -232,6 +429,8 @@ abstract final class RevenueCatService {
         );
 
         if (hasPro) {
+          // Trial eligibility changed; next paywall must re-ask the store.
+          _offerCache.clear();
           AppLog.event('billing.rc.purchase_success', {'plan': plan.name});
           return const PurchaseResult(success: true);
         }
@@ -240,8 +439,7 @@ abstract final class RevenueCatService {
         return const PurchaseResult(
           success: false,
           kind: PurchaseErrorKind.entitlementMissing,
-          message:
-              'Purchase finished but Pro did not activate. Try Restore or contact support.',
+          message: 'Purchase finished but Pro did not activate. Try Restore or contact support.',
         );
       } on PurchasesError catch (error) {
         return _mapPurchasesError(error);
@@ -286,6 +484,35 @@ abstract final class RevenueCatService {
         return false;
       }
     });
+  }
+
+  /// RevenueCat Customer Center: manage plan, cancel with a feedback survey
+  /// and a retention offer, refund requests, restore. Returns false when the
+  /// SDK is not configured so callers can fall back to Apple's settings page.
+  static Future<bool> presentCustomerCenter() async {
+    if (!_initialized) {
+      AppLog.event('billing.rc.customer_center_skipped');
+      return false;
+    }
+    try {
+      AppLog.event('billing.rc.customer_center_open');
+      await RevenueCatUI.presentCustomerCenter(
+        onRefundRequestCompleted: (productId, status) => AppLog.event(
+          'billing.rc.refund_request',
+          {'productId': productId, 'status': status},
+        ),
+        onFeedbackSurveyCompleted: (optionId) =>
+            AppLog.event('billing.rc.cancel_survey', {'option': optionId}),
+        onPromotionalOfferSucceeded: (_, _, _) {
+          _offerCache.clear();
+          AppLog.event('billing.rc.retention_offer_accepted');
+        },
+      );
+      return true;
+    } catch (error, stack) {
+      AppLog.error('billing.rc.customer_center_failed', error, stack);
+      return false;
+    }
   }
 
   static PurchaseResult _mapPurchasesError(PurchasesError error) {

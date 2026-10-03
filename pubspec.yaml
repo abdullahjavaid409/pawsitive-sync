@@ -48,6 +48,7 @@ dependencies:
   url_launcher: ^6.3.3
   purchases_flutter: ^10.0.0
   pdf: ^3.11.3
+  purchases_ui_flutter: ^10.7.0
 dev_dependencies:
   flutter_test:
     sdk: flutter
