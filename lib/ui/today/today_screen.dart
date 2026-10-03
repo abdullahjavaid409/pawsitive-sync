@@ -72,27 +72,23 @@ class _TodayScreenState extends State<TodayScreen> {
               : () async {},
           child: ListView(
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: carePagePadding,
+            padding: carePagePaddingOf(context),
             children: [
               CarePageHeader(
                 title: 'Today',
                 subtitle: '${greetingLabel(care.now)} · ${dayLabel(care.now)}',
-                action: IconButton(
-                  tooltip: 'Settings',
-                  onPressed: () {
+                action: _TodayHeaderActions(
+                  isPro: care.isPro,
+                  onUpgrade: care.isPro
+                      ? null
+                      : () {
+                          AppLog.event('today.pro_badge_tapped');
+                          context.push(AppRoutes.paywall);
+                        },
+                  onSettings: () {
                     AppLog.event('settings.opened');
                     context.push(AppRoutes.settings);
                   },
-                  style: IconButton.styleFrom(
-                    backgroundColor: scheme.surfaceContainerLowest,
-                    side: BorderSide(color: scheme.outlineVariant),
-                    minimumSize: const Size(44, 44),
-                  ),
-                  icon: StrokeIcon(
-                    StrokeIconKind.settings,
-                    size: 21,
-                    color: scheme.onSurface,
-                  ),
                 ),
               ),
               if (care.hasApi && (care.isConnected || care.syncError != null))
@@ -125,10 +121,10 @@ class _TodayScreenState extends State<TodayScreen> {
                 ),
                 if (next != null) ...[
                   const SizedBox(height: 16),
-                  _NextDose(
-                    dose: next,
-                    pet: care.petById(next.petId),
-                    onLog: () => _openDose(context, next),
+                          _NextDose(
+                            dose: next,
+                            pet: care.tryPetById(next.petId),
+                            onLog: () => _openDose(context, next),
                     onDetails: () =>
                         context.push(AppRoutes.medication(next.medicationId)),
                   ),
@@ -178,7 +174,7 @@ class _TodayScreenState extends State<TodayScreen> {
                         for (final (index, event) in upcomingCare.indexed)
                           _CareEventTile(
                             event: event,
-                            pet: care.petById(event.petId),
+                            pet: care.tryPetById(event.petId),
                             showDivider: index < upcomingCare.length - 1,
                             onRemove: () {
                               AppLog.event('care_event.dismissed', {
@@ -268,7 +264,7 @@ class _TodayScreenState extends State<TodayScreen> {
                         for (final (index, event) in upcomingCare.indexed)
                           _CareEventTile(
                             event: event,
-                            pet: care.petById(event.petId),
+                            pet: care.tryPetById(event.petId),
                             showDivider: index < upcomingCare.length - 1,
                             onRemove: () {
                               AppLog.event('care_event.dismissed', {
@@ -317,6 +313,46 @@ class _TodayScreenState extends State<TodayScreen> {
   }
 }
 
+class _TodayHeaderActions extends StatelessWidget {
+  const _TodayHeaderActions({
+    required this.isPro,
+    required this.onUpgrade,
+    required this.onSettings,
+  });
+
+  final bool isPro;
+  final VoidCallback? onUpgrade;
+  final VoidCallback onSettings;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final tokens = context.paws;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        CarePlanBadge(isPro: isPro, onUpgrade: onUpgrade),
+        SizedBox(width: tokens.spacing.sm),
+        IconButton(
+          tooltip: 'Settings',
+          onPressed: onSettings,
+          style: IconButton.styleFrom(
+            backgroundColor: tokens.surfaces.card,
+            side: BorderSide(color: tokens.borders.subtle),
+            minimumSize: Size.square(tokens.controlHeights.icon),
+          ),
+          icon: StrokeIcon(
+            StrokeIconKind.settings,
+            size: 21,
+            color: scheme.onSurface,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _DayProgress extends StatelessWidget {
   const _DayProgress({
     required this.given,
@@ -330,50 +366,46 @@ class _DayProgress extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
+    final tokens = context.paws;
     final complete = given == total;
     final remaining = total - given;
     return Container(
       padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
-        color: context.paws.brandSoft,
-        borderRadius: BorderRadius.circular(26),
+        color: tokens.surfaces.selected,
+        borderRadius: BorderRadius.circular(tokens.radii.xxl),
       ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'A little care, every day',
-                  style: text.bodyMedium?.copyWith(
-                    color: context.paws.brandDark,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  complete
-                      ? 'All cared for.'
-                      : '$remaining ${remaining == 1 ? 'dose' : 'doses'} left today',
-                  style: text.headlineSmall?.copyWith(
-                    fontSize: 23,
-                    letterSpacing: -0.6,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  complete
-                      ? 'Every scheduled dose is logged.'
-                      : due == 0
-                      ? '$given of $total given. The rest are later.'
-                      : '$given of $total given. $due ${due == 1 ? 'is' : 'are'} due.',
-                  style: text.bodyMedium,
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 16),
-          Semantics(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final stack =
+              constraints.maxWidth < 340 ||
+              MediaQuery.textScalerOf(context).scale(1) > 1.2;
+          final copy = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'A little care, every day',
+                style: text.bodyMedium?.copyWith(color: tokens.brandDark),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                complete
+                    ? 'All cared for.'
+                    : '$remaining ${remaining == 1 ? 'dose' : 'doses'} left today',
+                style: text.headlineSmall,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                complete
+                    ? 'Every scheduled dose is logged.'
+                    : due == 0
+                    ? '$given of $total given. The rest are later.'
+                    : '$given of $total given. $due ${due == 1 ? 'is' : 'are'} due.',
+                style: text.bodyMedium,
+              ),
+            ],
+          );
+          final progress = Semantics(
             label: 'Daily progress',
             value: '$given of $total doses given',
             child: ExcludeSemantics(
@@ -397,7 +429,7 @@ class _DayProgress extends StatelessWidget {
                       StrokeIcon(
                         StrokeIconKind.check,
                         size: 30,
-                        color: context.paws.brandDark,
+                        color: tokens.brandDark,
                       )
                     else
                       Padding(
@@ -407,12 +439,7 @@ class _DayProgress extends StatelessWidget {
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Text(
-                                '$given',
-                                style: text.headlineSmall?.copyWith(
-                                  fontSize: 25,
-                                ),
-                              ),
+                              Text('$given', style: text.headlineSmall),
                               Text('of $total', style: text.bodySmall),
                             ],
                           ),
@@ -422,8 +449,25 @@ class _DayProgress extends StatelessWidget {
                 ),
               ),
             ),
-          ),
-        ],
+          );
+          if (stack) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                copy,
+                const SizedBox(height: 18),
+                Align(alignment: Alignment.center, child: progress),
+              ],
+            );
+          }
+          return Row(
+            children: [
+              Expanded(child: copy),
+              const SizedBox(width: 16),
+              progress,
+            ],
+          );
+        },
       ),
     );
   }
@@ -437,7 +481,7 @@ class _NextDose extends StatelessWidget {
     required this.onDetails,
   });
   final Dose dose;
-  final Pet pet;
+  final Pet? pet;
   final VoidCallback onLog;
   final VoidCallback onDetails;
 
@@ -479,8 +523,25 @@ class _NextDose extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              PetPortrait(pet, size: 56),
+              if (pet != null)
+                PetPortrait(pet!, size: 56)
+              else
+                Container(
+                  width: 56,
+                  height: 56,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: scheme.primaryContainer,
+                    shape: BoxShape.circle,
+                  ),
+                  child: StrokeIcon(
+                    StrokeIconKind.paw,
+                    size: 24,
+                    color: context.paws.brandDark,
+                  ),
+                ),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
@@ -489,7 +550,7 @@ class _NextDose extends StatelessWidget {
                     Text(dose.name, style: text.headlineSmall),
                     const SizedBox(height: 5),
                     Text(
-                      '${pet.name}${dose.amount.isEmpty ? '' : ' · ${dose.amount}'}',
+                      '${pet?.name ?? 'Pet removed'}${dose.amount.isEmpty ? '' : ' · ${dose.amount}'}',
                       style: text.bodyLarge?.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),

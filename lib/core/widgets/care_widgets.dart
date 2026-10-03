@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
+import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/pet_mark.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
@@ -7,49 +8,111 @@ import 'package:pawsitive_sync/domain/models.dart';
 
 const carePagePadding = EdgeInsets.fromLTRB(24, 20, 24, 28);
 
+/// Page insets that stay comfortable on a narrow window while using the
+/// shared spacing roles everywhere else.
+EdgeInsets carePagePaddingOf(BuildContext context) {
+  final spacing = context.paws.spacing;
+  final width = MediaQuery.sizeOf(context).width;
+  final horizontal = width < 340 ? spacing.lg : spacing.pageHorizontal;
+  return EdgeInsets.fromLTRB(
+    horizontal,
+    spacing.pageTop,
+    horizontal,
+    spacing.pageBottom,
+  );
+}
+
+/// The shared back affordance for pushed care pages.
+class CareBackButton extends StatelessWidget {
+  const CareBackButton({super.key, required this.fallbackRoute});
+
+  final String fallbackRoute;
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+    tooltip: 'Back',
+    onPressed: () {
+      if (context.canPop()) {
+        context.pop();
+      } else {
+        context.go(fallbackRoute);
+      }
+    },
+    style: IconButton.styleFrom(
+      minimumSize: Size.square(context.paws.controlHeights.icon),
+    ),
+    icon: const StrokeIcon(StrokeIconKind.chevronLeft),
+  );
+}
+
 class CarePageHeader extends StatelessWidget {
   const CarePageHeader({
     super.key,
     required this.title,
     required this.subtitle,
     this.action,
+    this.leading,
   });
   final String title;
   final String subtitle;
   final Widget? action;
+  final Widget? leading;
 
   @override
-  Widget build(BuildContext context) {
-    final text = Theme.of(context).textTheme;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: text.displaySmall?.copyWith(
-                  fontSize: 30,
-                  letterSpacing: -0.9,
-                ),
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final spacing = context.paws.spacing;
+      final text = Theme.of(context).textTheme;
+      final textScale = MediaQuery.textScalerOf(context).scale(1);
+      final hasControls = leading != null || action != null;
+      final stackControls =
+          hasControls && (constraints.maxWidth < 360 || textScale > 1.2);
+      final titleBlock = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: text.displaySmall),
+          if (subtitle.isNotEmpty) ...[
+            SizedBox(height: spacing.xs + 3),
+            Text(
+              subtitle,
+              style: text.bodyLarge?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),
-              const SizedBox(height: 7),
-              Text(
-                subtitle,
-                style: text.bodyLarge?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  height: 1.45,
-                ),
-              ),
-            ],
-          ),
-        ),
-        if (action != null) ...[const SizedBox(width: 12), action!],
-      ],
-    );
-  }
+            ),
+          ],
+        ],
+      );
+
+      if (stackControls) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                if (leading != null) leading!,
+                const Spacer(),
+                if (action != null) action!,
+              ],
+            ),
+            SizedBox(height: spacing.sm),
+            titleBlock,
+          ],
+        );
+      }
+
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (leading != null) ...[
+            leading!,
+            SizedBox(width: spacing.xs),
+          ],
+          Expanded(child: titleBlock),
+          if (action != null) ...[SizedBox(width: spacing.md), action!],
+        ],
+      );
+    },
+  );
 }
 
 class CareSectionHeader extends StatelessWidget {
@@ -59,21 +122,120 @@ class CareSectionHeader extends StatelessWidget {
   final VoidCallback? onAction;
 
   @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      Expanded(
-        child: Text(title, style: Theme.of(context).textTheme.headlineSmall),
-      ),
-      if (action != null)
-        if (onAction == null)
-          Padding(
-            padding: const EdgeInsets.only(left: 12),
-            child: Text(action!, style: Theme.of(context).textTheme.bodyMedium),
-          )
-        else
-          TextButton(onPressed: onAction, child: Text(action!)),
-    ],
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final text = Theme.of(context).textTheme;
+      final spacing = context.paws.spacing;
+      final stack =
+          action != null &&
+          (constraints.maxWidth < 360 ||
+              MediaQuery.textScalerOf(context).scale(1) > 1.2);
+      final titleWidget = Text(title, style: text.headlineSmall);
+      if (stack) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            titleWidget,
+            SizedBox(height: spacing.xs),
+            if (onAction == null)
+              Text(action!, style: text.bodyMedium)
+            else
+              TextButton(
+                onPressed: onAction,
+                style: TextButton.styleFrom(padding: EdgeInsets.zero),
+                child: Text(action!),
+              ),
+          ],
+        );
+      }
+      return Row(
+        children: [
+          Expanded(child: titleWidget),
+          if (action != null) ...[
+            SizedBox(width: spacing.md),
+            if (onAction == null)
+              Text(action!, style: text.bodyMedium)
+            else
+              TextButton(onPressed: onAction, child: Text(action!)),
+          ],
+        ],
+      );
+    },
   );
+}
+
+/// Small, explicit plan affordance used in the Today header.
+///
+/// Dose logging stays available in both states; the Free action only explains
+/// what Pro adds for households that want shared care.
+class CarePlanBadge extends StatelessWidget {
+  const CarePlanBadge({super.key, required this.isPro, this.onUpgrade});
+
+  final bool isPro;
+  final VoidCallback? onUpgrade;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.paws;
+    final scheme = Theme.of(context).colorScheme;
+    final label = isPro ? 'Pro' : 'Free';
+    final semanticsLabel = isPro
+        ? 'Pro plan'
+        : 'Free plan. See Pro features';
+    final content = Padding(
+      padding: EdgeInsets.symmetric(
+        horizontal: tokens.spacing.sm + 2,
+        vertical: tokens.spacing.xs + 2,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          StrokeIcon(
+            isPro ? StrokeIconKind.check : StrokeIconKind.paw,
+            size: 15,
+            color: tokens.brandDark,
+          ),
+          SizedBox(width: tokens.spacing.xs + 1),
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: tokens.brandDark,
+            ),
+          ),
+          if (!isPro && onUpgrade != null) ...[
+            SizedBox(width: tokens.spacing.xs),
+            Text(
+              'See Pro',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: tokens.brandDark,
+                decoration: TextDecoration.underline,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+
+    return Semantics(
+      container: true,
+      label: semanticsLabel,
+      button: !isPro && onUpgrade != null,
+      child: Material(
+        color: isPro ? scheme.primaryContainer : tokens.surfaces.subtle,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(tokens.radii.pill),
+          side: BorderSide(color: tokens.borders.subtle),
+        ),
+        child: onUpgrade == null || isPro
+            ? content
+            : InkWell(
+                onTap: onUpgrade,
+                borderRadius: BorderRadius.circular(tokens.radii.pill),
+                child: content,
+              ),
+      ),
+    );
+  }
 }
 
 class PetPortrait extends StatelessWidget {
@@ -181,6 +343,7 @@ class _PetChoice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = context.paws;
     final scheme = Theme.of(context).colorScheme;
     return Semantics(
       selected: selected,
@@ -188,18 +351,21 @@ class _PetChoice extends StatelessWidget {
       child: Material(
         color: selected
             ? scheme.primaryContainer
-            : scheme.surfaceContainerLowest,
+            : tokens.surfaces.card,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: tokens.radii.chipShape,
           side: BorderSide(
-            color: selected ? scheme.primary : scheme.outlineVariant,
+            color: selected ? tokens.borders.focus : tokens.borders.subtle,
           ),
         ),
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: tokens.radii.chipShape,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            padding: EdgeInsets.symmetric(
+              horizontal: tokens.spacing.md,
+              vertical: tokens.spacing.xs + 5,
+            ),
             child: Row(
               mainAxisSize: expanded ? MainAxisSize.max : MainAxisSize.min,
               children: [
@@ -214,12 +380,14 @@ class _PetChoice extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                 ],
-                Text(
-                  label,
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    color: selected ? context.paws.brandDark : scheme.onSurface,
+                  Text(
+                    label,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      color: selected
+                          ? tokens.states.selectedContent
+                          : scheme.onSurface,
+                    ),
                   ),
-                ),
               ],
             ),
           ),

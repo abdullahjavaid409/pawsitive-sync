@@ -51,17 +51,23 @@ class _CompactShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final tokens = context.paws;
     return Scaffold(
-      body: navigationShell,
+      body: AdaptivePage(child: navigationShell),
       bottomNavigationBar: DecoratedBox(
         decoration: BoxDecoration(
-          color: scheme.surfaceContainerLowest,
-          border: Border(top: BorderSide(color: scheme.outlineVariant)),
+          color: tokens.surfaces.card,
+          border: Border(top: BorderSide(color: tokens.borders.subtle)),
         ),
         child: SafeArea(
           top: false,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+            padding: EdgeInsets.fromLTRB(
+              tokens.spacing.sm,
+              tokens.spacing.sm,
+              tokens.spacing.sm,
+              tokens.spacing.sm,
+            ),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -94,8 +100,8 @@ class _CompactShell extends StatelessWidget {
                                   AppShell._tabs[i].$1,
                                   size: 22,
                                   color: i == navigationShell.currentIndex
-                                      ? context.paws.brandDark
-                                      : scheme.onSurfaceVariant,
+                                       ? tokens.states.selectedContent
+                                       : scheme.onSurfaceVariant,
                                 ),
                               ),
                               const SizedBox(height: 5),
@@ -111,7 +117,7 @@ class _CompactShell extends StatelessWidget {
                                           ? FontWeight.w600
                                           : FontWeight.w500,
                                       color: i == navigationShell.currentIndex
-                                          ? context.paws.brandDark
+                                          ? tokens.states.selectedContent
                                           : scheme.onSurfaceVariant,
                                     ),
                               ),
@@ -144,6 +150,7 @@ class _WideShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final tokens = context.paws;
     return Scaffold(
       body: SafeArea(
         bottom: false,
@@ -156,18 +163,23 @@ class _WideShell extends StatelessWidget {
               labelType: extended
                   ? NavigationRailLabelType.none
                   : NavigationRailLabelType.all,
-              backgroundColor: scheme.surface,
-              indicatorColor: scheme.primaryContainer,
+               backgroundColor: tokens.surfaces.background,
+               indicatorColor: tokens.states.selected,
+               minWidth: 72,
+               minExtendedWidth: 200,
               destinations: [
                 for (final tab in AppShell._tabs)
                   NavigationRailDestination(
                     icon: StrokeIcon(tab.$1, color: scheme.onSurfaceVariant),
-                    selectedIcon: StrokeIcon(tab.$1, color: scheme.primary),
+                    selectedIcon: StrokeIcon(
+                      tab.$1,
+                      color: tokens.states.selectedContent,
+                    ),
                     label: Text(tab.$2),
                   ),
               ],
             ),
-            VerticalDivider(width: 1, color: scheme.outlineVariant),
+            VerticalDivider(width: 1, color: tokens.borders.subtle),
             Expanded(child: AdaptivePage(child: navigationShell)),
           ],
         ),
