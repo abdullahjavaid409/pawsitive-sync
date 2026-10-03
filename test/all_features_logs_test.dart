@@ -29,7 +29,7 @@ void main() {
 
   group('Pets', () {
     test('add offline logs pet.add.completed', () async {
-      final care = await freshCare();
+      await freshCare();
       expectLogged('pet.add.completed', fields: {'offline': true});
     });
 

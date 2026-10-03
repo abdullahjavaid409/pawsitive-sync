@@ -103,8 +103,23 @@ class MedicationScreen extends StatelessWidget {
             const SizedBox(height: 12),
             CarePageHeader(
               title: medication.name,
-              subtitle: '${pet.name} · ${medication.detail}',
-              action: PetPortrait(pet, size: 56),
+              subtitle: '$petName · ${medication.detail}',
+              action: pet == null
+                  ? Container(
+                      width: 56,
+                      height: 56,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: scheme.primaryContainer,
+                        shape: BoxShape.circle,
+                      ),
+                      child: StrokeIcon(
+                        StrokeIconKind.paw,
+                        size: 24,
+                        color: tokens.brandDark,
+                      ),
+                    )
+                  : PetPortrait(pet, size: 56),
             ),
             const SizedBox(height: 24),
             if (!medication.tracksSupply)
@@ -248,7 +263,7 @@ class MedicationScreen extends StatelessWidget {
                 children: [
                   _Pair(label: 'Dose', value: medication.doseLabel),
                   _Pair(label: 'When', value: medication.whenLabel),
-                  _Pair(label: 'For', value: pet.name),
+                  _Pair(label: 'For', value: petName),
                   _Pair(
                     label: 'Course',
                     value: medication.endDay.isEmpty

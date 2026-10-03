@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/app_router.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/app_theme.dart';
@@ -13,7 +14,11 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    AppLog.enableTestCapture();
+  });
+  tearDown(AppLog.disableTestCapture);
 
   testWidgets('pet filter updates daily progress and next dose together', (
     tester,
@@ -269,6 +274,29 @@ void main() {
       }
     });
   }
+
+  testWidgets('settings debug section loads and clears demo data', (
+    tester,
+  ) async {
+    final care = CareRepository(clock: () => DateTime(2026, 10, 3, 14));
+    final router = await _pump(tester, care);
+    router.go(AppRoutes.settings);
+    await tester.pumpAndSettle();
+
+    expect(care.pets, isEmpty);
+    await _reveal(tester, find.text('Load demo data'));
+    await tester.tap(find.text('Load demo data'));
+    await tester.pumpAndSettle();
+    expect(care.pets, isNotEmpty);
+    expect(AppLog.logged('debug.demo_data.loaded'), isTrue);
+
+    await _reveal(tester, find.text('Clear demo data'));
+    await tester.tap(find.text('Clear demo data'));
+    await tester.pumpAndSettle();
+    expect(care.pets, isEmpty);
+    expect(AppLog.logged('debug.demo_data.cleared'), isTrue);
+    expect(AppLog.logged('household.reset'), isTrue);
+  });
 }
 
 Finder _verticalScroll() => find

@@ -9,7 +9,6 @@ import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'fake_household_api.dart';
-import 'test_log_helpers.dart';
 
 /// Exercises every live repository feature once and asserts required logs.
 void main() {

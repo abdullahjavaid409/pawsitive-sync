@@ -30,7 +30,6 @@ class _TodayScreenState extends State<TodayScreen> {
   @override
   Widget build(BuildContext context) {
     final care = context.watch<CareRepository>();
-    final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     // A removed pet falls back immediately, including the selector and summary.
     final selectedId = care.tryPetById(_petId ?? '')?.id;
