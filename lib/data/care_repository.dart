@@ -1380,33 +1380,33 @@ class CareRepository extends ChangeNotifier {
     AppLog.event('billing.restore.requested');
     lastError = null;
     if (!RevenueCatService.isReady) {
-      lastError = 'Purchases are not set up on this build yet.';
+      lastError = 'Purchases aren’t available right now. Try again later.';
       AppLog.event('billing.restore.skipped', {'reason': 'not_configured'});
       notifyListeners();
       return false;
     }
     final restored = await RevenueCatService.restorePurchases();
+    if (restored == null) {
+      lastError =
+          'Couldn’t reach the App Store. Check your connection and try again.';
+      AppLog.event('billing.restore.failed');
+      notifyListeners();
+      return false;
+    }
     if (!restored) {
-      lastError = 'No active subscription found for this account.';
+      lastError = 'No subscription found for this Apple ID.';
       AppLog.event('billing.restore.empty');
       notifyListeners();
       return false;
     }
-    final status = await RevenueCatService.currentStatus();
-    if (status.isPro) {
-      _storePro = true;
-      await startTrial();
-      final storePlan = status.plan;
-      if (storePlan != null && storePlan != _plan) {
-        await setPlan(storePlan);
-      }
-      AppLog.event('billing.restore.completed', {'plan': _plan.name});
-      return true;
-    }
-    lastError = 'No active subscription found for this account.';
-    AppLog.event('billing.restore.inactive');
-    notifyListeners();
-    return false;
+    // Restore already confirmed the entitlement; don't ask the store twice.
+    _storePro = true;
+    _changed();
+    await startTrial();
+    final storePlan = (await RevenueCatService.currentStatus()).plan;
+    if (storePlan != null && storePlan != _plan) await setPlan(storePlan);
+    AppLog.event('billing.restore.completed', {'plan': _plan.name});
+    return true;
   }
 
   /// Counts and flags for RevenueCat Audiences — never names or emails.
@@ -1423,6 +1423,9 @@ class CareRepository extends ChangeNotifier {
   void applyStoreEntitlement(bool active, BillingPlan? plan) {
     if (_storePro == active) return;
     _storePro = active;
+    // Solo phones keep Pro locally; drop it when their own subscription ends.
+    // Shared households keep whatever the server says (partner may pay).
+    if (!active && !isConnected) _isPro = false;
     AppLog.event('billing.store.entitlement_changed', {
       'active': active,
       'plan': plan?.name ?? 'unknown',

@@ -443,7 +443,7 @@ abstract final class RevenueCatService {
       return const PurchaseResult(
         success: false,
         kind: PurchaseErrorKind.notConfigured,
-        message: 'Purchases are not set up on this build yet.',
+        message: 'Purchases aren’t available right now. Try again later.',
       );
     }
 
@@ -507,10 +507,11 @@ abstract final class RevenueCatService {
     });
   }
 
-  static Future<bool> restorePurchases() async {
+  /// true = Pro restored, false = nothing to restore, null = store unreachable.
+  static Future<bool?> restorePurchases() async {
     if (!_initialized) {
       AppLog.event('billing.rc.restore_skipped', {'reason': 'not_configured'});
-      return false;
+      return null;
     }
 
     return AppLog.trace('billing.rc.restore', () async {
@@ -525,7 +526,7 @@ abstract final class RevenueCatService {
         return active;
       } catch (error, stack) {
         AppLog.error('billing.rc.restore_failed', error, stack);
-        return false;
+        return null;
       }
     });
   }
