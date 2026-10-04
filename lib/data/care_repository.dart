@@ -1812,10 +1812,10 @@ class CareRepository extends ChangeNotifier {
   /// owner signed out elsewhere). Keep every pet and dose on the phone so
   /// logging still works, and let the person join again with a code.
   ///
-  /// There is no "remove member" in the API, so for a caregiver or sitter a
-  /// 401 means the owner deleted the household (the server answers "This
-  /// household no longer exists." or, once the members are gone, "Sign in
-  /// again…"). For the owner it means the token moved to another phone.
+  /// For a caregiver or sitter a 401 means the owner removed them (code
+  /// `member_removed`) or deleted the household ("This household no longer
+  /// exists." / "Sign in again…"). For the owner it means the token moved to
+  /// another phone.
   Future<void> _dropSession(String reason, [HouseholdException? error]) async {
     if (!isConnected) return;
     final removed = error?.isMemberRemoved ?? false;

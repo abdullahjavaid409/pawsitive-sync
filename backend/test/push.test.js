@@ -1,6 +1,6 @@
 /**
  * Push sender unit tests: no network. The HTTP/2 client and fetch are fakes.
- * Run: node --test backend/test/
+ * Run: node --test backend/test/*.test.js
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";

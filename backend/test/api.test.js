@@ -2,7 +2,7 @@
  * API integration tests against a real local Postgres. Starts its own server
  * on a random port (never 3100, never production).
  *
- *   TEST_DATABASE_URL=postgres://localhost/pawsitive_qa node --test backend/test/
+ *   TEST_DATABASE_URL=postgres://localhost/pawsitive_qa node --test backend/test/*.test.js
  *
  * Every request carries its own X-Forwarded-For so the per-IP rate limits
  * (10 creates/joins a minute) never trip during the matrix.
