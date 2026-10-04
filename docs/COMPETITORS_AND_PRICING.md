@@ -105,16 +105,16 @@ Strongest: PillCat (155 ratings, cats only). Nobody is winning yet.
 
 ## 5. Product identifiers
 
-App: `com.abdulmanan.pawsitivesync` (iOS + Android). Code requires entitlement `pro`
+App: `com.pawsitivesync.app` (iOS + Android). Code requires entitlement `pro`
 and product IDs containing `annual`/`year` or `month`.
 
 ### App Store Connect
 | Item | Identifier |
 |------|------------|
 | Subscription group | `PawsitiveSync Pro` |
-| Yearly (rank 1) | `com.abdulmanan.pawsitivesync.pro.annual` |
-| Monthly (rank 2) | `com.abdulmanan.pawsitivesync.pro.monthly` |
-| Price test (later) | `com.abdulmanan.pawsitivesync.pro.annual.3999` |
+| Yearly (rank 1) | `com.pawsitivesync.app.pro.annual` |
+| Monthly (rank 2) | `com.pawsitivesync.app.pro.monthly` |
+| Price test (later) | `com.pawsitivesync.app.pro.annual.3999` |
 | Trial | Introductory offer, 7 days free, yearly only |
 
 ### Google Play Console

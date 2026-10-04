@@ -26,6 +26,6 @@
 		<string>com.apple.widgetkit-extension</string>
 	</dict>
 	<key>PawsitiveAppGroup</key>
-	<string>group.com.abdulmanan.pawsitivesync</string>
+	<string>group.com.pawsitivesync.shared</string>
 </dict>
 </plist>
