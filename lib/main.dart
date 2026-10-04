@@ -11,6 +11,7 @@ import 'package:pawsitive_sync/data/household_api.dart';
 import 'package:pawsitive_sync/data/household_store.dart';
 import 'package:pawsitive_sync/data/pet_photo_store.dart';
 import 'package:pawsitive_sync/data/push_service.dart';
+import 'package:pawsitive_sync/data/reminders/reminder_background.dart';
 import 'package:pawsitive_sync/data/revenue_cat_service.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
@@ -70,6 +71,8 @@ Future<Widget> bootstrap() async {
   };
   // Any change to doses, medicines or pets re-aims reminders (debounced).
   DoseReminders.attach(care);
+  // Clock moved / zone changed while running (native signal) → re-plan.
+  DoseReminders.listenToClock();
   engagement.update(care);
   care.addListener(() => engagement.update(care));
   PushService.listen();
@@ -111,6 +114,8 @@ Future<void> _warmUp(
     if (onboarding.isComplete) {
       await DoseReminders.reschedule(care, reason: 'launch');
     }
+    // Re-plans while the app stays closed (the plan covers 7 days).
+    unawaited(ReminderBackground.register());
     AppLog.event('app.warmed', {
       'ms': watch.elapsedMilliseconds,
       'billingRcReady': RevenueCatService.isReady,

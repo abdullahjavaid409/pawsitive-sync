@@ -49,7 +49,10 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
                   if (!care.canAddPet) {
                     // billing.paywall.opened from=add_pet_pets_tab.
                     context.push(
-                      AppRoutes.paywallWith(from: 'add_pet_pets_tab'),
+                      AppRoutes.paywallWith(
+                        reason: 'second_pet',
+                        from: 'add_pet_pets_tab',
+                      ),
                     );
                     return;
                   }
@@ -59,10 +62,20 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
                   backgroundColor: scheme.primaryContainer,
                   minimumSize: const Size(44, 44),
                 ),
-                icon: StrokeIcon(
-                  StrokeIconKind.plus,
-                  size: 22,
-                  color: context.paws.brandDark,
+                // Free with one pet: a lock on the + says "Pro" before the tap.
+                icon: Badge(
+                  isLabelVisible: !care.canAddPet,
+                  backgroundColor: context.paws.brandDark,
+                  label: StrokeIcon(
+                    StrokeIconKind.lock,
+                    size: 9,
+                    color: scheme.onPrimary,
+                  ),
+                  child: StrokeIcon(
+                    StrokeIconKind.plus,
+                    size: 22,
+                    color: context.paws.brandDark,
+                  ),
                 ),
               ),
             ),

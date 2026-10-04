@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:math';
 
+import 'package:pawsitive_sync/core/format/clock_format.dart';
 import 'package:pawsitive_sync/data/reminders/reminder_settings.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:timezone/timezone.dart' as tz;
@@ -15,6 +16,9 @@ enum ReminderKind {
   refill,
   alreadyLogged,
   household,
+
+  /// The quiet "open the app to keep reminders going" safety net.
+  upkeep,
 }
 
 /// Stable notification ids: `(kind + 1) << 27 | fnv1a(key) & 0x7FFFFFF`.
@@ -54,6 +58,37 @@ abstract final class ReminderIds {
   }
 }
 
+/// One dose inside a grouped notification (same minute, several doses).
+/// Carries the copy fields so a background isolate can rebuild the group
+/// when one dose is resolved, without loading the household.
+class GroupedDose {
+  const GroupedDose({
+    required this.doseId,
+    required this.petName,
+    required this.medName,
+    this.amount = '',
+  });
+
+  final String doseId;
+  final String petName;
+  final String medName;
+  final String amount;
+
+  List<String> toJson() => [doseId, petName, medName, amount];
+
+  static GroupedDose? fromJson(Object? json) {
+    if (json is! List || json.length < 3) return null;
+    final fields = [for (final v in json) v is String ? v : ''];
+    if (fields[0].isEmpty) return null;
+    return GroupedDose(
+      doseId: fields[0],
+      petName: fields[1],
+      medName: fields[2],
+      amount: fields.length > 3 ? fields[3] : '',
+    );
+  }
+}
+
 /// One notification the app wants pending. [payload] carries everything a
 /// tap, an action, or a background snooze needs (no repository lookups).
 class PlannedNotification {
@@ -66,6 +101,10 @@ class PlannedNotification {
     this.doseId = '',
     this.day = '',
     this.photoPath,
+    this.group = const [],
+    this.groupKey = '',
+    this.timeLabel = '',
+    this.shared = false,
   });
 
   final int id;
@@ -79,7 +118,24 @@ class PlannedNotification {
   /// Local pet photo for the iOS attachment / Android large icon.
   final String? photoPath;
 
-  /// True for dose-type notifications that get Given / Snooze actions.
+  /// Two or more doses due at the same minute, shown as one notification
+  /// (empty for a single dose).
+  final List<GroupedDose> group;
+
+  /// `g|<day>|<minute of the dose time>` — the group's id key, shared by its
+  /// reminder, follow-up and snooze.
+  final String groupKey;
+
+  /// The dose time as shown in the copy ("8:00 AM"), for rebuilding.
+  final String timeLabel;
+
+  /// Household copy ("we'll let the household know"), for rebuilding.
+  final bool shared;
+
+  bool get isGroup => group.isNotEmpty;
+
+  /// True for dose-type notifications that get Given / Snooze actions
+  /// (a group gets Open / Snooze instead).
   bool get actionable =>
       kind == ReminderKind.dose ||
       kind == ReminderKind.followUp ||
@@ -93,6 +149,10 @@ class PlannedNotification {
     at: when.millisecondsSinceEpoch,
     title: title,
     body: body,
+    group: group,
+    groupKey: groupKey,
+    timeLabel: timeLabel,
+    shared: shared,
   ).encode();
 }
 
@@ -105,6 +165,10 @@ class ReminderPayload {
     this.at = 0,
     this.title = '',
     this.body = '',
+    this.group = const [],
+    this.groupKey = '',
+    this.timeLabel = '',
+    this.shared = false,
   });
 
   final ReminderKind kind;
@@ -113,8 +177,19 @@ class ReminderPayload {
   final int at;
   final String title;
   final String body;
+  final List<GroupedDose> group;
+  final String groupKey;
+  final String timeLabel;
+  final bool shared;
+
+  bool get isGroup => group.isNotEmpty;
 
   String get doseKey => '$doseId|$day';
+
+  /// Every `doseId|day` this notification is about (one, or the group's).
+  List<String> get doseKeys => isGroup
+      ? [for (final g in group) '${g.doseId}|$day']
+      : [if (doseId.isNotEmpty) doseKey];
 
   String encode() => jsonEncode({
     'k': kind.name,
@@ -123,6 +198,10 @@ class ReminderPayload {
     'at': at,
     't': title,
     'b': body,
+    if (group.isNotEmpty) 'g': [for (final g in group) g.toJson()],
+    if (groupKey.isNotEmpty) 'gk': groupKey,
+    if (timeLabel.isNotEmpty) 'tl': timeLabel,
+    if (shared) 'sh': true,
   });
 
   /// Null for junk or payloads from other notifications (old versions).
@@ -133,17 +212,125 @@ class ReminderPayload {
       if (json is! Map) return null;
       final kind = ReminderKind.values.where((k) => k.name == json['k']);
       if (kind.isEmpty) return null;
+      String str(String key) => json[key] is String ? json[key] as String : '';
       return ReminderPayload(
         kind: kind.first,
-        doseId: json['d'] is String ? json['d'] as String : '',
-        day: json['day'] is String ? json['day'] as String : '',
+        doseId: str('d'),
+        day: str('day'),
         at: json['at'] is int ? json['at'] as int : 0,
-        title: json['t'] is String ? json['t'] as String : '',
-        body: json['b'] is String ? json['b'] as String : '',
+        title: str('t'),
+        body: str('b'),
+        group: [
+          for (final g in json['g'] is List ? json['g'] as List : const [])
+            ?GroupedDose.fromJson(g),
+        ],
+        groupKey: str('gk'),
+        timeLabel: str('tl'),
+        shared: json['sh'] == true,
       );
     } on FormatException {
       return null;
     }
+  }
+}
+
+/// Builds dose-type notifications for one or more doses at the same
+/// minute. Shared by the planner, the push-cancel path and snooze, so a
+/// group rebuilt in a background isolate reads exactly like a planned one.
+abstract final class ReminderGroups {
+  /// The group key for doses whose reminder time is [at] (local).
+  static String keyFor(String day, tz.TZDateTime at) =>
+      'g|$day|${at.hour * 60 + at.minute}';
+
+  /// Two or more [doses] → one grouped notification (id from [groupKey]);
+  /// one → that dose's own notification (its usual id, so per-dose
+  /// cancellation keeps working); none → null.
+  static PlannedNotification? build({
+    required ReminderKind kind,
+    required List<GroupedDose> doses,
+    required tz.TZDateTime when,
+    required String day,
+    required String groupKey,
+    required String timeLabel,
+    required bool shared,
+    String? photoPath,
+  }) {
+    if (doses.isEmpty) return null;
+    if (doses.length == 1) {
+      final d = doses.single;
+      final (title, body) = switch (kind) {
+        ReminderKind.followUp => (
+          ReminderCopy.followUpTitle(d.petName, d.medName),
+          ReminderCopy.followUpBody,
+        ),
+        ReminderKind.snooze => (
+          ReminderCopy.doseTitle(d.petName, d.medName, timeLabel),
+          ReminderCopy.snoozeBody(''),
+        ),
+        _ => (
+          ReminderCopy.doseTitle(d.petName, d.medName, timeLabel),
+          ReminderCopy.doseBody(amount: d.amount, shared: shared),
+        ),
+      };
+      return PlannedNotification(
+        id: ReminderIds.forDose(kind, d.doseId, day),
+        kind: kind,
+        when: when,
+        title: title,
+        body: body,
+        doseId: d.doseId,
+        day: day,
+        photoPath: photoPath,
+        timeLabel: timeLabel,
+        shared: shared,
+      );
+    }
+    final lines = ReminderCopy.groupLines(doses);
+    final (title, body) = switch (kind) {
+      ReminderKind.followUp => (
+        ReminderCopy.groupFollowUpTitle(doses.length, timeLabel),
+        lines,
+      ),
+      ReminderKind.snooze => (
+        ReminderCopy.groupTitle(doses.length, timeLabel),
+        'Snoozed · $lines',
+      ),
+      _ => (ReminderCopy.groupTitle(doses.length, timeLabel), lines),
+    };
+    return PlannedNotification(
+      id: ReminderIds.of(kind, groupKey),
+      kind: kind,
+      when: when,
+      title: title,
+      body: body,
+      day: day,
+      group: doses,
+      groupKey: groupKey,
+      timeLabel: timeLabel,
+      shared: shared,
+    );
+  }
+
+  /// [payload]'s group without the doses in [resolvedKeys] (`doseId|day`),
+  /// at the same time. Null when nothing is left.
+  static PlannedNotification? without(
+    ReminderPayload payload,
+    Set<String> resolvedKeys,
+    tz.Location location,
+  ) {
+    final left = [
+      for (final g in payload.group)
+        if (!resolvedKeys.contains('${g.doseId}|${payload.day}')) g,
+    ];
+    return build(
+      kind: payload.kind,
+      doses: left,
+      when: tz.TZDateTime.fromMillisecondsSinceEpoch(location, payload.at),
+      day: payload.day,
+      groupKey: payload.groupKey,
+      timeLabel: payload.timeLabel,
+      shared: payload.shared,
+    );
   }
 }
 
@@ -152,8 +339,41 @@ class ReminderPayload {
 abstract final class ReminderCopy {
   static String _possessive(String name) => "$name's";
 
-  static String doseTitle(String petName, String medName, DayPart part) =>
-      '${_possessive(petName)} $medName · ${part.timeLabel}';
+  /// "Miso's Insulin · 7:00 AM" — [timeLabel] is the dose's own time.
+  static String doseTitle(String petName, String medName, String timeLabel) =>
+      '${_possessive(petName)} $medName · $timeLabel';
+
+  /// "3 doses due · 8:00 AM"
+  static String groupTitle(int count, String timeLabel) =>
+      '$count doses due · $timeLabel';
+
+  /// "Still due: 3 doses from 8:00 AM"
+  static String groupFollowUpTitle(int count, String timeLabel) =>
+      'Still due: $count doses from $timeLabel';
+
+  /// "Miso: Insulin · Biscuit: Apoquel, Fish oil" — pets in first-seen order.
+  static String groupLines(List<GroupedDose> doses) {
+    final byPet = <String, List<String>>{};
+    for (final d in doses) {
+      (byPet[d.petName] ??= []).add(d.medName);
+    }
+    return [
+      for (final e in byPet.entries) '${e.key}: ${e.value.join(', ')}',
+    ].join(' · ');
+  }
+
+  static const upkeepTitle = 'Keep reminders going';
+
+  /// "Open Pawsitive to keep Miso's reminders going."
+  static String upkeepBody(List<String> petNames) {
+    final who = switch (petNames.length) {
+      0 => 'your',
+      1 => _possessive(petNames.single),
+      2 => "${petNames[0]} and ${_possessive(petNames[1])}",
+      _ => 'your pets’',
+    };
+    return 'Open Pawsitive to keep $who reminders going.';
+  }
 
   static String doseBody({
     required String amount,
@@ -254,6 +474,7 @@ class ReminderPlanInput {
     this.isPro = false,
     this.snoozedKeys = const {},
     this.refillNotifiedAt = const {},
+    this.resolvedKeys = const {},
   });
 
   /// The device clock (wall time is read in [location]).
@@ -276,6 +497,10 @@ class ReminderPlanInput {
 
   /// Medication id → epoch ms its refill heads-up was scheduled for.
   final Map<String, int> refillNotifiedAt;
+
+  /// `doseId|day` keys another phone resolved (push) before this phone
+  /// synced the log: treated like a log, before grouping.
+  final Set<String> resolvedKeys;
 }
 
 /// Pure: which notifications should be pending right now.
@@ -300,10 +525,29 @@ abstract final class ReminderPlanner {
 
   static List<PlannedNotification> plan(ReminderPlanInput input) {
     final now = tz.TZDateTime.from(input.now, input.location);
-    return [..._doses(input, now), ..._engagement(input, now)];
+    final doses = _doses(input, now);
+    return [
+      ...doses.notifications,
+      ?_upkeep(input, doses.notifications, truncated: doses.truncated),
+      ..._engagement(input, now),
+    ];
   }
 
-  static List<PlannedNotification> _doses(
+  /// The local instant of [minute] on [date]. A wall time that doesn't
+  /// exist (DST spring-forward gap, e.g. 02:30) resolves to the next valid
+  /// instant (03:30) by the tz rules; an ambiguous one (fall-back 01:30)
+  /// resolves to a single instant. Either way: exactly one reminder.
+  static tz.TZDateTime at(tz.Location location, DateTime date, int minute) =>
+      tz.TZDateTime(
+        location,
+        date.year,
+        date.month,
+        date.day,
+        minute ~/ 60,
+        minute % 60,
+      );
+
+  static ({List<PlannedNotification> notifications, bool truncated}) _doses(
     ReminderPlanInput input,
     tz.TZDateTime now,
   ) {
@@ -313,7 +557,7 @@ abstract final class ReminderPlanner {
     for (final log in input.logs) {
       logs.putIfAbsent('${log.medicationId}.${log.part.name}|${log.day}', () => log);
     }
-    final candidates = <PlannedNotification>[];
+    final due = <_Due>[];
     for (var offset = 0; offset < horizonDays; offset++) {
       // Calendar arithmetic on y/m/d, so DST never shifts the day.
       final date = DateTime(now.year, now.month, now.day + offset);
@@ -325,63 +569,120 @@ abstract final class ReminderPlanner {
           final pet = petsById[med.petId];
           if (pet == null) continue;
           final doseId = '${med.id}.${part.name}';
+          if (input.resolvedKeys.contains('$doseId|$day')) continue;
           final log = logs['$doseId|$day'];
           if (log != null && log.outcome != LogOutcome.uncertain) continue;
-          final at = tz.TZDateTime(
-            input.location,
-            date.year,
-            date.month,
-            date.day,
-            part.hour,
-          );
-          final photo = pet.photoPath;
-          String? photoFor(tz.TZDateTime when) =>
-              when.difference(now) <= photoWindow ? photo : null;
+          final doseAt = at(input.location, date, med.minuteFor(part));
           final unsureBy = log == null
               ? null
               : input.memberNames[log.memberId] ?? 'Someone';
-          final title = ReminderCopy.doseTitle(pet.name, med.name, part);
-          if (at.isAfter(now)) {
-            candidates.add(
-              PlannedNotification(
-                id: ReminderIds.forDose(ReminderKind.dose, doseId, day),
-                kind: ReminderKind.dose,
-                when: at,
-                title: title,
-                body: ReminderCopy.doseBody(
-                  amount: med.amount,
-                  shared: input.shared,
-                  unsureBy: unsureBy,
-                ),
-                doseId: doseId,
-                day: day,
-                photoPath: photoFor(at),
-              ),
-            );
-          }
-          final follow = at.add(ReminderSettings.followUpDelay);
+          final base = _Due(
+            kind: ReminderKind.dose,
+            when: doseAt,
+            doseAt: doseAt,
+            day: day,
+            dose: GroupedDose(
+              doseId: doseId,
+              petName: pet.name,
+              medName: med.name,
+              amount: med.amount,
+            ),
+            timeLabel: med.timeLabelFor(part),
+            unsureBy: unsureBy,
+            photo: pet.photoPath,
+          );
+          if (doseAt.isAfter(now)) due.add(base);
+          final follow = doseAt.add(ReminderSettings.followUpDelay);
           if (input.settings.followUp &&
               follow.isAfter(now) &&
               follow.difference(now) <= followUpWindow &&
               !input.snoozedKeys.contains('$doseId|$day')) {
-            candidates.add(
-              PlannedNotification(
-                id: ReminderIds.forDose(ReminderKind.followUp, doseId, day),
-                kind: ReminderKind.followUp,
-                when: follow,
-                title: ReminderCopy.followUpTitle(pet.name, med.name),
-                body: ReminderCopy.followUpBody,
-                doseId: doseId,
-                day: day,
-                photoPath: photoFor(follow),
-              ),
-            );
+            due.add(base.copy(kind: ReminderKind.followUp, when: follow));
           }
         }
       }
     }
-    candidates.sort((a, b) => a.when.compareTo(b.when));
-    return candidates.take(doseBudget).toList();
+    final notifications = _grouped(due, now, input.shared)
+      ..sort((a, b) => a.when.compareTo(b.when));
+    return (
+      notifications: notifications.take(doseBudget).toList(),
+      truncated: notifications.length > doseBudget,
+    );
+  }
+
+  /// One notification per minute: doses of the same kind at the same
+  /// instant collapse into a group. A "not sure" dose stays on its own —
+  /// its check-first warning must not be lost in a list.
+  static List<PlannedNotification> _grouped(
+    List<_Due> due,
+    tz.TZDateTime now,
+    bool shared,
+  ) {
+    final buckets = <String, List<_Due>>{};
+    final result = <PlannedNotification>[];
+    for (final d in due) {
+      if (d.unsureBy != null) {
+        result.add(d.single(now, shared));
+        continue;
+      }
+      (buckets['${d.kind.index}|${d.when.millisecondsSinceEpoch}'] ??= []).add(d);
+    }
+    for (final bucket in buckets.values) {
+      if (bucket.length == 1) {
+        result.add(bucket.single.single(now, shared));
+        continue;
+      }
+      final first = bucket.first;
+      result.add(
+        ReminderGroups.build(
+          kind: first.kind,
+          doses: [for (final d in bucket) d.dose],
+          when: first.when,
+          day: first.day,
+          groupKey: ReminderGroups.keyFor(first.day, first.doseAt),
+          timeLabel: ClockFormat.label(first.doseAt.hour * 60 + first.doseAt.minute),
+          shared: shared,
+        )!,
+      );
+    }
+    return result;
+  }
+
+  /// Id of the single "keep reminders going" notification; one at a time,
+  /// replaced (same id, new time) whenever a reschedule extends the window.
+  static final upkeepId = ReminderIds.of(ReminderKind.upkeep, 'window');
+
+  /// Safety net for when the app isn't opened and background refresh never
+  /// runs: at the last scheduled dose reminder, one quiet nudge to open the
+  /// app — only when doses continue past what is scheduled.
+  static PlannedNotification? _upkeep(
+    ReminderPlanInput input,
+    List<PlannedNotification> scheduled, {
+    required bool truncated,
+  }) {
+    final last = scheduled.lastWhereOrNull((n) => n.kind == ReminderKind.dose);
+    if (last == null) return null;
+    final lastDate = DateTime(last.when.year, last.when.month, last.when.day);
+    final nextDay = dayKey(
+      DateTime(lastDate.year, lastDate.month, lastDate.day + 1),
+    );
+    final petsById = {for (final p in input.pets) p.id: p};
+    final names = <String>[];
+    for (final med in input.medications) {
+      final pet = petsById[med.petId];
+      if (med.isArchived || med.parts.isEmpty || pet == null) continue;
+      final continues = med.isActiveOn(nextDay) || truncated;
+      if (continues && !names.contains(pet.name)) names.add(pet.name);
+    }
+    if (names.isEmpty) return null;
+    return PlannedNotification(
+      id: upkeepId,
+      kind: ReminderKind.upkeep,
+      when: last.when,
+      title: ReminderCopy.upkeepTitle,
+      body: ReminderCopy.upkeepBody(names),
+      day: last.day,
+    );
   }
 
   static List<PlannedNotification> _engagement(
@@ -459,13 +760,7 @@ abstract final class ReminderPlanner {
       for (final med in input.medications) {
         if (med.isArchived || !med.isActiveOn(day)) continue;
         for (final part in med.parts) {
-          final due = tz.TZDateTime(
-            input.location,
-            d.year,
-            d.month,
-            d.day,
-            part.hour,
-          );
+          final due = ReminderPlanner.at(input.location, d, med.minuteFor(part));
           // Only doses whose time has come by now (and by the summary).
           if (due.isAfter(now) || due.isAfter(at)) continue;
           expected[med.petId] = (expected[med.petId] ?? 0) + 1;
@@ -543,5 +838,83 @@ abstract final class ReminderPlanner {
       );
     }
     return result;
+  }
+}
+
+/// One dose reminder or follow-up before grouping.
+class _Due {
+  const _Due({
+    required this.kind,
+    required this.when,
+    required this.doseAt,
+    required this.day,
+    required this.dose,
+    required this.timeLabel,
+    this.unsureBy,
+    this.photo,
+  });
+
+  final ReminderKind kind;
+  final tz.TZDateTime when;
+
+  /// The dose's own reminder time (a follow-up fires 30 min after it).
+  final tz.TZDateTime doseAt;
+  final String day;
+  final GroupedDose dose;
+  final String timeLabel;
+  final String? unsureBy;
+  final String? photo;
+
+  _Due copy({required ReminderKind kind, required tz.TZDateTime when}) => _Due(
+    kind: kind,
+    when: when,
+    doseAt: doseAt,
+    day: day,
+    dose: dose,
+    timeLabel: timeLabel,
+    unsureBy: unsureBy,
+    photo: photo,
+  );
+
+  PlannedNotification single(tz.TZDateTime now, bool shared) {
+    final photoPath =
+        when.difference(now) <= ReminderPlanner.photoWindow ? photo : null;
+    if (kind == ReminderKind.dose && unsureBy != null) {
+      return PlannedNotification(
+        id: ReminderIds.forDose(kind, dose.doseId, day),
+        kind: kind,
+        when: when,
+        title: ReminderCopy.doseTitle(dose.petName, dose.medName, timeLabel),
+        body: ReminderCopy.doseBody(
+          amount: dose.amount,
+          shared: shared,
+          unsureBy: unsureBy,
+        ),
+        doseId: dose.doseId,
+        day: day,
+        photoPath: photoPath,
+        timeLabel: timeLabel,
+        shared: shared,
+      );
+    }
+    return ReminderGroups.build(
+      kind: kind,
+      doses: [dose],
+      when: when,
+      day: day,
+      groupKey: '',
+      timeLabel: timeLabel,
+      shared: shared,
+      photoPath: photoPath,
+    )!;
+  }
+}
+
+extension<T> on List<T> {
+  T? lastWhereOrNull(bool Function(T) test) {
+    for (var i = length - 1; i >= 0; i--) {
+      if (test(this[i])) return this[i];
+    }
+    return null;
   }
 }

@@ -115,6 +115,42 @@ abstract final class RevenueCatService {
   /// a purchase that finishes after our timeout, Ask to Buy approval,
   /// renewal, expiry, refund. [CareRepository] wires this at launch.
   static void Function(bool isPro, BillingPlan? plan)? onEntitlementChanged;
+
+  /// When this phone's `pro` entitlement ends, from the last CustomerInfo
+  /// (null = lifetime, or not Pro). The repository re-checks it on every
+  /// read so a cached entitlement never outlives its expiry offline.
+  static DateTime? storeProExpiresAt;
+
+  /// Pro only when RevenueCat says active *and* its expiry (if any) is
+  /// still ahead of [now]. Pure, so it is unit-tested without the SDK.
+  @visibleForTesting
+  static bool proActive({
+    required bool rcActive,
+    required String? expirationDate,
+    required DateTime now,
+  }) {
+    if (!rcActive) return false;
+    final at = expirationDate == null ? null : DateTime.tryParse(expirationDate);
+    return at == null || at.isAfter(now);
+  }
+
+  /// The single place a CustomerInfo becomes "Pro or not" (listener, status,
+  /// purchase, restore, check). Updates [storeProExpiresAt].
+  static bool _pro(CustomerInfo info) {
+    final entitlement = info.entitlements.all[BillingConfig.entitlementId];
+    final raw = entitlement?.expirationDate;
+    final active = proActive(
+      rcActive: entitlement?.isActive ?? false,
+      expirationDate: raw,
+      now: DateTime.now(),
+    );
+    if ((entitlement?.isActive ?? false) && !active) {
+      // The SDK's cache still said active after the end (offline): not Pro.
+      AppLog.event('billing.rc.expired_cached', {'expiredAt': raw ?? ''});
+    }
+    storeProExpiresAt = active && raw != null ? DateTime.tryParse(raw) : null;
+    return active;
+  }
   static bool? _lastActive;
 
   static Future<void> initialize() async {
@@ -171,9 +207,7 @@ abstract final class RevenueCatService {
   }
 
   static void _onCustomerInfo(CustomerInfo info) {
-    final active = info.entitlements.active.containsKey(
-      BillingConfig.entitlementId,
-    );
+    final active = _pro(info);
     AppLog.event('billing.rc.customer_updated', {
       'active': active,
       'entitlements': info.entitlements.active.keys.join(','),
@@ -425,9 +459,7 @@ abstract final class RevenueCatService {
     if (!_initialized) return false;
     try {
       final info = await Purchases.getCustomerInfo().timeout(_networkTimeout);
-      final active = info.entitlements.active.containsKey(
-        BillingConfig.entitlementId,
-      );
+      final active = _pro(info);
       AppLog.event('billing.rc.check', {'active': active});
       return active;
     } catch (error, stack) {
@@ -451,9 +483,7 @@ abstract final class RevenueCatService {
     if (!_initialized) return (isPro: false, plan: null);
     try {
       final info = await Purchases.getCustomerInfo().timeout(_networkTimeout);
-      final isPro = info.entitlements.active.containsKey(
-        BillingConfig.entitlementId,
-      );
+      final isPro = _pro(info);
       final plan = isPro ? planFromStore(info) : null;
       AppLog.event('billing.rc.status', {
         'isPro': isPro,
@@ -504,9 +534,7 @@ abstract final class RevenueCatService {
           PurchaseParams.package(chosen),
         ).timeout(_purchaseTimeout);
 
-        final hasPro = response.customerInfo.entitlements.active.containsKey(
-          BillingConfig.entitlementId,
-        );
+        final hasPro = _pro(response.customerInfo);
 
         if (hasPro) {
           // Trial eligibility changed; next paywall must re-ask the store.
@@ -553,9 +581,7 @@ abstract final class RevenueCatService {
         final info = await Purchases.restorePurchases().timeout(
           _purchaseTimeout,
         );
-        final active = info.entitlements.active.containsKey(
-          BillingConfig.entitlementId,
-        );
+        final active = _pro(info);
         AppLog.event('billing.rc.restore_done', {'active': active});
         return active;
       } catch (error, stack) {

@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -116,6 +117,10 @@ class ReminderSettings {
 abstract final class ReminderSettingsStore {
   static const key = 'reminder_settings_v1';
 
+  /// Bumped on every save. Part of the reminder signature, so a settings
+  /// change re-plans pending copy even without an explicit reschedule.
+  static final ValueNotifier<int> changes = ValueNotifier(0);
+
   static Future<ReminderSettings> read() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -138,6 +143,7 @@ abstract final class ReminderSettingsStore {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(key, jsonEncode(settings.toJson()));
+      changes.value++;
     } on Object catch (error, stack) {
       AppLog.error('store.reminder_settings_failed', error, stack, {
         'op': 'write',

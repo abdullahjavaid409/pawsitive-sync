@@ -176,8 +176,10 @@
       showError("");
       list.replaceChildren(el("div", "empty", "Loading…"));
       const day = todayKey();
-      const hour = new Date().getHours();
-      const res = await fetch(`/v1/sitter/view?day=${day}&hour=${hour}`, {
+      const clock = new Date();
+      const hour = clock.getHours();
+      const minute = clock.getMinutes();
+      const res = await fetch(`/v1/sitter/view?day=${day}&hour=${hour}&minute=${minute}`, {
         headers: authHeaders(),
       });
       const body = await res.json().catch(() => ({}));

@@ -9,6 +9,7 @@ import 'package:pawsitive_sync/core/widgets/post_frame.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/domain/models.dart';
+import 'package:pawsitive_sync/ui/meds/dose_time_picker.dart';
 import 'package:provider/provider.dart';
 
 /// Shows one medication's supply, schedule, and recent doses.
@@ -265,6 +266,17 @@ class MedicationScreen extends StatelessWidget {
                 children: [
                   _Pair(label: 'Dose', value: medication.doseLabel),
                   _Pair(label: 'When', value: medication.whenLabel),
+                  // One row per part; editors can change the time
+                  // (reminders re-plan as soon as it's saved).
+                  for (final part in medication.parts)
+                    DoseTimeRow(
+                      key: ValueKey('time-${part.name}'),
+                      part: part,
+                      minute: medication.minuteFor(part),
+                      onTap: care.canEditCare
+                          ? () => _changeTime(context, care, medication, part)
+                          : null,
+                    ),
                   _Pair(label: 'For', value: petName),
                   _Pair(
                     label: 'Course',
@@ -404,7 +416,12 @@ class MedicationScreen extends StatelessWidget {
           final expected = !medication.isActiveOn(key)
               ? 0
               : medication.parts
-                    .where((part) => day != today || now.hour >= part.opensAt)
+                    .where(
+                      (part) =>
+                          day != today ||
+                          now.hour * 60 + now.minute >=
+                              medication.dueFromMinute(part),
+                    )
                     .length;
           final given = care.logs
               .where(
@@ -421,6 +438,47 @@ class MedicationScreen extends StatelessWidget {
           );
         }(),
     ];
+  }
+
+  /// Picks and saves one part's reminder time. Works offline (queued);
+  /// a failure keeps the old time and says why.
+  Future<void> _changeTime(
+    BuildContext context,
+    CareRepository care,
+    Medication medication,
+    DayPart part,
+  ) async {
+    final minute = await pickDoseTime(
+      context,
+      part,
+      medication.minuteFor(part),
+    );
+    if (minute == null || !context.mounted) return;
+    final current = care.medicationById(medication.id) ?? medication;
+    final ok = await care.setMedicationTimes(medication.id, {
+      ...current.times,
+      part: minute,
+    });
+    if (!context.mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    if (!ok) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            care.lastError ?? 'Could not save the time. Try again.',
+          ),
+        ),
+      );
+      return;
+    }
+    final saved = care.medicationById(medication.id) ?? current;
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          '${part.label} reminder set to ${saved.timeLabelFor(part)}.',
+        ),
+      ),
+    );
   }
 
   Future<void> _confirmStop(

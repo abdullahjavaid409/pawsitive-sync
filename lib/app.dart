@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'package:flutter/foundation.dart' show kReleaseMode;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pawsitive_sync/core/format/clock_format.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/app_router.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
@@ -137,6 +138,9 @@ class _PawsitiveAppState extends State<PawsitiveApp>
       debugShowCheckedModeBanner: false,
       builder: (context, child) {
         final media = MediaQuery.of(context);
+        // Dose times follow the phone's 12/24-hour setting (before any
+        // screen builds, so this frame already uses it).
+        ClockFormat.update(media.alwaysUse24HourFormat);
         return MediaQuery(
           data: media.copyWith(
             textScaler: media.textScaler.clamp(

@@ -1,3 +1,10 @@
+import 'dart:math' as math;
+
+import 'package:pawsitive_sync/core/format/clock_format.dart';
+import 'package:pawsitive_sync/domain/dose_times.dart';
+
+export 'package:pawsitive_sync/domain/dose_times.dart';
+
 enum Species { cat, dog, rabbit, other }
 
 enum MemberRole { owner, caregiver, sitter }
@@ -220,7 +227,8 @@ class Dose {
     required this.subtitle,
     this.givenById,
     this.givenAt = '',
-  });
+    int? minute,
+  }) : minute = minute ?? -1;
 
   final String id;
   final String petId;
@@ -234,6 +242,14 @@ class Dose {
 
   /// Time the logged dose was given, e.g. "8:02 AM". Empty when not logged.
   final String givenAt;
+
+  /// Scheduled reminder time (minute of day); the part's default when the
+  /// medicine has no custom time.
+  final int minute;
+
+  /// "7:00 AM" — the scheduled time as the phone shows clocks.
+  String get timeLabel =>
+      ClockFormat.label(minute < 0 ? part.defaultMinute : minute);
 
   String get title => amount.isEmpty ? name : '$name · $amount';
 
@@ -254,6 +270,7 @@ class Dose {
       subtitle: subtitle ?? this.subtitle,
       givenById: givenById ?? this.givenById,
       givenAt: givenAt,
+      minute: minute,
     );
   }
 }
@@ -271,6 +288,7 @@ class Medication {
     required this.startDay,
     this.endDay = '',
     this.archivedAt,
+    this.times = const {},
   });
 
   final String id;
@@ -278,6 +296,26 @@ class Medication {
   final String name;
   final String amount;
   final List<DayPart> parts;
+
+  /// Custom reminder time per part (minute of day). Missing parts use the
+  /// part's default; see [DoseTimes] for the rules.
+  final Map<DayPart, int> times;
+
+  /// Reminder time for [part] as a minute of day.
+  int minuteFor(DayPart part) => times[part] ?? part.defaultMinute;
+
+  /// From this minute of the day on the dose counts as due: the part's
+  /// usual opening ([DayPartLabel.opensAt]) or the custom time when earlier,
+  /// so a 15:00 "evening" dose is due at 15:00, never shown as upcoming
+  /// after its own reminder fired.
+  int dueFromMinute(DayPart part) =>
+      math.min(part.opensAt * 60, minuteFor(part));
+
+  /// "7:00 AM" for [part], in the phone's clock format.
+  String timeLabelFor(DayPart part) => ClockFormat.label(minuteFor(part));
+
+  /// True when any selected part has a non-default time.
+  bool get hasCustomTimes => parts.any((part) => times[part] != null);
 
   /// 0 means the supply is not tracked.
   final int supplyTotal;
@@ -351,6 +389,17 @@ class Medication {
 
   String get doseLabel => amount.isEmpty ? 'As prescribed' : amount;
 
+  /// "Morning 7:00 AM & evening 7:00 PM" — parts with their times.
+  String get timesLabel {
+    if (parts.isEmpty) return '';
+    final items = [
+      for (final (i, part) in parts.indexed)
+        '${i == 0 ? part.label : part.label.toLowerCase()} ${timeLabelFor(part)}',
+    ];
+    if (items.length == 1) return items.single;
+    return '${items.take(items.length - 1).join(', ')} & ${items.last}';
+  }
+
   String get whenLabel {
     if (parts.isEmpty) return '';
     if (parts.length == 1) return 'Every ${parts.first.label.toLowerCase()}';
@@ -384,7 +433,12 @@ class Medication {
     return '${weekdays[end.weekday - 1]}, ${months[end.month - 1]} ${end.day}';
   }
 
-  Medication copyWith({int? dosesLeft, String? endDay, String? archivedAt}) {
+  Medication copyWith({
+    int? dosesLeft,
+    String? endDay,
+    String? archivedAt,
+    Map<DayPart, int>? times,
+  }) {
     return Medication(
       id: id,
       petId: petId,
@@ -396,6 +450,7 @@ class Medication {
       startDay: startDay,
       endDay: endDay ?? this.endDay,
       archivedAt: archivedAt ?? this.archivedAt,
+      times: times ?? this.times,
     );
   }
 
@@ -409,6 +464,10 @@ class Medication {
     'dosesLeft': dosesLeft,
     'startDay': startDay,
     if (endDay.isNotEmpty) 'endDay': endDay,
+    // Absent (not empty) when there are no custom times: the server keeps
+    // what it has when the field is missing, so a replayed add can't wipe
+    // times set later on another phone.
+    if (times.isNotEmpty) 'times': DoseTimes.encode(times),
   };
 }
 
@@ -518,6 +577,9 @@ extension DayPartLabel on DayPart {
     DayPart.evening => 20,
   };
 
+  /// [hour] as a minute of day.
+  int get defaultMinute => hour * 60;
+
   /// From this hour on, the dose counts as due.
   int get opensAt => switch (this) {
     DayPart.morning => 0,
@@ -525,11 +587,9 @@ extension DayPartLabel on DayPart {
     DayPart.evening => 17,
   };
 
-  String get timeLabel => switch (this) {
-    DayPart.morning => '8:00 AM',
-    DayPart.afternoon => '1:00 PM',
-    DayPart.evening => '8:00 PM',
-  };
+  /// The default time ("8:00 AM"); use [Medication.timeLabelFor] or
+  /// [Dose.timeLabel] wherever a medicine is known.
+  String get timeLabel => ClockFormat.label(defaultMinute);
 }
 
 /// One past dose of a medicine, ready to show.

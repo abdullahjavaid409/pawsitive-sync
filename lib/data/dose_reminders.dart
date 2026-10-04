@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show MethodCall, MethodChannel;
+import 'package:pawsitive_sync/core/format/clock_format.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/data/push_service.dart' show PushDose;
@@ -68,6 +70,18 @@ abstract final class DoseReminders {
   /// Medication id → when its refill heads-up was scheduled (epoch ms).
   static const _refillKey = 'reminders_refill_v1';
 
+  /// Pro + shared as of the last foreground plan. A background run may not
+  /// read the household token (keychain locked) and has no store login, so
+  /// it reuses these instead of rewriting copy and dropping refill notes.
+  static const _contextKey = 'reminders_context_v1';
+
+  /// Native → Dart "the wall clock or zone jumped" (Android TIME_SET /
+  /// TIMEZONE_CHANGED while the app runs; iOS significant time change).
+  static const clockChannel = MethodChannel('pawsitive_sync/clock');
+
+  /// True in the background-refresh isolate (no UI, no network).
+  static bool backgroundMode = false;
+
   @visibleForTesting
   static void resetForTest() {
     _ready = null;
@@ -80,6 +94,9 @@ abstract final class DoseReminders {
     _logging.clear();
     _clearedDelivered.clear();
     _zone = null;
+    backgroundMode = false;
+    ClockFormat.use24h.removeListener(_onCareChanged);
+    ReminderSettingsStore.changes.removeListener(_onCareChanged);
     permission.value = ReminderPermission.unknown;
     exactAllowed.value = true;
     pendingOpen.value = null;
@@ -210,8 +227,49 @@ abstract final class DoseReminders {
     if (identical(_care, care)) return;
     _care?.removeListener(_onCareChanged);
     _care = care..addListener(_onCareChanged);
+    // Clock format and settings change copy too; same debounced path.
+    ClockFormat.use24h
+      ..removeListener(_onCareChanged)
+      ..addListener(_onCareChanged);
+    ReminderSettingsStore.changes
+      ..removeListener(_onCareChanged)
+      ..addListener(_onCareChanged);
     _signature = _signatureOf(care);
     _armRollover();
+  }
+
+  /// Listens on [clockChannel]. Called once from `bootstrap` (needs the
+  /// platform channels, so not from [attach], which tests call bare).
+  static void listenToClock() {
+    clockChannel.setMethodCallHandler((MethodCall call) async {
+      final care = _care;
+      final source = '${call.arguments ?? 'native'}';
+      if (call.method != 'changed') {
+        AppLog.event('reminders.clock_ignored', {'reason': 'unknown_method', 'method': call.method});
+        return;
+      }
+      if (care == null) {
+        // Before data loaded: launch's own reschedule uses the new clock.
+        AppLog.event('reminders.clock_ignored', {'reason': 'not_attached', 'source': source});
+        return;
+      }
+      await onClockChanged(care, source: source);
+    });
+  }
+
+  /// The user moved the clock or the zone changed under a running app: the
+  /// midnight timer (a monotonic duration) now aims at the wrong instant
+  /// and pending reminders may be in the past. Re-arm and re-plan; the
+  /// planner never schedules past instants and ids are per dose-day, so
+  /// nothing doubles up.
+  static Future<void> onClockChanged(
+    CareRepository care, {
+    String source = 'native',
+  }) async {
+    AppLog.event('reminders.clock_changed', {'source': source});
+    _armRollover();
+    care.dayChanged();
+    await reschedule(care, reason: 'clock_changed');
   }
 
   static void _onCareChanged() {
@@ -227,7 +285,12 @@ abstract final class DoseReminders {
     });
   }
 
-  /// Only what changes the plan: schedules, pets, recent logs, the day.
+  /// Only what changes the plan or its copy: schedules (with custom
+  /// times), pets, member names ("Dan wasn't sure…"), shared mode, clock
+  /// format, settings saves, recent logs, the day.
+  @visibleForTesting
+  static int signatureOf(CareRepository care) => _signatureOf(care);
+
   static int _signatureOf(CareRepository care) {
     final now = care.now;
     final since = dayKey(now.subtract(const Duration(days: 8)));
@@ -236,9 +299,22 @@ abstract final class DoseReminders {
       care.isPro,
       care.isConnected,
       care.members.length,
+      care.isConnected && care.members.length > 1,
+      ClockFormat.use24h.value,
+      ReminderSettingsStore.changes.value,
+      for (final m in care.members) Object.hash(m.id, m.name, m.isYou),
       for (final m in care.medications)
-        Object.hash(m.id, m.petId, m.name, m.amount, Object.hashAll(m.parts),
-            m.startDay, m.endDay, m.dosesLeft),
+        Object.hash(
+          m.id,
+          m.petId,
+          m.name,
+          m.amount,
+          Object.hashAll(m.parts),
+          Object.hashAll([for (final p in m.parts) m.minuteFor(p)]),
+          m.startDay,
+          m.endDay,
+          m.dosesLeft,
+        ),
       for (final p in care.pets) Object.hash(p.id, p.name, p.photoPath),
       for (final log in care.logs)
         if (log.day.compareTo(since) >= 0) Object.hash(log.id, log.outcome),
@@ -317,6 +393,7 @@ abstract final class DoseReminders {
       final members = {
         for (final m in care.members) m.id: m.isYou ? 'You' : m.name,
       };
+      final (:shared, :isPro) = await _context(care);
       final planned = ReminderPlanner.plan(
         ReminderPlanInput(
           now: care.now,
@@ -326,12 +403,13 @@ abstract final class DoseReminders {
           logs: care.logs,
           memberNames: members,
           settings: settings,
-          shared: care.isConnected && care.members.length > 1,
-          isPro: care.isPro,
+          shared: shared,
+          isPro: isPro,
           snoozedKeys: snoozed,
           refillNotifiedAt: refill,
+          resolvedKeys: resolved,
         ),
-      ).where((n) => !resolved.contains('${n.doseId}|${n.day}')).toList();
+      );
       final stats = await _apply(care, planned);
       await _saveRefill(planned, refill);
       AppLog.event('reminders.scheduled', {
@@ -339,6 +417,9 @@ abstract final class DoseReminders {
         'doses': planned.where((n) => n.kind == ReminderKind.dose).length,
         'followUps': planned.where((n) => n.kind == ReminderKind.followUp).length,
         'engagement': planned.where((n) => !n.actionable).length,
+        'grouped': planned.where((n) => n.isGroup).length,
+        'upkeep': planned.any((n) => n.kind == ReminderKind.upkeep),
+        if (backgroundMode) 'background': true,
         'added': stats.$1,
         'cancelled': stats.$2,
         'unchanged': stats.$3,
@@ -350,6 +431,39 @@ abstract final class DoseReminders {
         'trigger': reason,
       });
     }
+  }
+
+  /// Shared/Pro for copy and refill notes. Foreground: from the household,
+  /// saved for later. Background: the saved values (the token or store
+  /// entitlement may be unreadable there), falling back to the household.
+  static Future<({bool shared, bool isPro})> _context(
+    CareRepository care,
+  ) async {
+    final live = (
+      shared: care.isConnected && care.members.length > 1,
+      isPro: care.isPro,
+    );
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (backgroundMode) {
+        final saved = prefs.getStringList(_contextKey);
+        if (saved == null || saved.length < 2) return live;
+        return (
+          shared: saved[0] == '1' || live.shared,
+          isPro: saved[1] == '1' || live.isPro,
+        );
+      }
+      await prefs.setStringList(_contextKey, [
+        live.shared ? '1' : '0',
+        live.isPro ? '1' : '0',
+      ]);
+    } on Object catch (error, stack) {
+      // Copy falls back to what this run can see.
+      AppLog.error('reminders.context_failed', error, stack, {
+        'background': backgroundMode,
+      });
+    }
+    return live;
   }
 
   /// Diffs against what the OS has pending. Returns (added, cancelled, kept).
@@ -368,10 +482,29 @@ abstract final class DoseReminders {
       if (kind == ReminderKind.snooze) {
         // A snooze the person asked for stays until the dose is resolved.
         final payload = ReminderPayload.decode(p.payload);
-        if (payload != null &&
-            payload.day == today &&
-            !_resolvedToday(care, payload.doseId, today)) {
-          continue;
+        if (payload != null && payload.day == today) {
+          if (!payload.isGroup) {
+            if (!_resolvedToday(care, payload.doseId, today)) continue;
+          } else {
+            // A group snooze keeps the doses still open, drops the rest.
+            final done = {
+              for (final key in payload.doseKeys)
+                if (_resolvedToday(care, key.split('|').first, today)) key,
+            };
+            if (done.isEmpty) continue;
+            final rest = ReminderGroups.without(payload, done, tz.local);
+            AppLog.event('reminders.group_shrunk', {
+              'kept': rest == null ? 0 : 1,
+              'removed': rest == null ? 1 : 0,
+              'from': 'snooze',
+            });
+            if (rest != null) {
+              if (rest.id != p.id) await platform.cancel(p.id);
+              await platform.schedule(rest, exact: exactAllowed.value);
+              cancelled++;
+              continue;
+            }
+          }
         }
       }
       await platform.cancel(p.id);
@@ -393,6 +526,24 @@ abstract final class DoseReminders {
         }
       }
     }
+    // A delivered group leaves once every dose in it is resolved. (A
+    // partly resolved delivered group stays as shown: re-posting it would
+    // alert again; the pending side above is always rebuilt.)
+    for (final entry in _todayGroups(care, today).entries) {
+      if (!entry.value.every((doseId) => _resolvedToday(care, doseId, today))) {
+        continue;
+      }
+      for (final kind in const [
+        ReminderKind.dose,
+        ReminderKind.followUp,
+        ReminderKind.snooze,
+      ]) {
+        final id = ReminderIds.of(kind, entry.key);
+        if (_clearedDelivered.add(id) && !wanted.containsKey(id)) {
+          await platform.cancel(id);
+        }
+      }
+    }
     var added = 0;
     var kept = 0;
     final exact = exactAllowed.value;
@@ -405,6 +556,26 @@ abstract final class DoseReminders {
       added++;
     }
     return (added, cancelled, kept);
+  }
+
+  /// Today's group keys → their dose ids (2+ doses at one minute).
+  static Map<String, List<String>> _todayGroups(CareRepository care, String today) {
+    final date = DateTime.tryParse(today);
+    if (date == null) return const {};
+    final byKey = <String, List<String>>{};
+    for (final med in care.medications) {
+      if (med.isArchived || !med.isActiveOn(today)) continue;
+      for (final part in med.parts) {
+        final at = ReminderPlanner.at(tz.local, date, med.minuteFor(part));
+        (byKey[ReminderGroups.keyFor(today, at)] ??= []).add(
+          CareRepository.doseIdFor(med.id, part),
+        );
+      }
+    }
+    return {
+      for (final e in byKey.entries)
+        if (e.value.length > 1) e.key: e.value,
+    };
   }
 
   static bool _resolvedToday(CareRepository care, String doseId, String day) {
@@ -436,6 +607,7 @@ abstract final class DoseReminders {
           await platform.cancel(ReminderIds.forDose(kind, dose.doseId, dose.day));
         }
       }
+      await _shrinkGroups({for (final d in doses) '${d.doseId}|${d.day}'});
       final prefs = await SharedPreferences.getInstance();
       final keys = {
         ...?prefs.getStringList(_resolvedKey),
@@ -450,6 +622,43 @@ abstract final class DoseReminders {
     } on Object catch (error, stack) {
       AppLog.error('reminders.push_cancel_failed', error, stack);
       return false;
+    }
+  }
+
+  /// Pending grouped notifications that include any of [resolved] are
+  /// rebuilt from their payload with the remaining doses (or removed), so
+  /// the other doses at that minute still get reminded — even in a
+  /// background wake with no household loaded.
+  static Future<void> _shrinkGroups(Set<String> resolved) async {
+    var shrunk = 0;
+    var removed = 0;
+    for (final p in await platform.pending()) {
+      final payload = ReminderPayload.decode(p.payload);
+      if (payload == null || !payload.isGroup) continue;
+      if (!payload.doseKeys.any(resolved.contains)) continue;
+      await platform.cancel(p.id);
+      // tz.local may be unset in a background isolate; the instant is
+      // what matters for scheduling, so UTC is fine there.
+      final rest = ReminderGroups.without(payload, resolved, tz.UTC);
+      if (rest == null) {
+        removed++;
+        continue;
+      }
+      shrunk++;
+      var exact = false;
+      try {
+        exact = await platform.canScheduleExact();
+      } on Object {
+        exact = false;
+      }
+      await platform.schedule(rest, exact: exact);
+    }
+    if (shrunk + removed > 0) {
+      AppLog.event('reminders.group_shrunk', {
+        'kept': shrunk,
+        'removed': removed,
+        'from': 'push',
+      });
     }
   }
 
@@ -542,7 +751,11 @@ abstract final class DoseReminders {
           kind: ReminderKind.dose,
           doseId: dose.id,
           day: dayKey(care.now),
-          title: ReminderCopy.doseTitle(pet?.name ?? 'Your pet', dose.name, dose.part),
+          title: ReminderCopy.doseTitle(
+            pet?.name ?? 'Your pet',
+            dose.name,
+            dose.timeLabel,
+          ),
         ),
         now: care.now,
         delay: Duration(minutes: minutes),
@@ -597,7 +810,22 @@ abstract final class DoseReminders {
       return;
     }
     final today = care == null ? payload.day : dayKey(care.now);
-    if (payload.doseId.isEmpty || payload.day.isEmpty || !payload.kind.isDose) {
+    if (payload.isGroup) {
+      if (payload.day != today) {
+        AppLog.event('reminders.tap_stale', {
+          'doses': payload.group.length,
+          'group': true,
+        });
+      }
+      // Several doses: open Today (each has its own Given there).
+      pendingOpen.value = payload.day == today
+          ? const ReminderOpen()
+          : const ReminderOpen(
+              message: 'That reminder was for an earlier day — here’s today.',
+            );
+    } else if (payload.doseId.isEmpty ||
+        payload.day.isEmpty ||
+        !payload.kind.isDose) {
       pendingOpen.value = const ReminderOpen();
     } else if (payload.day != today) {
       AppLog.event('reminders.tap_stale', {'doseId': payload.doseId});

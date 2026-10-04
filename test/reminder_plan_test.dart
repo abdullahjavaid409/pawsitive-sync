@@ -41,6 +41,7 @@ Medication _med(
   String endDay = '',
   int supplyTotal = 0,
   int dosesLeft = 0,
+  Map<DayPart, int> times = const {},
 }) => Medication(
   id: id,
   petId: petId,
@@ -51,6 +52,7 @@ Medication _med(
   dosesLeft: dosesLeft,
   startDay: startDay,
   endDay: endDay,
+  times: times,
 );
 
 DoseRecord _log(
@@ -224,16 +226,25 @@ void main() {
     });
 
     test('stays well under the iOS 64 pending limit with many medicines', () {
+      // Distinct minutes, so grouping can't shrink the count: the budget bites.
       final meds = [
         for (var i = 0; i < 6; i++)
-          _med('m$i', parts: DayPart.values),
+          _med(
+            'm$i',
+            parts: DayPart.values,
+            times: {
+              DayPart.morning: 7 * 60 + i,
+              DayPart.afternoon: 12 * 60 + i,
+              DayPart.evening: 19 * 60 + i,
+            },
+          ),
       ];
       final result = plan(now: nyNow(2026, 10, 4, 6), meds: meds);
       final doseLike = result.where((n) => n.actionable).toList();
       expect(doseLike.length, ReminderPlanner.doseBudget);
       expect(result.length, lessThan(64));
-      // Nearest first: the first 18 are today's three slots × 6 + follow-ups.
-      expect(doseLike.first.when, tz.TZDateTime(ny, 2026, 10, 4, 8));
+      expect(doseLike.first.when, tz.TZDateTime(ny, 2026, 10, 4, 7));
+      expect(doseLike.any((n) => n.isGroup), isFalse);
     });
 
     test('photo is attached only to the next day of reminders', () {

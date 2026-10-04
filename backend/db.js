@@ -7,10 +7,13 @@ import { pushSender } from "./push.js";
 
 const { Pool } = pg;
 
-const schemaVersion = "7";
+const schemaVersion = "8";
 
-/** A missed RENEWAL webhook must not cut off a paying household right away. */
-const storeExpirySlackMs = 24 * 60 * 60 * 1000;
+/**
+ * RevenueCat REST lag after a fresh purchase: a lookup that says "inactive"
+ * only revokes state older than this (a just-delivered webhook wins).
+ */
+const lookupRevokeAfterMs = 10 * 60 * 1000;
 
 /** Invite codes stop working this long after they were made (or rotated). */
 export const inviteTtlMs = 7 * 24 * 60 * 60 * 1000;
@@ -22,9 +25,24 @@ export const inviteTtlMs = 7 * 24 * 60 * 60 * 1000;
  */
 function memberHasPro(row) {
   if (!row?.rc_is_pro) return false;
-  // Expiry from the last RevenueCat update also ends Pro if EXPIRATION never arrives.
+  // Ends exactly at the stored expiry, even if EXPIRATION never arrives. A
+  // renewal moves the expiry first (RENEWAL webhook, retried by RevenueCat;
+  // the payer's app also re-checks RevenueCat on sync), so no slack is
+  // needed — and none means nobody keeps Pro after it ends.
   const expires = row.rc_expires_at;
-  return expires == null || new Date(expires).getTime() + storeExpirySlackMs > Date.now();
+  return expires == null || new Date(expires).getTime() > Date.now();
+}
+
+/**
+ * When household Pro ends: the latest expiry among current payers, null
+ * for a lifetime purchase, undefined when not Pro. Sent to apps so a phone
+ * that is offline drops Pro on time without asking the server.
+ */
+function proUntil(memberRows) {
+  const payers = (memberRows ?? []).filter(memberHasPro);
+  if (payers.length === 0) return undefined;
+  if (payers.some((row) => row.rc_expires_at == null)) return null;
+  return new Date(Math.max(...payers.map((row) => new Date(row.rc_expires_at).getTime()))).toISOString();
 }
 
 /** Household Pro = any member currently entitled. One payer expiring never cancels another. */
@@ -251,6 +269,12 @@ async function migrateLocked(pool) {
       removed_at timestamptz NOT NULL DEFAULT now()
     );
   `);
+  // v8 — custom reminder time per dose ({"morning":"07:00"}); NULL = the
+  // part defaults. Nullable with no default: instant, and a v7 server
+  // (rollback) simply never reads it.
+  await pool.query(`
+    ALTER TABLE medications ADD COLUMN IF NOT EXISTS times jsonb;
+  `);
   // One-time: the old household-wide Pro flag moves onto the owner's row so
   // nobody loses Pro. Guarded by a meta key so it never re-runs (a later
   // EXPIRATION must not be undone by a reboot).
@@ -414,6 +438,34 @@ function readPet(input) {
   };
 }
 
+const clockPattern = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+/**
+ * Custom reminder times: `undefined` when the field is absent (old apps —
+ * the caller must keep what's stored), `null` to clear, else an object of
+ * part → "HH:mm" (24h, local wall clock) limited to `chosenParts`.
+ * Any valid time is allowed for any part; a bad one is rejected, never
+ * silently dropped, so the person isn't reminded at a time they didn't pick.
+ */
+function readTimes(value, chosenParts) {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new InputError(badTimeMessage, "medication.times must be an object");
+  }
+  const result = {};
+  for (const [part, time] of Object.entries(value)) {
+    if (!parts.includes(part)) continue;
+    if (typeof time !== "string" || !clockPattern.test(time)) {
+      throw new InputError(badTimeMessage, `medication.times.${part} must be HH:mm`);
+    }
+    if (chosenParts.includes(part)) result[part] = time;
+  }
+  return Object.keys(result).length === 0 ? null : result;
+}
+
+const badTimeMessage = "That reminder time doesn't look right. Pick it again.";
+
 function readMedication(input) {
   const chosen = [...new Set(list(input?.parts, 3))].filter((part) => parts.includes(part));
   if (chosen.length === 0) throw new InputError("Pick at least one time of day.");
@@ -429,6 +481,7 @@ function readMedication(input) {
     startDay: day(input?.startDay, "medication.startDay"),
     // Compared as a string against YYYY-MM-DD days, so anything else means "no end".
     endDay: /^\d{4}-\d{2}-\d{2}$/.test(input?.endDay ?? "") ? input.endDay : "",
+    times: readTimes(input?.times, chosen),
   };
 }
 
@@ -477,12 +530,14 @@ async function insertMedication(client, householdId, medication) {
   ]);
   if (pet.rowCount === 0) throw new InputError("That pet was removed from the household. Pull down to refresh.");
   const result = await client.query(
-    `INSERT INTO medications (household_id, id, pet_id, name, amount, parts, supply_total, doses_left, start_day, end_day)
-     VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10)
+    `INSERT INTO medications (household_id, id, pet_id, name, amount, parts, supply_total, doses_left, start_day, end_day, times)
+     VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11::jsonb)
      ON CONFLICT (household_id, id) DO UPDATE SET
        name = EXCLUDED.name, amount = EXCLUDED.amount, parts = EXCLUDED.parts,
        supply_total = EXCLUDED.supply_total, doses_left = EXCLUDED.doses_left,
-       end_day = EXCLUDED.end_day, archived = false
+       end_day = EXCLUDED.end_day, archived = false,
+       -- Old apps never send times: an upsert without them keeps the stored ones.
+       times = CASE WHEN $12 THEN EXCLUDED.times ELSE medications.times END
      RETURNING *`,
     [
       householdId,
@@ -495,6 +550,8 @@ async function insertMedication(client, householdId, medication) {
       medication.dosesLeft,
       medication.startDay,
       medication.endDay || "",
+      medication.times == null ? null : JSON.stringify(medication.times),
+      medication.times !== undefined,
     ],
   );
   return mapMedication(result.rows[0]);
@@ -772,6 +829,8 @@ function mapMedication(row) {
     dosesLeft: row.doses_left,
     startDay: row.start_day,
     endDay: row.end_day || "",
+    // Additive: old apps ignore it. Omitted (not null) when unset.
+    ...(row.times ? { times: row.times } : {}),
   };
 }
 
@@ -870,6 +929,8 @@ export async function loadHousehold(pool, { householdId, memberId }, { logDay } 
         ? { inviteExpiresAt: new Date(new Date(household.invite_created_at).getTime() + inviteTtlMs).toISOString() }
         : {}),
       isPro: hasPro(row.members),
+      // Additive: exact end of Pro (null = lifetime). Omitted when Free.
+      ...(proUntil(row.members) === undefined ? {} : { proUntil: proUntil(row.members) }),
       plan: household.plan,
     },
     memberId,
@@ -907,6 +968,28 @@ export async function updatePet(pool, { householdId }, petId, body) {
 
 export async function addMedication(pool, { householdId }, body) {
   return insertMedication(pool, householdId, readMedication(body));
+}
+
+/**
+ * Partial update of a medicine. Only fields present in `body` change
+ * (today: `times`), so an edit from one phone never resets what another
+ * phone changed. Returns null when the medicine is gone or stopped.
+ */
+export async function updateMedication(pool, { householdId }, medicationId, body) {
+  const medId = id(medicationId, "medication.id");
+  const current = await pool.query(
+    "SELECT * FROM medications WHERE household_id = $1 AND id = $2 AND archived = false",
+    [householdId, medId],
+  );
+  if (current.rowCount === 0) return null;
+  const times = readTimes(body?.times, current.rows[0].parts);
+  if (times === undefined) return mapMedication(current.rows[0]);
+  const result = await pool.query(
+    `UPDATE medications SET times = $3::jsonb
+     WHERE household_id = $1 AND id = $2 AND archived = false RETURNING *`,
+    [householdId, medId, times == null ? null : JSON.stringify(times)],
+  );
+  return result.rows[0] ? mapMedication(result.rows[0]) : null;
 }
 
 export async function archiveMedication(pool, { householdId }, medicationId) {
@@ -1019,13 +1102,35 @@ export async function refreshProFromRevenueCat(pool, { householdId, memberId }, 
         productId: pro.productId,
         eventAt: new Date(),
       });
+    } else {
+      // RevenueCat is the truth: an ended subscription is revoked here too
+      // (not only by EXPIRATION). State written in the last few minutes is
+      // kept — REST can lag a webhook that just reported a purchase.
+      const now = new Date();
+      const revoked = await pool.query(
+        `UPDATE members SET rc_is_pro = false, rc_expires_at = $3, rc_event_at = $3
+         WHERE household_id = $1 AND id = $2 AND rc_is_pro
+           AND (rc_event_at IS NULL OR rc_event_at < $4)
+         RETURNING id`,
+        [householdId, memberId, now, new Date(now.getTime() - lookupRevokeAfterMs)],
+      );
+      if (revoked.rowCount > 0) {
+        await refreshLegacyPro(pool, householdId);
+        logFn("billing.rc_refresh_revoked", { householdId });
+      }
     }
-    // Not active: leave it. RevenueCat can lag a fresh purchase by seconds;
-    // EXPIRATION webhooks revoke, and only this member's row is affected.
     logFn("billing.rc_refresh", { householdId, active: pro.active });
   }
+  const members = (
+    await pool.query("SELECT rc_is_pro, rc_expires_at FROM members WHERE household_id = $1 AND rc_is_pro", [householdId])
+  ).rows;
   const plan = (await pool.query("SELECT plan FROM households WHERE id = $1", [householdId])).rows[0]?.plan;
-  return { isPro: await householdHasPro(pool, householdId), plan: plan ?? "yearly" };
+  const until = proUntil(members);
+  return {
+    isPro: hasPro(members),
+    ...(until === undefined ? {} : { proUntil: until }),
+    plan: plan ?? "yearly",
+  };
 }
 
 export async function addCareEvent(pool, { householdId }, body) {
@@ -1202,6 +1307,10 @@ export async function applyBatchOperation(pool, auth, operation) {
       };
     case "addMedication":
       return { status: "ok", medication: await addMedication(pool, auth, payload) };
+    case "updateMedication": {
+      const medication = await updateMedication(pool, auth, id(payload?.id, "medication.id"), payload);
+      return medication ? { status: "ok", medication } : { status: "missing" };
+    }
     case "removeMedication":
       await archiveMedication(pool, auth, id(payload?.id, "medication.id"));
       return { status: "ok" };
@@ -1263,6 +1372,13 @@ function medicationActiveOn(medication, day) {
     medication.startDay <= day &&
     (medication.endDay === "" || medication.endDay >= day)
   );
+}
+
+/** "7:00 AM" for a minute of day (same wording as the app's default labels). */
+function formatMinute(minute) {
+  const hour = Math.floor(minute / 60);
+  const h12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${h12}:${String(minute % 60).padStart(2, "0")} ${hour < 12 ? "AM" : "PM"}`;
 }
 
 function formatTimeLabel(date = new Date()) {
@@ -1407,9 +1523,17 @@ export async function revokeSitterLink(pool, { householdId }, linkId) {
   });
 }
 
+/** Minute of day for "HH:mm", or null. */
+function clockMinute(value) {
+  const match = typeof value === "string" ? clockPattern.exec(value) : null;
+  return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+}
+
 export async function getSitterView(pool, sitterAuth, query) {
   const viewDay = day(query?.day, "day");
   const hour = Math.min(Math.max(Number(query?.hour) || 0, 0), 23);
+  // Optional (newer pages send it): makes a 7:30 custom time due at 7:30.
+  const nowMinute = hour * 60 + Math.min(Math.max(Number(query?.minute) || 0, 0), 59);
   // Only this day's logs: the sitter never needs the 100-day history.
   const snapshot = await loadHousehold(pool, sitterAuth, { logDay: viewDay });
   if (!snapshot) return null;
@@ -1425,9 +1549,10 @@ export async function getSitterView(pool, sitterAuth, query) {
     for (const part of medication.parts) {
       const log = logsByKey[`${medication.id}:${part}`];
       if (log?.outcome === "skipped") continue;
+      const scheduled = clockMinute(medication.times?.[part]);
       let status = "upcoming";
       if (log?.outcome === "given") status = "given";
-      else if (hour >= partOpensAt[part]) status = "due";
+      else if (nowMinute >= Math.min(partOpensAt[part] * 60, scheduled ?? Infinity)) status = "due";
       const pet = petsById[medication.petId];
       doses.push({
         id: `${medication.id}-${part}`,
@@ -1439,7 +1564,7 @@ export async function getSitterView(pool, sitterAuth, query) {
         status,
         uncertain: log?.outcome === "uncertain",
         loggedBy: log ? membersById[log.memberId] ?? "Someone" : null,
-        timeLabel: log?.timeLabel ?? partTimeLabel[part],
+        timeLabel: log?.timeLabel ?? (scheduled == null ? partTimeLabel[part] : formatMinute(scheduled)),
       });
     }
   }
@@ -1778,7 +1903,10 @@ export async function handleRevenueCatWebhook(pool, body, logFn) {
 
   let isPro;
   let expiresAt = null;
-  if (type === "EXPIRATION") {
+  const refund = type === "CANCELLATION" && event.cancel_reason === "CUSTOMER_SUPPORT";
+  if (type === "EXPIRATION" || refund) {
+    // A refund (CANCELLATION + CUSTOMER_SUPPORT) ends Pro at once, even for
+    // a lifetime purchase, whatever expiry the event carries.
     isPro = false;
     expiresAt = eventAt;
   } else if (stateEvents.has(type)) {
@@ -1788,8 +1916,12 @@ export async function handleRevenueCatWebhook(pool, body, logFn) {
     if (Number.isFinite(expiresMs)) {
       expiresAt = new Date(expiresMs);
       isPro = expiresMs > Date.now();
+    } else if (type === "CANCELLATION" || type === "BILLING_ISSUE") {
+      // These never mean "lifetime": with no expiry to honour, end it now.
+      isPro = false;
+      expiresAt = eventAt;
     } else {
-      isPro = true; // lifetime / non-expiring
+      isPro = true; // lifetime / non-expiring purchase
     }
   } else {
     return ignored(logFn, "event_type", type);

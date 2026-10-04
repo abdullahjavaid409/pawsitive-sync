@@ -101,7 +101,7 @@ async function household() {
 
 let webhookClock = Date.now();
 /** A header-verified RevenueCat webhook for one member. */
-async function webhook(house, memberId, type, { expiresInMs = 30 * 86_400_000, at } = {}) {
+async function webhook(house, memberId, type, { expiresInMs = 30 * 86_400_000, at, extra = {} } = {}) {
   webhookClock += 1000;
   const response = await fetch(`${base}/v1/webhooks/revenuecat`, {
     method: "POST",
@@ -114,6 +114,7 @@ async function webhook(house, memberId, type, { expiresInMs = 30 * 86_400_000, a
         event_timestamp_ms: at ?? webhookClock,
         expiration_at_ms: Date.now() + expiresInMs,
         product_id: "pawsitive_yearly",
+        ...extra,
       },
     }),
   });
@@ -134,6 +135,7 @@ describe("role matrix (role × route)", () => {
     { name: "POST /v1/pets/:id/photo/upload", allowed: ["owner", "caregiver"], req: () => ["POST", "/v1/pets/pet-1/photo/upload", { bytes: 1000 }] },
     { name: "DELETE /v1/pets/:id/photo", allowed: ["owner", "caregiver"], req: () => ["DELETE", "/v1/pets/pet-1/photo"] },
     { name: "POST /v1/medications", allowed: ["owner", "caregiver"], req: () => ["POST", "/v1/medications", { id: "med-2", petId: "pet-1", name: "Gaba", parts: ["evening"], startDay: today }] },
+    { name: "PATCH /v1/medications/:id", allowed: ["owner", "caregiver"], req: () => ["PATCH", "/v1/medications/med-1", { times: { morning: "07:00" } }] },
     { name: "POST /v1/medications/:id/refill", allowed: ["owner", "caregiver"], req: () => ["POST", "/v1/medications/med-1/refill"] },
     { name: "DELETE /v1/medications/:id", allowed: ["owner"], req: () => ["DELETE", "/v1/medications/med-1"] },
     { name: "POST /v1/care-events", allowed: ["owner", "caregiver"], req: () => ["POST", "/v1/care-events", { id: "evt-1", petId: "pet-1", title: "Vet", kind: "vetVisit", dueDay: today }] },
@@ -372,6 +374,56 @@ describe("Pro per member", () => {
     assert.equal(await isPro(house.owner.token), true);
   });
 
+  test("Pro ends exactly at expiry even if EXPIRATION never arrives (no slack)", async () => {
+    const house = await household();
+    await webhook(house, "you", "INITIAL_PURCHASE");
+    const snapshot = (await call("GET", "/v1/household", { token: house.caregiver.token })).body;
+    assert.equal(snapshot.household.isPro, true);
+    assert.ok(Date.parse(snapshot.household.proUntil) > Date.now(), "apps get the exact end");
+    // The subscription ended a minute ago; the EXPIRATION webhook was lost.
+    await pool.query(
+      "UPDATE members SET rc_expires_at = now() - interval '1 minute' WHERE household_id = $1 AND id = 'you'",
+      [house.id],
+    );
+    const after = (await call("GET", "/v1/household", { token: house.owner.token })).body;
+    assert.equal(after.household.isPro, false);
+    assert.equal("proUntil" in after.household, false, "omitted when Free");
+    const link = await call("POST", "/v1/sitter-links", { token: house.owner.token, body: {} });
+    assert.equal(link.status, 403, "server-side Pro gates close too");
+  });
+
+  test("a refund ends Pro at once — subscription or lifetime", async () => {
+    const house = await household();
+    await webhook(house, "you", "INITIAL_PURCHASE");
+    await webhook(house, "you", "CANCELLATION", { extra: { cancel_reason: "CUSTOMER_SUPPORT" } });
+    assert.equal(await isPro(house.owner.token), false, "refunded subscription");
+    // Lifetime purchase (no expiry), then refunded: no expiry must not mean forever.
+    await webhook(house, house.caregiver.id, "NON_RENEWING_PURCHASE", { extra: { expiration_at_ms: null } });
+    const lifetime = (await call("GET", "/v1/household", { token: house.owner.token })).body.household;
+    assert.equal(lifetime.isPro, true);
+    assert.equal(lifetime.proUntil, null, "lifetime: present and null");
+    await webhook(house, house.caregiver.id, "CANCELLATION", {
+      extra: { expiration_at_ms: null, cancel_reason: "CUSTOMER_SUPPORT" },
+    });
+    assert.equal(await isPro(house.owner.token), false, "refunded lifetime");
+  });
+
+  test("auto-renew off keeps Pro until the paid period ends, then not a minute more", async () => {
+    const house = await household();
+    await webhook(house, "you", "INITIAL_PURCHASE");
+    await webhook(house, "you", "CANCELLATION", { extra: { cancel_reason: "UNSUBSCRIBE" } });
+    assert.equal(await isPro(house.owner.token), true, "paid until the period ends");
+    // A CANCELLATION/BILLING_ISSUE without any expiry is never "lifetime".
+    await webhook(house, "you", "BILLING_ISSUE", { extra: { expiration_at_ms: null } });
+    assert.equal(await isPro(house.owner.token), false);
+    // Billing grace period from the store: Pro until the grace end, honestly.
+    await webhook(house, house.caregiver.id, "BILLING_ISSUE", {
+      expiresInMs: -60_000,
+      extra: { grace_period_expiration_at_ms: Date.now() + 3 * 86_400_000 },
+    });
+    assert.equal(await isPro(house.owner.token), true, "in Apple/Google grace period");
+  });
+
   test("a removed payer no longer counts", async () => {
     const house = await household();
     await webhook(house, house.extra.id, "INITIAL_PURCHASE");
@@ -505,5 +557,105 @@ describe("older apps keep working", () => {
     assert.equal(freePro.status, 403);
     assert.equal(freePro.body.error, "Browser sitter links need Pawsitive Pro.");
     assert.equal(freePro.body.code, "pro_required");
+  });
+});
+
+describe("custom reminder times (medications.times)", () => {
+  const med1 = (snapshot) => snapshot.medications.find((m) => m.id === "med-1");
+
+  test("create with times, returned in snapshots; absent when unset", async () => {
+    const house = await household();
+    assert.equal("times" in med1((await call("GET", "/v1/household", { token: house.owner.token })).body), false);
+    const added = await call("POST", "/v1/medications", {
+      token: house.owner.token,
+      body: { id: "med-2", petId: "pet-1", name: "Insulin PM", parts: ["morning", "evening"], startDay: today, times: { morning: "07:00", evening: "19:00", afternoon: "13:30" } },
+    });
+    assert.equal(added.status, 201);
+    // Only times for the chosen parts are kept.
+    assert.deepEqual(added.body.medication.times, { morning: "07:00", evening: "19:00" });
+    const snapshot = (await call("GET", "/v1/household", { token: house.caregiver.token })).body;
+    assert.deepEqual(snapshot.medications.find((m) => m.id === "med-2").times, { morning: "07:00", evening: "19:00" });
+  });
+
+  test("PATCH and batch updateMedication change only times; edges 00:00 and 23:59", async () => {
+    const house = await household();
+    const patched = await call("PATCH", "/v1/medications/med-1", { token: house.caregiver.token, body: { times: { morning: "00:00", evening: "23:59" }, name: "ignored" } });
+    assert.equal(patched.status, 200);
+    assert.deepEqual(patched.body.medication.times, { morning: "00:00", evening: "23:59" });
+    assert.equal(patched.body.medication.name, "Insulin");
+    assert.equal(patched.body.medication.dosesLeft, 30);
+    const batch = await call("POST", "/v1/sync/batch", {
+      token: house.owner.token,
+      body: { operations: [{ id: "op-t", type: "updateMedication", payload: { id: "med-1", times: { morning: "07:15" } } }] },
+    });
+    assert.equal(batch.body.results[0].status, "ok");
+    assert.deepEqual(med1(batch.body.household).times, { morning: "07:15" });
+    // Empty map / null clears back to the defaults.
+    const cleared = await call("PATCH", "/v1/medications/med-1", { token: house.owner.token, body: { times: {} } });
+    assert.equal("times" in cleared.body.medication, false);
+    const missing = await call("POST", "/v1/sync/batch", {
+      token: house.owner.token,
+      body: { operations: [{ id: "op-m", type: "updateMedication", payload: { id: "med-gone", times: { morning: "07:00" } } }] },
+    });
+    assert.equal(missing.body.results[0].status, "missing");
+    assert.equal((await call("PATCH", "/v1/medications/med-gone", { token: house.owner.token, body: { times: {} } })).status, 404);
+  });
+
+  test("bad times are refused with plain words, nothing changes", async () => {
+    const house = await household();
+    await call("PATCH", "/v1/medications/med-1", { token: house.owner.token, body: { times: { morning: "07:00" } } });
+    for (const times of [{ morning: "24:00" }, { morning: "7:00" }, { evening: "19:60" }, { morning: 700 }, "07:00", [1]]) {
+      const response = await call("PATCH", "/v1/medications/med-1", { token: house.owner.token, body: { times } });
+      assert.equal(response.status, 400, JSON.stringify(times));
+      assert.equal(response.body.error, "That reminder time doesn't look right. Pick it again.");
+    }
+    const create = await call("POST", "/v1/medications", {
+      token: house.owner.token,
+      body: { id: "med-3", petId: "pet-1", name: "X", parts: ["morning"], startDay: today, times: { morning: "25:00" } },
+    });
+    assert.equal(create.status, 400);
+    const snapshot = (await call("GET", "/v1/household", { token: house.owner.token })).body;
+    assert.deepEqual(med1(snapshot).times, { morning: "07:00" });
+    assert.equal(snapshot.medications.some((m) => m.id === "med-3"), false);
+  });
+
+  test("an old app that never sends times can't wipe them (upsert replay, refill, PATCH without times)", async () => {
+    const house = await household();
+    await call("PATCH", "/v1/medications/med-1", { token: house.owner.token, body: { times: { morning: "07:00", evening: "19:00" } } });
+    // Old app replays its addMedication (same id, no times field) from the outbox.
+    const replay = await call("POST", "/v1/sync/batch", {
+      token: house.caregiver.token,
+      body: {
+        operations: [
+          { id: "op-old", type: "addMedication", payload: { id: "med-1", petId: "pet-1", name: "Insulin", amount: "2 u", parts: ["morning", "evening"], supplyTotal: 30, startDay: "2026-01-01" } },
+          { id: "op-refill", type: "refill", payload: { id: "med-1" } },
+        ],
+      },
+    });
+    assert.deepEqual(replay.body.results.map((r) => r.status), ["ok", "ok"]);
+    assert.deepEqual(med1(replay.body.household).times, { morning: "07:00", evening: "19:00" });
+    const noop = await call("PATCH", "/v1/medications/med-1", { token: house.owner.token, body: {} });
+    assert.deepEqual(noop.body.medication.times, { morning: "07:00", evening: "19:00" });
+    // A new app re-adding with explicit times does overwrite.
+    const readd = await call("POST", "/v1/medications", {
+      token: house.owner.token,
+      body: { id: "med-1", petId: "pet-1", name: "Insulin", parts: ["morning", "evening"], startDay: "2026-01-01", times: { evening: "18:30" } },
+    });
+    assert.deepEqual(readd.body.medication.times, { evening: "18:30" });
+  });
+
+  test("sitter view uses the custom time for the label and the due window", async () => {
+    const house = await household();
+    await webhook(house, "you", "INITIAL_PURCHASE");
+    await call("PATCH", "/v1/medications/med-1", { token: house.owner.token, body: { times: { evening: "15:30" } } });
+    const link = await call("POST", "/v1/sitter-links", { token: house.owner.token, body: { label: "Weekend" } });
+    const view = async (query) =>
+      (await call("GET", `/v1/sitter/view?day=${today}&${query}`, { token: link.body.token })).body.doses.find((d) => d.part === "evening");
+    const early = await view("hour=15&minute=10");
+    assert.equal(early.timeLabel, "3:30 PM");
+    assert.equal(early.status, "upcoming");
+    assert.equal((await view("hour=15&minute=30")).status, "due");
+    // Old pages send only the hour: due from the next full hour at the latest.
+    assert.equal((await view("hour=16")).status, "due");
   });
 });

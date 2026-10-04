@@ -169,19 +169,32 @@ abstract final class PushService {
   /// A token arrived after connect (or APNs issued a new one): register it
   /// in the background, skipped when unchanged.
   static void _onToken(PushToken token) {
+    // iOS re-reports the same token every time the app asks for one (and
+    // registering asks): an unchanged token must not register again, or
+    // ask → token → register → ask… loops forever on a real device.
+    final same = _latest?.token == token.token &&
+        _latest?.environment == token.environment;
     _latest = token;
+    if (same) return;
     final api = _api;
     if (api == null || api.token == null) return;
     AppLog.unawaitedLogged(
-      registerIfConnected(api, force: false),
+      // The token is in hand: don't ask the OS again (that re-triggers it).
+      registerIfConnected(api, force: false, known: token),
       'push.register_failed',
     );
   }
+
+  /// The server registration in flight; callers queue behind it so two
+  /// can't both pass the "unchanged" check. Asking the OS for its token is
+  /// outside the lock, so a slow APNs never holds up a token in hand.
+  static Future<void>? _inFlight;
 
   @visibleForTesting
   static void resetForTest() {
     _api = null;
     _latest = null;
+    _inFlight = null;
     _unavailableLogged = false;
   }
 
@@ -224,6 +237,7 @@ abstract final class PushService {
   static Future<void> registerIfConnected(
     HouseholdApi? api, {
     bool force = true,
+    PushToken? known,
   }) async {
     if (api == null) {
       AppLog.event('push.register_skipped', {'reason': 'no_api'});
@@ -236,7 +250,7 @@ abstract final class PushService {
     }
     _api = api;
     try {
-      final device = await platform.token() ?? _latest;
+      final device = known ?? await platform.token() ?? _latest;
       if (device == null) {
         // Not an error: registration happens when the token arrives.
         noteTokenUnavailable('no_token_yet');
@@ -244,6 +258,28 @@ abstract final class PushService {
         return;
       }
       _latest = device;
+      final previous = _inFlight;
+      final done = Completer<void>();
+      _inFlight = done.future;
+      try {
+        await previous;
+        await _send(api, session, device, force: force);
+      } finally {
+        done.complete();
+        if (identical(_inFlight, done.future)) _inFlight = null;
+      }
+    } catch (error, stack) {
+      AppLog.error('push.register_failed', error, stack);
+    }
+  }
+
+  static Future<void> _send(
+    HouseholdApi api,
+    String session,
+    PushToken device, {
+    required bool force,
+  }) async {
+    try {
       final enabled = await householdPushEnabled();
       final prefs = await SharedPreferences.getInstance();
       // The session's hash only tells households apart; it is not a secret.

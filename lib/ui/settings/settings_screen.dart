@@ -184,7 +184,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     trailing: care.isPro
                         ? null
                         : TextButton(
-                            onPressed: () => context.push(AppRoutes.paywall),
+                            onPressed: () => context.push(
+                              AppRoutes.paywallWith(
+                                reason: 'settings',
+                                from: 'settings_plan',
+                              ),
+                            ),
                             child: const Text('Upgrade'),
                           ),
                   ),
@@ -291,7 +296,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     }
                     // Pets and medicines stay on this phone, so do their
                     // reminders; doses from the old household drop out.
-                    await DoseReminders.reschedule(care, reason: 'left_household');
+                    await DoseReminders.reschedule(
+                      care,
+                      reason: 'left_household',
+                    );
                     if (!context.mounted) return;
                     context.go(AppRoutes.today);
                   },

@@ -92,11 +92,15 @@ class MissedDose {
     required this.medicationName,
     required this.day,
     required this.part,
+    this.timeLabel = '',
   });
 
   final String medicationName;
   final DateTime day;
   final DayPart part;
+
+  /// The scheduled time ("7:00 AM"), custom or the part's default.
+  final String timeLabel;
 }
 
 /// One logged dose in the report range (any outcome), newest first.
@@ -274,6 +278,7 @@ class CareRepository extends ChangeNotifier {
   @override
   void dispose() {
     _photoRetryTimer?.cancel();
+    _proExpiryTimer?.cancel();
     super.dispose();
   }
 
@@ -355,6 +360,14 @@ class CareRepository extends ChangeNotifier {
   /// Household Pro from the server, set only by the RevenueCat webhook —
   /// shared with partners. Ignored until this phone is in a shared household.
   bool _isPro = false;
+
+  /// When household Pro ends, from the server (null = no known end: a
+  /// lifetime purchase, or an older server). Checked on every read so a
+  /// phone that stays offline still drops Pro at the exact end.
+  DateTime? _proUntil;
+
+  /// Re-reads [isPro] (and tells the UI) at the next known Pro end.
+  Timer? _proExpiryTimer;
 
   /// This phone's own App Store / Play subscription, straight from RevenueCat.
   /// Kept apart so a server refresh can never lock out a paying user while
@@ -467,7 +480,57 @@ class CareRepository extends ChangeNotifier {
 
   /// Pro only ever comes from RevenueCat: this phone's own subscription, or
   /// the household's (server copy of a partner's RevenueCat entitlement).
-  bool get isPro => _storePro || (isConnected && _isPro);
+  bool get isPro => _storeProValid || _householdProValid;
+
+  /// RevenueCat says Pro *and* its expiry (if any) hasn't passed by this
+  /// phone's clock — the SDK's offline cache alone is never trusted past it.
+  bool get _storeProValid {
+    if (!_storePro) return false;
+    final until = RevenueCatService.storeProExpiresAt;
+    return until == null || now.isBefore(until);
+  }
+
+  /// Server household Pro, only while linked, before its end, and while the
+  /// clock hasn't been wound back behind the last sync (offline only; the
+  /// next sync puts the server's answer back either way).
+  bool get _householdProValid {
+    if (!isConnected || !_isPro) return false;
+    final until = _proUntil;
+    if (until != null && !now.isBefore(until)) return false;
+    final synced = _lastSyncedAt;
+    if (synced != null && now.isBefore(synced.subtract(_clockBackTolerance))) {
+      return false;
+    }
+    return true;
+  }
+
+  /// Small clock corrections (NTP, zone) never cost a payer Pro.
+  static const _clockBackTolerance = Duration(hours: 1);
+
+  /// Arms a timer for the nearest Pro end so the app drops Pro at that
+  /// moment even if nothing else changes. Logs once when it does.
+  void _armProExpiry() {
+    _proExpiryTimer?.cancel();
+    final ends = [
+      if (_storePro) ?RevenueCatService.storeProExpiresAt,
+      if (isConnected && _isPro) ?_proUntil,
+    ].where((t) => t.isAfter(now)).toList()
+      ..sort();
+    if (ends.isEmpty) return;
+    // Re-armed in steps of at most a day (very long timers aren't reliable).
+    var wait = ends.first.difference(now) + const Duration(seconds: 1);
+    if (wait > const Duration(days: 1)) wait = const Duration(days: 1);
+    final wasPro = isPro;
+    _proExpiryTimer = Timer(wait, () {
+      if (wasPro && !isPro) {
+        AppLog.event('billing.pro.expired', {
+          'source': _storePro ? 'store' : 'household',
+        });
+      }
+      _armProExpiry();
+      notifyListeners();
+    });
+  }
 
   @visibleForTesting
   set debugStorePro(bool value) => _storePro = value;
@@ -615,7 +678,7 @@ class CareRepository extends ChangeNotifier {
         final uncertain = log?.outcome == LogOutcome.uncertain;
         final status = log?.outcome == LogOutcome.given
             ? DoseStatus.given
-            : time.hour >= part.opensAt
+            : time.hour * 60 + time.minute >= medication.dueFromMinute(part)
             ? DoseStatus.due
             : DoseStatus.upcoming;
         result.add(
@@ -634,11 +697,14 @@ class CareRepository extends ChangeNotifier {
                 '${pet.name} · ${_who(log!.memberId)}, ${log.timeLabel}',
               DoseStatus.due when uncertain =>
                 '${pet.name} · ${_who(log!.memberId)} ${_isOrAre(log.memberId)} not sure — check first',
-              DoseStatus.due => '${pet.name} · due ${part.timeLabel}',
-              DoseStatus.upcoming => '${pet.name} · ${part.timeLabel}',
+              DoseStatus.due =>
+                '${pet.name} · due ${medication.timeLabelFor(part)}',
+              DoseStatus.upcoming =>
+                '${pet.name} · ${medication.timeLabelFor(part)}',
             },
             givenById: log?.memberId,
             givenAt: log?.timeLabel ?? '',
+            minute: medication.minuteFor(part),
           ),
         );
       }
@@ -796,7 +862,10 @@ class CareRepository extends ChangeNotifier {
         final key = dayKey(day);
         if (!medication.isActiveOn(key)) continue;
         for (final part in medication.parts) {
-          if (day == today && time.hour < part.opensAt) continue;
+          if (day == today &&
+              time.hour * 60 + time.minute < medication.dueFromMinute(part)) {
+            continue;
+          }
           expected++;
           if (!logged.contains('$key|${part.name}')) {
             missedDoses.add(
@@ -804,6 +873,7 @@ class CareRepository extends ChangeNotifier {
                 medicationName: medication.historyName,
                 day: day,
                 part: part,
+                timeLabel: medication.timeLabelFor(part),
               ),
             );
           }
@@ -937,6 +1007,7 @@ class CareRepository extends ChangeNotifier {
       inviteCode: saved.inviteCode,
       inviteExpiresAt: saved.inviteExpiresAt,
       isPro: saved.isPro,
+      proUntil: saved.proUntil,
       plan: saved.plan,
       members: saved.members,
       pets: saved.pets,
@@ -1007,6 +1078,7 @@ class CareRepository extends ChangeNotifier {
     required String inviteCode,
     DateTime? inviteExpiresAt,
     required bool isPro,
+    DateTime? proUntil,
     required BillingPlan plan,
     required List<Member> members,
     required List<Pet> pets,
@@ -1021,7 +1093,9 @@ class CareRepository extends ChangeNotifier {
     // Household Pro only means something while this phone is linked; a stale
     // saved copy on a solo phone must never read as Pro.
     _isPro = token != null && isPro;
+    _proUntil = _isPro ? proUntil : null;
     _plan = plan;
+    _armProExpiry();
     _members
       ..clear()
       ..addAll(members);
@@ -1057,6 +1131,7 @@ class CareRepository extends ChangeNotifier {
       inviteCode: house.inviteCode,
       inviteExpiresAt: house.inviteExpiresAt,
       isPro: house.isPro,
+      proUntil: house.proUntil,
       plan: house.plan,
       members: house.members,
       pets: _mergePhotoState(house.pets),
@@ -1087,6 +1162,7 @@ class CareRepository extends ChangeNotifier {
       inviteCode: house.inviteCode,
       inviteExpiresAt: house.inviteExpiresAt,
       isPro: house.isPro,
+      proUntil: house.proUntil,
       // This phone's own subscription is the truth for the plan; a stale
       // server copy must never overwrite it.
       plan: _storePro ? _plan : house.plan,
@@ -1513,6 +1589,7 @@ class CareRepository extends ChangeNotifier {
           // Server household Pro only. This phone's own subscription is read
           // from RevenueCat each launch (its SDK caches it for offline).
           isPro: _isPro,
+          proUntil: _proUntil,
           plan: _plan,
           members: List.of(_members),
           pets: List.of(_pets),
@@ -1771,6 +1848,8 @@ class CareRepository extends ChangeNotifier {
     try {
       final billing = await api.startTrial();
       _isPro = billing.isPro;
+      _proUntil = billing.isPro ? billing.proUntil : null;
+      _armProExpiry();
       if (!_storePro) _plan = billing.plan;
       AppLog.event(
         billing.isPro
@@ -2179,6 +2258,7 @@ class CareRepository extends ChangeNotifier {
     required List<DayPart> parts,
     int supplyTotal = 0,
     String endDay = '',
+    Map<DayPart, int> times = const {},
   }) {
     lastError = null;
     if (_roleBlocks('medication.add', ownerOnly: false)) {
@@ -2215,6 +2295,7 @@ class CareRepository extends ChangeNotifier {
       dosesLeft: supplyTotal,
       startDay: dayKey(now),
       endDay: endDay,
+      times: DoseTimes.normalize(times, parts),
     );
     return _write(
       'medication.add',
@@ -2229,8 +2310,53 @@ class CareRepository extends ChangeNotifier {
         'parts': parts.length,
         if (endDay.isNotEmpty) 'endDay': endDay,
         if (supplyTotal > 0) 'tracksSupply': true,
+        if (medication.times.isNotEmpty) 'customTimes': medication.times.length,
       },
       queue: () => _op('addMedication', medication.toJson()),
+    );
+  }
+
+  /// Sets a medicine's reminder times ([DoseTimes]; parts left out use the
+  /// default). Offline it saves here and queues one `updateMedication` op
+  /// that carries only the times, so a partner's other edits are never
+  /// overwritten. Reminders re-plan through the repository listener.
+  Future<bool> setMedicationTimes(
+    String medicationId,
+    Map<DayPart, int> times,
+  ) {
+    lastError = null;
+    if (_roleBlocks('medication.times', ownerOnly: false)) {
+      return Future.value(false);
+    }
+    final medication = medicationById(medicationId);
+    if (medication == null) {
+      lastError = 'That medicine was removed. Pull down to refresh.';
+      AppLog.event('medication.times_rejected', {
+        'medicationId': medicationId,
+        'reason': 'missing_medication',
+      });
+      return Future.value(false);
+    }
+    final next = DoseTimes.normalize(times, medication.parts);
+    if (DoseTimes.same(next, medication.times)) {
+      AppLog.event('medication.times.noop', {'medicationId': medicationId});
+      return Future.value(true);
+    }
+    final updated = medication.copyWith(times: next);
+    return _write(
+      'medication.times',
+      (api) async => _replaceMedication(
+        await api.updateMedicationTimes(medicationId, next),
+      ),
+      () {
+        _replaceMedication(updated);
+        return true;
+      },
+      fields: {'medicationId': medicationId, 'customTimes': next.length},
+      queue: () => _op('updateMedication', {
+        'id': medicationId,
+        'times': DoseTimes.encode(next),
+      }),
     );
   }
 
@@ -2459,6 +2585,8 @@ class CareRepository extends ChangeNotifier {
     try {
       final billing = await AppLog.trace('billing.share_pro', api.startTrial);
       _isPro = billing.isPro;
+      _proUntil = billing.isPro ? billing.proUntil : null;
+      _armProExpiry();
       if (!_storePro) _plan = billing.plan;
       _changed();
       AppLog.event('billing.share_pro.completed', {
@@ -2526,6 +2654,8 @@ class CareRepository extends ChangeNotifier {
       // The store listener may already have applied this purchase.
       final wasPro = _storePro;
       _storePro = true;
+    _armProExpiry();
+      _armProExpiry();
       if (!wasPro) {
         _onStoreProChanged(true, 'purchase');
         _changed();
@@ -2572,6 +2702,7 @@ class CareRepository extends ChangeNotifier {
     // Restore already confirmed the entitlement; don't ask the store twice.
     final wasPro = _storePro;
     _storePro = true;
+    _armProExpiry();
     if (!wasPro) _onStoreProChanged(true, 'restore');
     _changed();
     await startTrial();
@@ -2597,6 +2728,7 @@ class CareRepository extends ChangeNotifier {
     }
     if (_storePro == active) return;
     _storePro = active;
+    _armProExpiry();
     // Shared households keep whatever the server says (partner may pay).
     AppLog.event('billing.store.entitlement_changed', {
       'active': active,
@@ -2627,6 +2759,7 @@ class CareRepository extends ChangeNotifier {
     final status = await RevenueCatService.currentStatus();
     final storeChanged = _storePro != status.isPro;
     _storePro = status.isPro;
+    _armProExpiry();
     if (storeChanged) _changed();
     if (status.isPro) {
       _onStoreProChanged(true, 'store_sync');

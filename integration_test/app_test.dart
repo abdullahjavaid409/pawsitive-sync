@@ -9,6 +9,8 @@ import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/data/household_api.dart';
 import 'package:pawsitive_sync/data/household_store.dart';
+import 'package:pawsitive_sync/data/local_database.dart';
+import 'package:pawsitive_sync/data/secure_tokens.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/main.dart';
 import 'package:provider/provider.dart';
@@ -192,6 +194,40 @@ void main() {
       await qa.see('Luna Belle was updated.');
       qa.event('pet.update.completed');
       await qa.gone('Luna Belle was updated.', seconds: 8);
+    });
+
+    await qa.step('Edge: dismissing the time picker keeps the time', () async {
+      await qa.tap(find.text('Apoquel'));
+      await qa.see('Morning reminder');
+      await qa.see('8:00 AM');
+      await qa.tap(find.text('Morning reminder'));
+      await qa.tap(find.text('Cancel'));
+      qa.event('medication.time_pick_cancelled', {'part': 'morning'});
+      qa.noEvent('medication.times.completed');
+      expect(_apoquel(_care(t)).times, isEmpty);
+    });
+
+    await qa.step('Custom reminder time: 7:15 AM saved, shown everywhere', () async {
+      await qa.tap(find.text('Morning reminder'));
+      await qa.tap(find.byIcon(Icons.keyboard_outlined));
+      final fields = find.descendant(
+        of: find.byType(Dialog),
+        matching: find.byType(TextField),
+      );
+      await qa.type(fields.at(0), '7');
+      await qa.type(fields.at(1), '15');
+      await qa.tap(find.text('OK'));
+      await qa.see('Morning reminder set to 7:15 AM.');
+      qa.event('medication.times.completed', {'customTimes': 1});
+      expect(_apoquel(_care(t)).times, {DayPart.morning: 7 * 60 + 15});
+      // Survives a cold reload (SQLite v2 column).
+      final reloaded = CareRepository(store: HouseholdStore());
+      await reloaded.restore();
+      expect(_apoquel(reloaded).times, {DayPart.morning: 7 * 60 + 15});
+      await qa.tap(find.text('Back'));
+      await qa.tapLabel('Today');
+      await qa.see('7:15 AM', partial: true);
+      await qa.tapLabel('Pets');
     });
 
     await qa.step('Pro gate: second pet opens paywall', () async {
@@ -470,13 +506,21 @@ Qa _qa(WidgetTester t) => Qa(
   eventCount: AppLog.logCount,
 );
 
+/// A true first launch: since the move to SQLite and the Keychain, clearing
+/// preferences alone leaves the last run's household behind (e.g. after an
+/// interrupted run), so the database file and secure tokens go too.
 Future<void> _launchFresh(Qa qa) async {
   final prefs = await SharedPreferences.getInstance();
   await prefs.clear();
+  await LocalDatabase.shared.deleteFile();
+  await SecureTokens.deleteAll();
   AppLog.enableTestCapture();
   await qa.t.pumpWidget(await bootstrap());
   await qa.settle(1500);
 }
+
+Medication _apoquel(CareRepository care) =>
+    care.medications.singleWhere((m) => m.name == 'Apoquel');
 
 CareRepository _care(WidgetTester t) => Provider.of<CareRepository>(
   t.element(find.byType(Scaffold).first),

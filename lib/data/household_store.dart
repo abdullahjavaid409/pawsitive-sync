@@ -23,7 +23,12 @@ class StoredHousehold {
     this.deletedLogIds = const {},
     this.replaceLogs = false,
     this.inviteExpiresAt,
+    this.proUntil,
   });
+
+  /// When household Pro ends (null = no known end). Saved so an offline
+  /// phone drops Pro on time without asking the server.
+  final DateTime? proUntil;
 
   /// When [inviteCode] stops working (owner only; null when unknown).
   final DateTime? inviteExpiresAt;
@@ -151,6 +156,7 @@ class HouseholdStore {
       inviteCode: meta['invite_code'] ?? '',
       inviteExpiresAt: DateTime.tryParse(meta['invite_expires_at'] ?? ''),
       isPro: meta['is_pro'] == '1',
+      proUntil: DateTime.tryParse(meta['pro_until'] ?? ''),
       plan: meta['plan'] == 'monthly'
           ? BillingPlan.monthly
           : BillingPlan.yearly,

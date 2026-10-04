@@ -54,21 +54,14 @@ class AppleWidgets {
                 'pet': care.petById(medicine.petId).name,
                 'medicine': medicine.name,
                 'amount': medicine.amount,
+                // Custom time aware: due from the earlier of the part's
+                // opening and the chosen time; scheduled at the chosen time.
                 'dueAt':
-                    DateTime(
-                      day.year,
-                      day.month,
-                      day.day,
-                      part.opensAt,
-                    ).millisecondsSinceEpoch /
+                    _at(day, medicine.dueFromMinute(part))
+                        .millisecondsSinceEpoch /
                     1000,
                 'scheduledAt':
-                    DateTime(
-                      day.year,
-                      day.month,
-                      day.day,
-                      part.hour,
-                    ).millisecondsSinceEpoch /
+                    _at(day, medicine.minuteFor(part)).millisecondsSinceEpoch /
                     1000,
                 'state':
                     records['${medicine.id}:${part.name}']?.outcome.name ??
@@ -77,6 +70,9 @@ class AppleWidgets {
       ],
     };
   }
+
+  static DateTime _at(DateTime day, int minute) =>
+      DateTime(day.year, day.month, day.day, minute ~/ 60, minute % 60);
 
   static bool _bridgeMissingLogged = false;
 

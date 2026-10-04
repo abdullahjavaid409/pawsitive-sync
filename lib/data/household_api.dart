@@ -22,7 +22,13 @@ class HouseholdSnapshot {
     this.archivedMedications = const [],
     this.role,
     this.inviteExpiresAt,
+    this.proUntil,
   });
+
+  /// When household Pro ends (latest payer expiry). Null for a lifetime
+  /// purchase, when Free, or from servers older than v8 — then [isPro]
+  /// alone decides, as before.
+  final DateTime? proUntil;
 
   /// This member's role as the server sees it right now. Null from servers
   /// older than v5 (then the member list's own entry is the answer).
@@ -237,6 +243,20 @@ class HouseholdApi {
     return _medication(_map(body['medication']));
   }
 
+  /// Changes a medicine's reminder times. Only `times` is sent: the server
+  /// changes nothing else, so this can't undo a partner's edits.
+  Future<Medication> updateMedicationTimes(
+    String id,
+    Map<DayPart, int> times,
+  ) async {
+    final body = await _send(
+      'PATCH',
+      '/v1/medications/${Uri.encodeComponent(id)}',
+      {'times': DoseTimes.encode(times)},
+    );
+    return _medication(_map(body['medication']));
+  }
+
   Future<void> removeMedication(String id) async {
     await _send('DELETE', '/v1/medications/${Uri.encodeComponent(id)}');
   }
@@ -268,9 +288,14 @@ class HouseholdApi {
     return _plan(body['plan']);
   }
 
-  Future<({bool isPro, BillingPlan plan})> startTrial() async {
+  Future<({bool isPro, BillingPlan plan, DateTime? proUntil})>
+  startTrial() async {
     final body = await _send('POST', '/v1/billing/trial');
-    return (isPro: body['isPro'] == true, plan: _plan(body['plan']));
+    return (
+      isPro: body['isPro'] == true,
+      plan: _plan(body['plan']),
+      proUntil: _date(body['proUntil']),
+    );
   }
 
   Future<BatchSyncResponse> syncBatch(List<SyncBatchOp> operations) async {
@@ -607,6 +632,7 @@ HouseholdSnapshot _snapshot(Map<String, dynamic> body) {
     inviteExpiresAt: _date(house['inviteExpiresAt']),
     role: _enumOrNull(MemberRole.values, body['role']),
     isPro: house['isPro'] == true,
+    proUntil: _date(house['proUntil']),
     plan: _plan(house['plan']),
     memberId: '${body['memberId'] ?? ''}',
     members: _list(body['members'], memberFromJson),
@@ -710,8 +736,30 @@ Medication _medication(Map<String, dynamic> json) {
     startDay: '${json['startDay'] ?? ''}',
     endDay: '${json['endDay'] ?? ''}',
     archivedAt: _nonEmpty(json['archivedAt']),
+    // Absent from old servers and old saved data: default times.
+    times: _times(json, parts),
   );
 }
+
+/// Custom times; junk is dropped (default times) and logged once per
+/// medicine id so a bad row is visible without flooding launch logs.
+Map<DayPart, int> _times(Map<String, dynamic> json, List<DayPart> parts) {
+  final raw = json['times'];
+  final parsed = DoseTimes.parse(raw);
+  final junk = raw != null &&
+      (raw is! Map ||
+          raw.entries.any(
+            (e) =>
+                DayPart.values.any((p) => p.name == e.key) &&
+                DoseTimes.parseClock(e.value) == null,
+          ));
+  if (junk && _junkTimesLogged.add('${json['id']}')) {
+    AppLog.event('medication.times_ignored', {'medicationId': '${json['id']}'});
+  }
+  return DoseTimes.normalize(parsed, parts);
+}
+
+final Set<String> _junkTimesLogged = {};
 
 DoseRecord doseRecordFromJson(Map<String, dynamic> json) => _log(json);
 

@@ -240,9 +240,7 @@ Future<VetReportPdf> buildVetReportPdf({
         else ...[
           for (final miss in report.missedDoses)
             pw.Bullet(
-              text:
-                  '${_months[miss.day.month - 1]} ${miss.day.day} · '
-                  '${miss.part.label} · ${miss.medicationName}',
+              text: missedDoseLabel(miss),
               style: const pw.TextStyle(fontSize: 9, color: ink),
             ),
           if (report.missedDoses.length >= PetReport.maxMissedListed)
@@ -293,4 +291,12 @@ Future<VetReportPdf> buildVetReportPdf({
   );
   final bytes = await doc.save();
   return (bytes: bytes, pages: pages);
+}
+
+/// "Oct 4 · Insulin (morning 7:00 AM)" — one missed dose in the report,
+/// with its scheduled (custom or default) time.
+String missedDoseLabel(MissedDose miss) {
+  final time = miss.timeLabel.isEmpty ? miss.part.timeLabel : miss.timeLabel;
+  return '${_months[miss.day.month - 1]} ${miss.day.day} · '
+      '${miss.medicationName} (${miss.part.label.toLowerCase()} $time)';
 }

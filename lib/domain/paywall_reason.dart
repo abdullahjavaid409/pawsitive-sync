@@ -6,6 +6,12 @@ enum PaywallReason {
   vetExport,
   milestone,
   settings,
+
+  /// A free user's medicine is running low (refill alerts are Pro).
+  refill,
+
+  /// A free solo user marked a dose "not sure if given".
+  uncertain,
 }
 
 extension PaywallReasonQuery on PaywallReason {
@@ -16,6 +22,8 @@ extension PaywallReasonQuery on PaywallReason {
     PaywallReason.vetExport => 'vet_export',
     PaywallReason.milestone => 'milestone',
     PaywallReason.settings => 'settings',
+    PaywallReason.refill => 'refill',
+    PaywallReason.uncertain => 'uncertain',
   };
 
   static PaywallReason? fromQuery(String? raw) {
@@ -26,6 +34,8 @@ extension PaywallReasonQuery on PaywallReason {
       'vet_export' => PaywallReason.vetExport,
       'milestone' => PaywallReason.milestone,
       'settings' => PaywallReason.settings,
+      'refill' => PaywallReason.refill,
+      'uncertain' => PaywallReason.uncertain,
       _ => null,
     };
   }
@@ -51,6 +61,14 @@ extension PaywallReasonQuery on PaywallReason {
     PaywallReason.settings => (
       'Unlock the whole household',
       'Every pet, invites, refill alerts, and vet export.',
+    ),
+    PaywallReason.refill => (
+      'Never run out by surprise',
+      'Pro sends a heads-up before a medicine runs low — for every pet.',
+    ),
+    PaywallReason.uncertain => (
+      'Not sure if it was given?',
+      'With Pro, everyone in the household sees who gave each dose, and when.',
     ),
     PaywallReason.onboarding => (
       'Never wonder if someone already gave the dose',

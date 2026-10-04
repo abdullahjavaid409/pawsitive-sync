@@ -172,7 +172,7 @@ class _LockScreenState extends State<LockScreen> {
                                     Text(
                                       given || uncertain
                                           ? dose.subtitle
-                                          : 'Scheduled for ${dose.part.timeLabel}',
+                                          : 'Scheduled for ${dose.timeLabel}',
                                       style: text.bodyMedium,
                                     ),
                                   ],

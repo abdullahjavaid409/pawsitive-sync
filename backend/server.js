@@ -32,6 +32,7 @@ import {
   notifyHouseholdOnDose,
   recoverFromApple,
   refillMedication,
+  updateMedication,
   registerDevice,
   removeCareEvent,
   setPlan,
@@ -406,6 +407,7 @@ async function route(req, url, requestId) {
     const view = await getSitterView(pool, sitter, {
       day: url.searchParams.get("day"),
       hour: url.searchParams.get("hour"),
+      minute: url.searchParams.get("minute"),
     });
     if (!view) return { status: 404, body: { error: "This household no longer exists." } };
     return { status: 200, body: view };
@@ -574,6 +576,13 @@ async function route(req, url, requestId) {
   }
 
   const medicationPath = path.match(/^\/v1\/medications\/([^/]+)$/);
+  if (req.method === "PATCH" && medicationPath) {
+    allow("medication.update");
+    const medication = await updateMedication(pool, auth, decodeURIComponent(medicationPath[1]), await readJson(req));
+    if (!medication) return { status: 404, body: { error: "That medicine was removed. Pull down to refresh." } };
+    log("medication.updated", { requestId, householdId: auth.householdId, medicationId: medication.id });
+    return { status: 200, body: { medication } };
+  }
   if (req.method === "DELETE" && medicationPath) {
     allow("medication.archive");
     const removed = await archiveMedication(pool, auth, decodeURIComponent(medicationPath[1]));

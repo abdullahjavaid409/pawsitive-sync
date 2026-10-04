@@ -6,6 +6,7 @@ import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/care_tab_builder.dart';
 import 'package:pawsitive_sync/core/widgets/care_widgets.dart';
+import 'package:pawsitive_sync/core/widgets/pro_lock.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/domain/models.dart';
@@ -133,7 +134,12 @@ class HouseholdScreen extends StatelessWidget {
                       size: 18,
                       color: scheme.onPrimary,
                     ),
-                    label: const Text('Invite someone'),
+                    label: WithProLock(
+                      locked:
+                          care.canManageHousehold && !care.canInviteHousehold,
+                      onDark: true,
+                      child: const Text('Invite someone'),
+                    ),
                   ),
                   if (!care.canManageHousehold) ...[
                     const SizedBox(height: 8),

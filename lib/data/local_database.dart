@@ -30,7 +30,8 @@ class LocalDatabase {
   static LocalDatabase shared = LocalDatabase();
 
   static const fileName = 'pawsitive.db';
-  static const schemaVersion = 1;
+  /// v2: `medications.times` (custom reminder times, JSON or NULL).
+  static const schemaVersion = 2;
 
   final DatabaseFactory? _factory;
   final Future<String> Function() _path;
@@ -133,6 +134,7 @@ class LocalDatabase {
           await debugOnOpen?.call(db);
         },
         onCreate: (db, _) => _createSchema(db),
+        onUpgrade: _upgrade,
       ),
     );
     // Reading the schema forces SQLite to read the file header: a damaged
@@ -149,6 +151,15 @@ class LocalDatabase {
         code == 26 ||
         '$error'.contains('malformed') ||
         '$error'.contains('not a database');
+  }
+
+  /// Additive steps only: existing rows keep every value, new columns start
+  /// NULL (= "use the defaults").
+  static Future<void> _upgrade(Database db, int from, int to) async {
+    if (from < 2) {
+      await db.execute('ALTER TABLE medications ADD COLUMN times TEXT');
+    }
+    AppLog.event('store.migrated', {'from': from, 'to': to});
   }
 
   static Future<void> _createSchema(Database db) async {
@@ -173,7 +184,7 @@ class LocalDatabase {
           name TEXT NOT NULL, amount TEXT NOT NULL, parts TEXT NOT NULL,
           supply_total INTEGER NOT NULL, doses_left INTEGER NOT NULL,
           start_day TEXT NOT NULL, end_day TEXT NOT NULL,
-          archived INTEGER NOT NULL, archived_at TEXT)''')
+          archived INTEGER NOT NULL, archived_at TEXT, times TEXT)''')
       ..execute('''
         CREATE TABLE dose_logs (
           id TEXT PRIMARY KEY, medication_id TEXT NOT NULL, part TEXT NOT NULL,
@@ -279,6 +290,7 @@ abstract final class LocalRows {
     'end_day': m.endDay,
     'archived': m.isArchived ? 1 : 0,
     'archived_at': m.archivedAt,
+    'times': m.times.isEmpty ? null : jsonEncode(DoseTimes.encode(m.times)),
   };
 
   static Medication toMedication(Map<String, Object?> row) {
@@ -293,6 +305,7 @@ abstract final class LocalRows {
       'dosesLeft': row['doses_left'],
       'startDay': row['start_day'],
       'endDay': row['end_day'],
+      'times': _json(row['times']),
     });
     if (row['archived'] != 1) return parsed;
     return parsed.copyWith(archivedAt: '${row['archived_at'] ?? ''}');
@@ -326,6 +339,17 @@ abstract final class LocalRows {
     timeLabel: row['time_label'] as String? ?? '',
     note: row['note'] as String?,
   );
+
+  /// Decoded JSON column, or null for NULL. Never throws: junk is passed
+  /// on as-is so the parser drops it (default times) and logs it once.
+  static Object? _json(Object? raw) {
+    if (raw is! String || raw.isEmpty) return null;
+    try {
+      return jsonDecode(raw);
+    } on FormatException {
+      return raw;
+    }
+  }
 
   static T _byName<T extends Enum>(List<T> values, Object? name, T fallback) {
     for (final value in values) {

@@ -63,8 +63,15 @@ void main() {
       // Today: fluids 1 PM + insulin 8 PM (morning already given by Sara/Dan).
       expect(doses.take(2).map((n) => n.doseId), ['fluids.afternoon', 'insulin.evening']);
       expect(doses.where((n) => n.day == _today), hasLength(2));
-      // Tomorrow onwards: all five doses a day, not just one reminder.
-      expect(doses.where((n) => n.day == '2026-10-05'), hasLength(5));
+      // Tomorrow onwards: all five doses a day, not just one reminder —
+      // the three 8:00 AM doses share one grouped notification.
+      final tomorrow = doses.where((n) => n.day == '2026-10-05').toList();
+      expect(tomorrow, hasLength(3));
+      expect(
+        tomorrow.fold<int>(0, (sum, n) => sum + (n.isGroup ? n.group.length : 1)),
+        5,
+      );
+      expect(tomorrow.first.title, '3 doses due · 8:00 AM');
       expect(fake.scheduled.length, lessThan(64));
       expect(fake.scheduled.containsKey(_id(ReminderKind.dose, 'insulin.morning')), isFalse);
       expectLogged('reminders.scheduled', fields: {'trigger': 'manual'});

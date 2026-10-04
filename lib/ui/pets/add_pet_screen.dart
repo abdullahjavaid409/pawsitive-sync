@@ -34,7 +34,9 @@ class _AddPetScreenState extends State<AddPetScreen> {
       final care = context.read<CareRepository>();
       if (!care.canAddPet) {
         // billing.paywall.opened from=add_pet_screen.
-        context.go(AppRoutes.paywallWith(from: 'add_pet_screen'));
+        context.go(
+          AppRoutes.paywallWith(reason: 'second_pet', from: 'add_pet_screen'),
+        );
       }
     });
   }

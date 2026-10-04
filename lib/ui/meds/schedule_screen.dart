@@ -1,16 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pawsitive_sync/core/format/clock_format.dart';
 import 'package:pawsitive_sync/core/layout/app_art_size.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/care_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/post_frame.dart';
+import 'package:pawsitive_sync/core/widgets/paws_widgets.dart' show SurfaceCard;
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart'
     show CareRepository, dayKey;
 import 'package:pawsitive_sync/domain/models.dart';
+import 'package:pawsitive_sync/ui/meds/dose_time_picker.dart';
 import 'package:provider/provider.dart';
 
 /// A daily medicine routine, with optional tracking of complete doses left.
@@ -31,6 +34,27 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   final _amount = TextEditingController();
   final _supply = TextEditingController();
   final _parts = <DayPart>{DayPart.morning};
+
+  /// Times the person picked (minute of day); other parts use defaults.
+  /// Kept for unselected parts too, so toggling a part off and on again
+  /// doesn't lose the pick.
+  final _times = <DayPart, int>{};
+
+  int _minuteFor(DayPart part) => _times[part] ?? part.defaultMinute;
+
+  Future<void> _pickTime(DayPart part) async {
+    final minute = await pickDoseTime(context, part, _minuteFor(part));
+    if (minute == null || !mounted) return;
+    setState(() {
+      _error = null;
+      _times[part] = minute;
+    });
+    AppLog.event('medication.time_picked', {
+      'part': part.name,
+      'custom': minute != part.defaultMinute,
+    });
+  }
+
   String? _petId;
   int? _courseDays;
   bool _trackSupply = false;
@@ -101,6 +125,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       parts: _parts.toList(),
       supplyTotal: _trackSupply ? int.parse(_supply.text.trim()) : 0,
       endDay: endDay,
+      times: _times,
     );
     if (!mounted) return;
     if (!ok) {
@@ -270,6 +295,9 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                                       for (final part in DayPart.values)
                                         _PartTile(
                                           part: part,
+                                          timeLabel: ClockFormat.label(
+                                            _minuteFor(part),
+                                          ),
                                           selected: _parts.contains(part),
                                           horizontal: stacked,
                                           onPressed: () => setState(() {
@@ -308,6 +336,35 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                                           );
                                   },
                                 ),
+                                if (_parts.isNotEmpty) ...[
+                                  const SizedBox(height: 14),
+                                  Text(
+                                    'Reminder times — tap to change.',
+                                    style: text.bodyMedium?.copyWith(
+                                      color: scheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  SurfaceCard(
+                                    child: Column(
+                                      children: [
+                                        for (final (i, part) in [
+                                          for (final p in DayPart.values)
+                                            if (_parts.contains(p)) p,
+                                        ].indexed)
+                                          DoseTimeRow(
+                                            key: ValueKey('time-${part.name}'),
+                                            part: part,
+                                            minute: _minuteFor(part),
+                                            divider: i < _parts.length - 1,
+                                            onTap: _busy
+                                                ? null
+                                                : () => _pickTime(part),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
                                 if (_attemptedSave && _parts.isEmpty) ...[
                                   const SizedBox(height: 8),
                                   Semantics(
@@ -504,7 +561,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                                               const SizedBox(height: 5),
                                               Text(
                                                 '${pet.name} · ${[for (final part in DayPart.values)
-                                                  if (_parts.contains(part)) part.label].join(' & ')}',
+                                                  if (_parts.contains(part)) '${part.label} ${ClockFormat.label(_minuteFor(part))}'].join(' & ')}',
                                                 style: text.bodyMedium,
                                               ),
                                               const SizedBox(height: 5),
@@ -598,11 +655,15 @@ class _FieldLabel extends StatelessWidget {
 class _PartTile extends StatelessWidget {
   const _PartTile({
     required this.part,
+    required this.timeLabel,
     required this.selected,
     required this.onPressed,
     required this.horizontal,
   });
   final DayPart part;
+
+  /// The reminder time for this part (custom pick or default).
+  final String timeLabel;
   final bool selected;
   final bool horizontal;
   final VoidCallback onPressed;
@@ -640,13 +701,13 @@ class _PartTile extends StatelessWidget {
       children: [
         Text(part.label, style: text.titleSmall?.copyWith(color: color)),
         const SizedBox(height: 5),
-        Text(part.timeLabel, style: text.bodySmall?.copyWith(color: color)),
+        Text(timeLabel, style: text.bodySmall?.copyWith(color: color)),
       ],
     );
     return Semantics(
       button: true,
       selected: selected,
-      label: '${part.label}, ${part.timeLabel}',
+      label: '${part.label}, $timeLabel',
       excludeSemantics: true,
       child: Material(
         color: selected

@@ -160,7 +160,12 @@ Use the iOS simulator with real, hand-entered data; local backend only.
 | Tap **Snooze 15 min** (app killed) | One reminder 15 min later; no 30-min follow-up on top | `reminders.snoozed` |
 | Ignore a reminder | One "Still due: …" 30 min later, never more | — |
 | Tap a reminder | Today opens that dose's log sheet (cold start too) | `reminders.opened action=tap coldStart=…` |
-| Change the time zone in Settings, reopen | Doses re-aimed to 8:00 / 1:00 / 8:00 local | `reminders.timezone_changed`, `trigger=timezone_changed` |
+| Change the time zone in Settings, reopen | Doses re-aimed to 8:00 / 1:00 / 8:00 local (or each dose's custom time) | `reminders.timezone_changed`, `trigger=timezone_changed` |
+| Add medicine → tap **Morning reminder** → pick 7:00 | Tile, Today, lock screen, widget and notification say 7:00 AM (07:00 on a 24-hour phone) | `medication.time_picked`, `medication.add.completed customTimes=1` |
+| Medicine screen → **Evening reminder** → pick 7:00 PM | Snackbar "Evening reminder set to 7:00 PM."; partner's phone shows it after sync | `medication.times.completed`, `reminders.scheduled trigger=data` |
+| Two+ medicines at the same minute | One notification "3 doses due · 8:00 AM", body per pet; **Open** / **Snooze 15 min**; log one → it lists the rest | `reminders.scheduled grouped=…` |
+| Set the phone clock forward/back with the app open | Re-planned; no past or duplicate reminders | `reminders.clock_changed`, `trigger=clock_changed` |
+| Don't open the app for 6+ days | Background refresh extends reminders; if it never runs, a quiet "Open Pawsitive to keep Miso's reminders going" at the last dose | `reminders.background_run`, `reminders.scheduled upkeep=true` |
 | Deny notifications in phone Settings, reopen | No scheduling; honest note on Today (Not now hides 14 days) and in Settings | `reminders.schedule_skipped reason=permission_denied` |
 | Settings → each engagement switch | Takes effect at once; summary/refill respect quiet hours | `settings.engagement_changed` |
 | Partner logs a dose (connected) | Today: "Sam gave Miso's Insulin — thanks, Sam" (dismissible) | `engagement.thanks_dismissed` on ✕ |

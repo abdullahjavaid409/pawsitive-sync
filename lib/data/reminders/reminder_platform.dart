@@ -22,7 +22,16 @@ enum ReminderPermission { granted, denied, unknown }
 abstract final class ReminderActions {
   static const given = 'given';
   static const snooze = 'snooze';
+
+  /// Grouped notifications: opens Today (several doses, so no "Given").
+  static const open = 'open';
   static const doseCategory = 'dose_due';
+
+  /// iOS category for a grouped notification (Open + Snooze 15 min).
+  static const groupCategory = 'doses_due';
+
+  /// Android notification group for every dose reminder.
+  static const androidGroup = 'com.pawsitivesync.app.doses';
 }
 
 /// A pending notification as the OS reports it.
@@ -89,24 +98,51 @@ abstract final class ReminderSnooze {
     DateTime? now,
     Duration delay = ReminderSettings.snoozeDelay,
   }) async {
-    if (source.doseId.isEmpty || source.day.isEmpty) return false;
+    if (source.day.isEmpty || (source.doseId.isEmpty && !source.isGroup)) {
+      return false;
+    }
     final at = tz.TZDateTime.from(
       (now ?? DateTime.now()).add(delay),
       tz.UTC,
     );
-    final snooze = PlannedNotification(
-      id: ReminderIds.forDose(ReminderKind.snooze, source.doseId, source.day),
-      kind: ReminderKind.snooze,
-      when: at,
-      title: source.title,
-      body: ReminderCopy.snoozeBody(''),
-      doseId: source.doseId,
-      day: source.day,
-    );
+    // A group snoozes as one ("Snooze 15 min" for all of its doses).
+    final snooze = source.isGroup
+        ? ReminderGroups.build(
+            kind: ReminderKind.snooze,
+            doses: source.group,
+            when: at,
+            day: source.day,
+            groupKey: source.groupKey,
+            timeLabel: source.timeLabel,
+            shared: source.shared,
+          )!
+        : PlannedNotification(
+            id: ReminderIds.forDose(
+              ReminderKind.snooze,
+              source.doseId,
+              source.day,
+            ),
+            kind: ReminderKind.snooze,
+            when: at,
+            title: source.title,
+            body: ReminderCopy.snoozeBody(''),
+            doseId: source.doseId,
+            day: source.day,
+          );
     // The follow-up would be a second nudge on top of the one asked for.
-    await platform.cancel(
-      ReminderIds.forDose(ReminderKind.followUp, source.doseId, source.day),
-    );
+    if (source.groupKey.isNotEmpty) {
+      await platform.cancel(ReminderIds.of(ReminderKind.followUp, source.groupKey));
+    }
+    for (final key in source.doseKeys) {
+      final split = key.lastIndexOf('|');
+      await platform.cancel(
+        ReminderIds.forDose(
+          ReminderKind.followUp,
+          key.substring(0, split),
+          source.day,
+        ),
+      );
+    }
     var exact = false;
     try {
       exact = await platform.canScheduleExact();
@@ -114,9 +150,12 @@ abstract final class ReminderSnooze {
       exact = false;
     }
     await platform.schedule(snooze, exact: exact);
-    await remember(source.doseKey, source.day);
+    for (final key in source.doseKeys) {
+      await remember(key, source.day);
+    }
     AppLog.event('reminders.snoozed', {
-      'doseId': source.doseId,
+      'doseId': source.isGroup ? source.group.first.doseId : source.doseId,
+      if (source.isGroup) 'doses': source.group.length,
       'minutes': delay.inMinutes,
       'from': source.kind.name,
     });
@@ -206,6 +245,20 @@ class PluginReminderPlatform implements ReminderPlatform {
       requestSoundPermission: false,
       notificationCategories: [
         DarwinNotificationCategory(
+          ReminderActions.groupCategory,
+          actions: [
+            DarwinNotificationAction.plain(
+              ReminderActions.open,
+              'Open',
+              options: {DarwinNotificationActionOption.foreground},
+            ),
+            DarwinNotificationAction.plain(
+              ReminderActions.snooze,
+              'Snooze 15 min',
+            ),
+          ],
+        ),
+        DarwinNotificationCategory(
           ReminderActions.doseCategory,
           actions: [
             // Opens the app: logging needs the repository and the
@@ -293,7 +346,13 @@ class PluginReminderPlatform implements ReminderPlatform {
     PlannedNotification n, {
     required bool exact,
   }) async {
-    final details = await _details(n.kind, id: n.id, photoPath: n.photoPath);
+    final details = await _details(
+      n.kind,
+      id: n.id,
+      photoPath: n.photoPath,
+      group: n.isGroup,
+      body: n.body,
+    );
     Future<void> run(AndroidScheduleMode mode) => _plugin.zonedSchedule(
       n.id,
       n.title,
@@ -351,6 +410,8 @@ class PluginReminderPlatform implements ReminderPlatform {
     ReminderKind kind, {
     required int id,
     String? photoPath,
+    bool group = false,
+    String body = '',
   }) async {
     switch (kind) {
       case ReminderKind.dose:
@@ -368,13 +429,25 @@ class PluginReminderPlatform implements ReminderPlatform {
             priority: Priority.high,
             category: AndroidNotificationCategory.reminder,
             largeIcon: photo == null ? null : FilePathAndroidBitmap(photo),
-            actions: const [
-              AndroidNotificationAction(
-                ReminderActions.given,
-                'Given',
-                showsUserInterface: true,
-              ),
-              AndroidNotificationAction(
+            // Same-minute doses are already one notification; the group
+            // key bundles reminders at different minutes in the shade.
+            groupKey: ReminderActions.androidGroup,
+            // Long group bodies ("Miso: Insulin · Biscuit: …") wrap.
+            styleInformation: group ? BigTextStyleInformation(body) : null,
+            actions: <AndroidNotificationAction>[
+              if (group)
+                const AndroidNotificationAction(
+                  ReminderActions.open,
+                  'Open',
+                  showsUserInterface: true,
+                )
+              else
+                const AndroidNotificationAction(
+                  ReminderActions.given,
+                  'Given',
+                  showsUserInterface: true,
+                ),
+              const AndroidNotificationAction(
                 ReminderActions.snooze,
                 'Snooze 15 min',
               ),
@@ -384,7 +457,9 @@ class PluginReminderPlatform implements ReminderPlatform {
             presentAlert: true,
             presentBadge: false,
             presentSound: true,
-            categoryIdentifier: ReminderActions.doseCategory,
+            categoryIdentifier: group
+                ? ReminderActions.groupCategory
+                : ReminderActions.doseCategory,
             threadIdentifier: 'doses',
             interruptionLevel: AppConfig.iosTimeSensitive
                 ? InterruptionLevel.timeSensitive
@@ -401,6 +476,25 @@ class PluginReminderPlatform implements ReminderPlatform {
             channelDescription: 'Weekly summary and refill heads-ups.',
             importance: Importance.defaultImportance,
             priority: Priority.defaultPriority,
+          ),
+          iOS: DarwinNotificationDetails(
+            presentAlert: true,
+            presentBadge: false,
+            presentSound: false,
+            threadIdentifier: 'care',
+            interruptionLevel: InterruptionLevel.passive,
+          ),
+        );
+      case ReminderKind.upkeep:
+        // Quiet: no sound, no banner urgency. It only asks for an app open.
+        return const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'reminder_upkeep',
+            'Reminder check-ins',
+            channelDescription:
+                'A quiet note when reminders need the app opened to continue.',
+            importance: Importance.low,
+            priority: Priority.low,
           ),
           iOS: DarwinNotificationDetails(
             presentAlert: true,

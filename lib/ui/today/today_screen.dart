@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:pawsitive_sync/core/format/clock_format.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/format/day_label.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
@@ -14,6 +15,7 @@ import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/data/dose_reminders.dart';
+import 'package:pawsitive_sync/data/pro_prompts.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:pawsitive_sync/ui/care/add_care_event_sheet.dart';
@@ -30,19 +32,66 @@ class TodayScreen extends StatefulWidget {
 
 class _TodayScreenState extends State<TodayScreen> {
   String? _petId;
+  late final AppLifecycleListener _lifecycle;
+  Timer? _idlePrompt;
+
+  /// Quiet time on Today before a queued upgrade prompt may open.
+  static const idleDelay = Duration(seconds: 3);
 
   @override
   void initState() {
     super.initState();
     DoseReminders.pendingOpen.addListener(_openFromNotification);
+    // Queued upgrade prompts only ever open on a fresh visit (launch or
+    // return to the app) — never right after a sheet closes.
+    _lifecycle = AppLifecycleListener(onResume: _scheduleIdlePrompt);
     // A cold-start tap is already waiting before Today first builds.
-    WidgetsBinding.instance.addPostFrameCallback((_) => _openFromNotification());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _openFromNotification();
+      _scheduleIdlePrompt();
+    });
   }
 
   @override
   void dispose() {
     DoseReminders.pendingOpen.removeListener(_openFromNotification);
+    _lifecycle.dispose();
+    _idlePrompt?.cancel();
     super.dispose();
+  }
+
+  /// Opens a queued upgrade prompt only when the person is idle on Today:
+  /// nothing open on top, no notification tap waiting, and no dose to give
+  /// right now (a due dose is a safety path — never covered by a paywall).
+  /// Checked again after [idleDelay], so starting to use the app cancels it.
+  void _scheduleIdlePrompt() {
+    _idlePrompt?.cancel();
+    if (!_idle()) return;
+    _idlePrompt = Timer(idleDelay, () async {
+      if (!_idle()) return;
+      final care = context.read<CareRepository>();
+      final trigger = await ProPrompts.takeIdle(now: care.now);
+      if (trigger == null || !mounted || !_idle()) return;
+      // billing.paywall.opened reason=<trigger> from=idle_prompt.
+      unawaited(
+        context.push(AppRoutes.paywallWith(reason: trigger, from: 'idle_prompt')),
+      );
+    });
+  }
+
+  bool _idle() {
+    if (!mounted) return false;
+    final care = context.read<CareRepository>();
+    if (care.isPro) return false;
+    if (ModalRoute.of(context)?.isCurrent == false) return false;
+    // Another tab is showing (Today kept alive offstage): not idle here.
+    if (!TickerMode.valuesOf(context).enabled) return false;
+    if (Navigator.of(context, rootNavigator: true).canPop()) return false;
+    if (DoseReminders.pendingOpen.value != null) return false;
+    // "Not sure" doses wait for a check, not a dose: they don't block.
+    return !care.doses.any(
+      (d) => d.status == DoseStatus.due && d.givenById == null,
+    );
   }
 
   /// A notification tap opens that dose's log sheet (or the "already
@@ -54,7 +103,8 @@ class _TodayScreenState extends State<TodayScreen> {
     final care = context.read<CareRepository>();
     final message = open.message;
     if (message != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
     }
     final doseId = open.doseId;
     if (doseId == null) return;
@@ -130,7 +180,10 @@ class _TodayScreenState extends State<TodayScreen> {
                       ? null
                       : () {
                           context.push(
-                            AppRoutes.paywallWith(from: 'pro_badge'),
+                            AppRoutes.paywallWith(
+                              reason: 'settings',
+                              from: 'pro_badge',
+                            ),
                           );
                         },
                   // Logged as nav.push to=/settings.
@@ -180,6 +233,13 @@ class _TodayScreenState extends State<TodayScreen> {
                     medication: low,
                     // Logged as nav.push to=/medication/:id.
                     onTap: () => context.push(AppRoutes.medication(low.id)),
+                  ),
+                ],
+                // Free: the same moment, honestly framed as what Pro adds.
+                if (!care.canShowLowSupplyAlerts && low != null) ...[
+                  _LowSupplyTeaser(
+                    key: ValueKey('low-teaser-${low.id}'),
+                    medication: low,
                   ),
                 ],
                 if (due.isNotEmpty &&
@@ -237,7 +297,7 @@ class _TodayScreenState extends State<TodayScreen> {
                 const SizedBox(height: 4),
                 for (final part in DayPart.values)
                   if (byPart[part]!.isNotEmpty) ...[
-                    _PartLabel(part),
+                    _PartLabel(part, doses: byPart[part]!),
                     SurfaceCard(
                       radius: 20,
                       child: Column(
@@ -272,7 +332,10 @@ class _TodayScreenState extends State<TodayScreen> {
                           if (!care.canAddPet) {
                             // billing.paywall.opened from=add_pet_today.
                             context.push(
-                              AppRoutes.paywallWith(from: 'add_pet_today'),
+                              AppRoutes.paywallWith(
+                                reason: 'second_pet',
+                                from: 'add_pet_today',
+                              ),
                             );
                             return;
                           }
@@ -347,7 +410,20 @@ class _TodayScreenState extends State<TodayScreen> {
       await showDoubleDoseGuard(context, dose);
       return;
     }
+    final care = context.read<CareRepository>();
+    final wasUncertain =
+        care.loggedDose(dose.id, dayKey(care.now))?.outcome ==
+        LogOutcome.uncertain;
     await showLogDoseSheet(context, dose);
+    if (!context.mounted || care.isPro || wasUncertain) return;
+    // Just marked "not sure": the moment shared care answers — remembered
+    // for the next idle visit to Today, once ever, capped.
+    final nowUncertain =
+        care.loggedDose(dose.id, dayKey(care.now))?.outcome ==
+        LogOutcome.uncertain;
+    if (!nowUncertain) return;
+    // Never shown now (the person is mid-care); queued for an idle moment.
+    await ProPrompts.queue(ProPrompts.uncertain);
   }
 }
 
@@ -554,7 +630,7 @@ class _NextDose extends StatelessWidget {
               ),
               const SizedBox(width: 6),
               Text(
-                dose.part.timeLabel,
+                dose.timeLabel,
                 style: text.bodyMedium?.copyWith(color: context.paws.brandDark),
               ),
             ],
@@ -644,8 +720,24 @@ class _NextDose extends StatelessWidget {
 }
 
 class _PartLabel extends StatelessWidget {
-  const _PartLabel(this.part);
+  const _PartLabel(this.part, {required this.doses});
   final DayPart part;
+  final List<Dose> doses;
+
+  /// The section's time: one time when every dose shares it, else the
+  /// earliest–latest range (custom times can differ per medicine).
+  String get _timeLabel {
+    final minutes = {
+      for (final d in doses) d.minute < 0 ? part.defaultMinute : d.minute,
+    };
+    if (minutes.isEmpty) return part.timeLabel;
+    final sorted = minutes.toList()..sort();
+    final first = ClockFormat.label(sorted.first);
+    return sorted.length == 1
+        ? first
+        : '$first – ${ClockFormat.label(sorted.last)}';
+  }
+
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.fromLTRB(0, 14, 0, 10),
@@ -659,7 +751,7 @@ class _PartLabel extends StatelessWidget {
             style: Theme.of(context).textTheme.titleSmall,
           ),
         ),
-        Text(part.timeLabel, style: Theme.of(context).textTheme.bodySmall),
+        Text(_timeLabel, style: Theme.of(context).textTheme.bodySmall),
       ],
     ),
   );
@@ -746,6 +838,109 @@ class _DoseTile extends StatelessWidget {
                   size: 20,
                   color: scheme.onSurfaceVariant,
                 ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Free users: a medicine is running low. Says what Pro adds (a heads-up
+/// before it runs out) and opens the refill paywall; dismissible per
+/// low-supply episode, so it never nags.
+class _LowSupplyTeaser extends StatefulWidget {
+  const _LowSupplyTeaser({super.key, required this.medication});
+  final Medication medication;
+
+  @override
+  State<_LowSupplyTeaser> createState() => _LowSupplyTeaserState();
+}
+
+class _LowSupplyTeaserState extends State<_LowSupplyTeaser> {
+  bool _hidden = true;
+
+  @override
+  void initState() {
+    super.initState();
+    final care = context.read<CareRepository>();
+    final lowNow = {
+      for (final m in care.medications)
+        if (m.isLow) m.id,
+    };
+    ProPrompts.lowDismissed(lowNow).then((dismissed) {
+      if (!mounted) return;
+      final hidden = dismissed.contains(widget.medication.id);
+      setState(() => _hidden = hidden);
+      if (!hidden) {
+        AppLog.event('billing.low_supply_teaser.shown', {
+          'medicationId': widget.medication.id,
+        });
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_hidden) return const SizedBox.shrink();
+    final text = Theme.of(context).textTheme;
+    final m = widget.medication;
+    final left = m.dosesLeft == 1 ? '1 dose left' : '${m.dosesLeft} doses left';
+    return Padding(
+      padding: const EdgeInsets.only(top: 16),
+      child: Material(
+        color: context.paws.warningBg,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 10, 4, 10),
+          child: Row(
+            children: [
+              StrokeIcon(
+                StrokeIconKind.alert,
+                size: 20,
+                color: context.paws.warning,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${m.name} is running low · $left',
+                      style: text.bodyMedium?.copyWith(
+                        color: context.paws.warning,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Pro sends a heads-up before it runs out.',
+                      style: text.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              TextButton(
+                // billing.paywall.opened reason=refill from=low_supply_teaser.
+                onPressed: () => context.push(
+                  AppRoutes.paywallWith(
+                    reason: 'refill',
+                    from: 'low_supply_teaser',
+                  ),
+                ),
+                child: const Text('See Pro'),
+              ),
+              IconButton(
+                tooltip: 'Hide',
+                icon: StrokeIcon(
+                  StrokeIconKind.close,
+                  size: 16,
+                  color: context.paws.warning,
+                ),
+                onPressed: () {
+                  setState(() => _hidden = true);
+                  ProPrompts.dismissLow(m.id);
+                },
+              ),
             ],
           ),
         ),

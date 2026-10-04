@@ -6,6 +6,7 @@ import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/care_tab_builder.dart';
 import 'package:pawsitive_sync/core/widgets/care_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
+import 'package:pawsitive_sync/core/widgets/pro_lock.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/data/vet_report_pdf.dart';
@@ -64,7 +65,10 @@ class _VetReportScreenState extends State<VetReportScreen> {
                   trailing: TextButton(
                     onPressed: () {
                       context.push(
-                        AppRoutes.paywallWith(from: 'report_upgrade'),
+                        AppRoutes.paywallWith(
+                          reason: 'vet_export',
+                          from: 'report_upgrade',
+                        ),
                       );
                     },
                     child: const Text('Upgrade'),
@@ -352,7 +356,10 @@ class _VetReportScreenState extends State<VetReportScreen> {
                       ? () => _share(buttonContext, care, pet, report)
                       : () {
                           context.push(
-                            AppRoutes.paywallWith(from: 'report_share'),
+                            AppRoutes.paywallWith(
+                              reason: 'vet_export',
+                              from: 'report_share',
+                            ),
                           );
                         },
                   style: FilledButton.styleFrom(
@@ -363,8 +370,12 @@ class _VetReportScreenState extends State<VetReportScreen> {
                     size: 19,
                     color: scheme.onPrimary,
                   ),
-                  label: Text(
-                    _sharing ? 'Opening share options…' : 'Share with vet',
+                  label: WithProLock(
+                    locked: !care.canShareVetReport,
+                    onDark: true,
+                    child: Text(
+                      _sharing ? 'Opening share options…' : 'Share with vet',
+                    ),
                   ),
                 ),
               ),

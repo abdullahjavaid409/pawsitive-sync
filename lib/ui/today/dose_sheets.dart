@@ -230,7 +230,7 @@ class _LogDoseSheetState extends State<_LogDoseSheet> {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          '${pet.name} · ${widget.dose.part.timeLabel}',
+                          '${pet.name} · ${widget.dose.timeLabel}',
                           style: text.bodyMedium,
                         ),
                       ],

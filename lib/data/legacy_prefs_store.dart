@@ -380,6 +380,7 @@ abstract final class LegacyPrefsStore {
     'invite_code': house.inviteCode,
     'invite_expires_at': house.inviteExpiresAt?.toIso8601String() ?? '',
     'is_pro': house.isPro ? '1' : '0',
+    'pro_until': house.proUntil?.toUtc().toIso8601String() ?? '',
     'plan': house.plan.name,
   };
 

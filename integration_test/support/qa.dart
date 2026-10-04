@@ -183,14 +183,23 @@ class Qa {
   }
 
   /// Taps a button by its accessibility label (bottom tabs, icon buttons).
-  Future<void> tapLabel(String label) => tap(
-    find.byWidgetPredicate(
-      (w) =>
-          w is Semantics &&
-          w.properties.button == true &&
-          w.properties.label == label,
-    ),
-  );
+  /// On tablets the tabs are a side rail (no labelled Semantics button), so
+  /// a rail destination with that text is tapped instead.
+  Future<void> tapLabel(String label) {
+    final rail = find.byType(NavigationRail);
+    if (rail.evaluate().isNotEmpty) {
+      final destination = find.descendant(of: rail, matching: find.text(label));
+      if (destination.evaluate().isNotEmpty) return tap(destination);
+    }
+    return tap(
+      find.byWidgetPredicate(
+        (w) =>
+            w is Semantics &&
+            w.properties.button == true &&
+            w.properties.label == label,
+      ),
+    );
+  }
 
   Future<void> see(String text, {bool partial = false, int seconds = 10}) =>
       waitFor(

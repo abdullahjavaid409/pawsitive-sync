@@ -3,6 +3,7 @@ import 'dart:io' show Platform;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pawsitive_sync/core/widgets/pro_lock.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
@@ -112,7 +113,10 @@ class NotificationSettings extends StatelessWidget {
                 divider(),
                 if (care.isPro)
                   SwitchListTile(
-                    title: const Text('Refill heads-up'),
+                    title: const WithProLock(
+                      locked: true,
+                      child: Text('Refill heads-up'),
+                    ),
                     subtitle: const Text(
                       'One note when a tracked supply is running low.',
                     ),
@@ -122,10 +126,15 @@ class NotificationSettings extends StatelessWidget {
                 else
                   ListTile(
                     title: const Text('Refill heads-up'),
-                    subtitle: const Text('Pro · a note before a medicine runs out.'),
+                    subtitle: const Text(
+                      'Pro · a note before a medicine runs out.',
+                    ),
                     trailing: TextButton(
                       onPressed: () => context.push(
-                        AppRoutes.paywallWith(from: 'settings_refill'),
+                        AppRoutes.paywallWith(
+                          reason: 'refill',
+                          from: 'settings_refill',
+                        ),
                       ),
                       child: const Text('See Pro'),
                     ),
@@ -179,10 +188,8 @@ class NotificationSettings extends StatelessWidget {
     );
   }
 
-  static String _clock(BuildContext context, int minute) => TimeOfDay(
-    hour: minute ~/ 60,
-    minute: minute % 60,
-  ).format(context);
+  static String _clock(BuildContext context, int minute) =>
+      TimeOfDay(hour: minute ~/ 60, minute: minute % 60).format(context);
 
   Future<void> _pickQuietHours(
     BuildContext context,
