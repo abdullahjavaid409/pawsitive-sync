@@ -181,6 +181,14 @@ export class InputError extends Error {
   }
 }
 
+/** 403: this needs a Pro household. `message` is shown to the person as-is. */
+export class ProRequiredError extends InputError {
+  constructor(message, detail = message) {
+    super(message, detail);
+    this.status = 403;
+  }
+}
+
 /** A malformed request is the app's bug, not the user's — say so kindly. */
 const appProblem = "Something went wrong saving that. Update the app or try again.";
 

@@ -26,6 +26,7 @@ class _InviteScreenState extends State<InviteScreen> {
   bool _loadingWebLink = false;
   String? _error;
   String? _webLink;
+  String? _webLinkError;
 
   @override
   void initState() {
@@ -35,7 +36,10 @@ class _InviteScreenState extends State<InviteScreen> {
 
   Future<void> _ensureShared() async {
     final care = context.read<CareRepository>();
-    if (care.isConnected) return;
+    if (care.isConnected) {
+      await _loadWebLink();
+      return;
+    }
     setState(() {
       _connecting = true;
       _error = null;
@@ -63,6 +67,7 @@ class _InviteScreenState extends State<InviteScreen> {
     setState(() {
       _loadingWebLink = false;
       _webLink = link;
+      _webLinkError = link == null ? care.lastError : null;
     });
   }
 
@@ -170,7 +175,8 @@ class _InviteScreenState extends State<InviteScreen> {
                             const SizedBox(height: 12),
                             if (ready)
                               Semantics(
-                                label: 'Invite code ${code.split('').join(' ')}',
+                                label:
+                                    'Invite code ${code.split('').join(' ')}',
                                 child: SelectableText(
                                   code,
                                   textAlign: TextAlign.center,
@@ -249,7 +255,7 @@ class _InviteScreenState extends State<InviteScreen> {
                               )
                             else
                               Text(
-                                'Could not create a browser link. Try again.',
+                                _webLinkError ?? 'Could not create a browser link. Try again.',
                                 style: text.bodyMedium?.copyWith(
                                   color: scheme.error,
                                 ),
@@ -286,50 +292,53 @@ class _InviteScreenState extends State<InviteScreen> {
                         ),
                       ),
                       if (joinLink != null) ...[
-                      const SizedBox(height: 24),
-                      Text('App invite (partner / family)', style: text.titleMedium),
-                      const SizedBox(height: 8),
-                      Text(
-                        'For people who will install the app — code is prefilled.',
-                        style: text.bodyMedium?.copyWith(
-                          color: scheme.onSurfaceVariant,
+                        const SizedBox(height: 24),
+                        Text(
+                          'App invite (partner / family)',
+                          style: text.titleMedium,
                         ),
-                      ),
-                      const SizedBox(height: 12),
-                      SurfaceCard(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            SelectableText(
-                              joinLink,
-                              style: text.bodyMedium?.copyWith(
-                                color: tokens.brandDark,
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            OutlinedButton.icon(
-                              onPressed: () async {
-                                await Clipboard.setData(
-                                  ClipboardData(text: joinLink),
-                                );
-                                if (!mounted) return;
-                                AppLog.event('invite.link_copied');
-                                setState(() => _linkCopied = true);
-                              },
-                              icon: Icon(
-                                _linkCopied
-                                    ? Icons.check_rounded
-                                    : Icons.link_rounded,
-                                size: 18,
-                              ),
-                              label: Text(
-                                _linkCopied ? 'Link copied' : 'Copy app link',
-                              ),
-                            ),
-                          ],
+                        const SizedBox(height: 8),
+                        Text(
+                          'For people who will install the app — code is prefilled.',
+                          style: text.bodyMedium?.copyWith(
+                            color: scheme.onSurfaceVariant,
+                          ),
                         ),
-                      ),
+                        const SizedBox(height: 12),
+                        SurfaceCard(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              SelectableText(
+                                joinLink,
+                                style: text.bodyMedium?.copyWith(
+                                  color: tokens.brandDark,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              OutlinedButton.icon(
+                                onPressed: () async {
+                                  await Clipboard.setData(
+                                    ClipboardData(text: joinLink),
+                                  );
+                                  if (!mounted) return;
+                                  AppLog.event('invite.link_copied');
+                                  setState(() => _linkCopied = true);
+                                },
+                                icon: Icon(
+                                  _linkCopied
+                                      ? Icons.check_rounded
+                                      : Icons.link_rounded,
+                                  size: 18,
+                                ),
+                                label: Text(
+                                  _linkCopied ? 'Link copied' : 'Copy app link',
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ],
                     ],
                     const SizedBox(height: 24),

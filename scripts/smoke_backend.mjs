@@ -178,10 +178,10 @@ async function main() {
   }
   const sitterLink = await json('POST', '/v1/sitter-links', { label: 'Smoke sitter' }, ownerToken);
   const sitterToken = sitterLink.data.token;
-  if (sitterLink.status === 400) {
-    pass('POST /v1/sitter-links', 'Free household blocked (Pro only)');
+  if (sitterLink.status === 403) {
+    pass('POST /v1/sitter-links', 'Free household blocked (Pro only, 403)');
   } else {
-    fail('POST /v1/sitter-links', `status ${sitterLink.status} — expected 400 for Free`);
+    fail('POST /v1/sitter-links', `status ${sitterLink.status} — expected 403 for Free`);
   }
 
   // 10. Sitter view + log

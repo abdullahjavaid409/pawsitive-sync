@@ -11,6 +11,7 @@ import 'package:pawsitive_sync/data/household_api.dart';
 import 'package:pawsitive_sync/data/household_store.dart';
 import 'package:pawsitive_sync/data/push_service.dart';
 import 'package:pawsitive_sync/data/sync_engine.dart';
+import 'package:pawsitive_sync/data/sync_outbox.dart';
 import 'package:pawsitive_sync/data/onboarding_profile.dart';
 import 'package:pawsitive_sync/data/upgrade_nudge_state.dart';
 import 'package:pawsitive_sync/data/revenue_cat_service.dart';
@@ -624,6 +625,7 @@ class CareRepository extends ChangeNotifier {
 
   /// Returns a browser sitter link (Pro + connected). Caches the token locally.
   Future<String?> ensureSitterWebLink({bool force = false}) async {
+    lastError = null;
     if (!canInviteHousehold) {
       AppLog.event('sitter.link_skipped', {'reason': 'free_tier'});
       return null;
@@ -662,10 +664,17 @@ class CareRepository extends ChangeNotifier {
       });
       return AppLinks.sitterWebLink(link.token);
     } on HouseholdException catch (error) {
+      lastError = error.message;
       AppLog.event('sitter.link_failed', {'kind': error.kind.name});
+      if (error.kind == HouseholdErrorKind.unauthorized) {
+        await _dropSession('sitter_link_unauthorized');
+      }
       return null;
-    } catch (_) {
-      AppLog.event('sitter.link_failed');
+    } catch (error) {
+      lastError = 'Could not create a browser link. Try again.';
+      AppLog.event('sitter.link_failed', {
+        'error': error.runtimeType.toString(),
+      });
       return null;
     }
   }
@@ -825,6 +834,9 @@ class CareRepository extends ChangeNotifier {
     } on HouseholdException catch (error) {
       syncError = error.message;
       AppLog.event('household.sync_failed', {'kind': error.kind.name});
+      if (error.kind == HouseholdErrorKind.unauthorized) {
+        await _dropSession('sync_unauthorized');
+      }
     } finally {
       syncing = false;
       notifyListeners();
@@ -863,11 +875,20 @@ class CareRepository extends ChangeNotifier {
         () => _syncEngine.flush(api),
       );
       if (result.household != null) _mergeSnapshot(result.household!);
-      if (!silent && result.conflictMessage != null) {
+      if (result.conflictMessage != null) {
+        // An offline dose someone else had already logged: theirs wins.
         lastError = result.conflictMessage;
+        AppLog.event('sync.batch.conflict', {
+          'logId': result.conflictLog?.id ?? '',
+        });
       }
       _changed();
     } on HouseholdException catch (error) {
+      AppLog.event('sync.batch.failed', {'kind': error.kind.name});
+      if (error.kind == HouseholdErrorKind.unauthorized) {
+        await _dropSession('batch_unauthorized');
+        return;
+      }
       if (!silent) {
         lastError = error.message;
         notifyListeners();
@@ -875,11 +896,14 @@ class CareRepository extends ChangeNotifier {
     }
   }
 
+  /// Online first when shared. With no network the change is kept on the
+  /// phone and, when [queue] is given, sent later in one batch (outbox).
   Future<bool> _write(
     String event,
     Future<void> Function(HouseholdApi api) online,
     bool Function() offline, {
     Map<String, Object?> fields = const {},
+    SyncBatchOp Function()? queue,
   }) async {
     lastError = null;
     final api = _api;
@@ -890,8 +914,24 @@ class CareRepository extends ChangeNotifier {
         AppLog.event('$event.completed', fields);
         return true;
       } on HouseholdException catch (error) {
+        if (error.kind == HouseholdErrorKind.offline && queue != null) {
+          final ok = offline();
+          if (ok) {
+            await _syncEngine.outbox.enqueue(queue());
+            AppLog.event('$event.completed', {
+              ...fields,
+              'offline': true,
+              'queued': true,
+            });
+            _changed();
+          }
+          return ok;
+        }
         lastError = error.message;
         AppLog.event('$event.failed', {...fields, 'kind': error.kind.name});
+        if (error.kind == HouseholdErrorKind.unauthorized) {
+          await _dropSession('write_unauthorized');
+        }
         notifyListeners();
         return false;
       }
@@ -903,6 +943,21 @@ class CareRepository extends ChangeNotifier {
     }
     return ok;
   }
+
+  /// The server no longer knows this phone's household link (member removed,
+  /// owner signed out elsewhere). Keep every pet and dose on the phone so
+  /// logging still works, and let the person join again with a code.
+  Future<void> _dropSession(String reason) async {
+    if (!isConnected) return;
+    _api?.token = null;
+    await _syncEngine.outbox.clear();
+    syncError = 'This phone is no longer in the shared household. Your data is still here — join again with an invite code.';
+    AppLog.event('household.session_expired', {'reason': reason});
+    _changed();
+  }
+
+  static SyncBatchOp _op(String type, Map<String, Object?> payload) =>
+      SyncBatchOp(id: newId('op'), type: type, payload: payload);
 
   Future<bool> _record({
     required String doseId,
@@ -1006,6 +1061,7 @@ class CareRepository extends ChangeNotifier {
         return true;
       },
       fields: fields,
+      queue: () => _op('logDose', record.toJson()),
     );
   }
 
@@ -1111,6 +1167,7 @@ class CareRepository extends ChangeNotifier {
         return true;
       },
       fields: {'medicationId': medicationId},
+      queue: () => _op('refill', {'id': medicationId}),
     );
   }
 
@@ -1170,6 +1227,7 @@ class CareRepository extends ChangeNotifier {
         if (endDay.isNotEmpty) 'endDay': endDay,
         if (supplyTotal > 0) 'tracksSupply': true,
       },
+      queue: () => _op('addMedication', medication.toJson()),
     );
   }
 
@@ -1185,6 +1243,7 @@ class CareRepository extends ChangeNotifier {
         return true;
       },
       fields: {'medicationId': medicationId},
+      queue: () => _op('removeMedication', {'id': medicationId}),
     );
   }
 
@@ -1232,6 +1291,7 @@ class CareRepository extends ChangeNotifier {
         return true;
       },
       fields: {'petId': pet.id, 'species': species.name},
+      queue: () => _op('addPet', pet.toJson()),
     );
     return ok ? pet.id : null;
   }
@@ -1305,6 +1365,7 @@ class CareRepository extends ChangeNotifier {
         return true;
       },
       fields: {'petId': petId, 'conditions': updated.conditions.length},
+      queue: () => _op('updatePet', updated.toJson()),
     );
 
     if (ok) {
@@ -1515,6 +1576,28 @@ class CareRepository extends ChangeNotifier {
     });
   }
 
+  /// Leaves the shared household on the server, then clears this phone.
+  /// Returns a message when it could not (nothing is cleared then).
+  Future<String?> leaveHousehold() async {
+    final api = _api;
+    if (api != null && isConnected) {
+      try {
+        await AppLog.trace('household.leave', api.leaveHousehold);
+      } on HouseholdException catch (error) {
+        // 401: the server already dropped this phone — finish locally.
+        if (error.kind != HouseholdErrorKind.unauthorized) {
+          AppLog.event('household.leave_failed', {'kind': error.kind.name});
+          return error.kind == HouseholdErrorKind.offline
+              ? "Can't reach the household. Connect to the internet to leave, so others stop seeing you."
+              : error.message;
+        }
+      }
+    }
+    AppLog.event('household.left', {'wasConnected': isConnected});
+    await reset();
+    return null;
+  }
+
   /// Forgets this phone's household, for sign-out or a fresh start.
   Future<void> reset() async {
     _apply(
@@ -1529,6 +1612,8 @@ class CareRepository extends ChangeNotifier {
       logs: const [],
     );
     await _store?.clear();
+    await _syncEngine.outbox.clear();
+    syncError = null;
     _careEvents.clear();
     await _eventsStore.clear();
     _storePro = false;

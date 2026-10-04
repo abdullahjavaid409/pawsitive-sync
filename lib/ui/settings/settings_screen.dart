@@ -38,9 +38,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
     AppLog.event('settings.link', {'uri': uri.toString()});
     final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!ok && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not open ${uri.path}.')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Could not open ${uri.path}.')));
     }
   }
 
@@ -51,7 +50,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (!shown) await _open(Uri.parse(AppLinks.manageAppleSubscriptions));
   }
 
-    Future<void> _restorePurchases(CareRepository care) async {
+  Future<void> _restorePurchases(CareRepository care) async {
     setState(() => _busy = true);
     AppLog.event('billing.restore.settings');
     final ok = await care.restoreBilling();
@@ -294,8 +293,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     );
                     if (leave != true || !context.mounted) return;
+                    final error = await care.leaveHousehold();
+                    if (!context.mounted) return;
+                    if (error != null) {
+                      AppLog.event('settings.leave_failed');
+                      ScaffoldMessenger.of(context)
+                          .showSnackBar(SnackBar(content: Text(error)));
+                      return;
+                    }
                     await DoseReminders.cancel();
-                    await care.reset();
+                    if (!context.mounted) return;
                     context.go(AppRoutes.today);
                   },
                 ),
