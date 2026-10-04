@@ -88,7 +88,9 @@ void main() {
     }
 
     test('add with times; saved in SQLite and back after a relaunch', () async {
-      final care = await solo();
+      // Pro: Free schedules the morning dose only.
+      final care = await solo()
+        ..debugStorePro = true;
       final pet = care.pets.single;
       expect(
         await care.addMedication(

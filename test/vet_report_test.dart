@@ -34,12 +34,15 @@ void main() {
 
   test('given, skipped, not sure and missed are counted separately', () async {
     final (care, petId, clock) = await _care();
+    // Pro for setup only: Free schedules the morning dose only.
+    care.debugStorePro = true;
     await care.addMedication(
       petId: petId,
       name: 'Insulin',
       amount: '2 u',
       parts: const [DayPart.morning, DayPart.evening],
     );
+    care.debugStorePro = false;
     // Day 1 (Oct 1, 9 PM): give morning, "not sure" evening.
     await care.logDose(
       doseId: _doseId(care, 'Insulin', DayPart.morning),

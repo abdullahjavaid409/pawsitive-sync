@@ -571,6 +571,13 @@ class CareRepository extends ChangeNotifier {
   bool canAddMedication(String petId) =>
       isPro || activeMedicationCount(petId) < PetLimits.maxMedsPerPetFree;
 
+  /// Free tier allows a new medicine [PetLimits.maxDoseTimesPerDayFree]
+  /// dose time a day, morning only; Pro allows every part of the day.
+  bool canScheduleDoseParts(Iterable<DayPart> parts) =>
+      isPro ||
+      (parts.toSet().length <= PetLimits.maxDoseTimesPerDayFree &&
+          parts.every((part) => part == DayPart.morning));
+
   /// Pro-only: weekly summary notification.
   bool get canUseWeeklySummary => isPro;
 
@@ -2324,12 +2331,23 @@ class CareRepository extends ChangeNotifier {
     }
     if (!canAddMedication(petId)) {
       lastError =
-          'Free includes ${PetLimits.maxMedsPerPetFree} medicines per pet. '
+          'Free includes ${PetLimits.maxMedsPerPetFree} medicine per pet. '
           'Upgrade to Pro for every medicine.';
       AppLog.event('medication.add.blocked', {
         'reason': 'free_tier',
         'petId': petId,
         'count': activeMedicationCount(petId),
+      });
+      return Future.value(false);
+    }
+    if (!canScheduleDoseParts(parts)) {
+      lastError =
+          'Free includes one morning dose a day. '
+          'Upgrade to Pro for afternoon and evening doses.';
+      AppLog.event('medication.add.blocked', {
+        'reason': 'free_tier_times',
+        'petId': petId,
+        'parts': parts.length,
       });
       return Future.value(false);
     }

@@ -53,7 +53,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
   static const _proFeatures = [
     (
       'Every pet, every medicine',
-      'Up to 10 pets with no medicine limit, plus their full dose history.',
+      'Up to 10 pets, every medicine and dose time with reminders, plus full history.',
     ),
     (
       'No more “did you give it?” texts',

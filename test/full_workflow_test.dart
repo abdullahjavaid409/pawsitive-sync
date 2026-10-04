@@ -59,6 +59,8 @@ void main() {
     expect(AppLog.logged('household.created_from_onboarding'), isTrue);
 
     // --- 3. Add medicine with course end ---
+    // Pro: Free schedules one morning medicine per pet.
+    care.debugStorePro = true;
     final medOk = await care.addMedication(
       petId: pet.id,
       name: 'Carprofen',
@@ -108,6 +110,7 @@ void main() {
       amount: '1 tablet',
       parts: [DayPart.afternoon],
     );
+    care.debugStorePro = false;
     final skipTarget = care.doses.firstWhere(
       (d) => d.name == 'Once daily' && d.status == DoseStatus.due,
     );

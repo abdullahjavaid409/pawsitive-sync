@@ -55,6 +55,33 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     });
   }
 
+  /// Free schedules the morning dose only; picking another part opens the
+  /// paywall and keeps the pick if they upgrade. Removing is always free.
+  Future<void> _togglePart(CareRepository care, DayPart part) async {
+    if (_parts.contains(part)) {
+      setState(() {
+        _error = null;
+        _parts.remove(part);
+      });
+      return;
+    }
+    if (!care.canScheduleDoseParts({..._parts, part})) {
+      AppLog.event('medication.add.blocked', {
+        'reason': 'free_tier_times',
+        'part': part.name,
+        'from': 'schedule_part',
+      });
+      await context.push(
+        AppRoutes.paywallWith(reason: 'more_dose_times', from: 'schedule_part'),
+      );
+      if (!mounted || !care.canScheduleDoseParts({..._parts, part})) return;
+    }
+    setState(() {
+      _error = null;
+      _parts.add(part);
+    });
+  }
+
   String? _petId;
   int? _courseDays;
   bool _trackSupply = false;
@@ -324,12 +351,10 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                                           ),
                                           selected: _parts.contains(part),
                                           horizontal: stacked,
-                                          onPressed: () => setState(() {
-                                            _error = null;
-                                            if (!_parts.remove(part)) {
-                                              _parts.add(part);
-                                            }
-                                          }),
+                                          onPressed: () => _togglePart(
+                                            care,
+                                            part,
+                                          ),
                                         ),
                                     ];
                                     return stacked
@@ -360,6 +385,15 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                                           );
                                   },
                                 ),
+                                if (!care.isPro) ...[
+                                  const SizedBox(height: 10),
+                                  Text(
+                                    'Free includes the morning dose and its reminder. Pro adds afternoon and evening.',
+                                    style: text.bodyMedium?.copyWith(
+                                      color: scheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ],
                                 if (_parts.isNotEmpty) ...[
                                   const SizedBox(height: 14),
                                   Text(

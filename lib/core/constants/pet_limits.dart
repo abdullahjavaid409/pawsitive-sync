@@ -8,7 +8,12 @@ abstract final class PetLimits {
 
   /// Free tier: active medicines per pet. Pro has no cap. Logging the
   /// doses of medicines already on the schedule is never limited.
-  static const maxMedsPerPetFree = 2;
+  static const maxMedsPerPetFree = 1;
+
+  /// Free tier: a new medicine gets one dose time a day, the morning one
+  /// (so one reminder). Existing schedules keep every time they already
+  /// have; logging any dose is never limited.
+  static const maxDoseTimesPerDayFree = 1;
 
   /// Free tier: days of dose history shown. Older logs stay stored (and
   /// still back the double-dose check); Pro shows them again.

@@ -16,6 +16,9 @@ enum PaywallReason {
   /// A free pet already has its maximum number of medicines.
   moreMeds,
 
+  /// A free user picked an afternoon or evening dose time.
+  moreDoseTimes,
+
   /// A free user asked for history older than the free window.
   history,
 
@@ -40,6 +43,7 @@ extension PaywallReasonQuery on PaywallReason {
     PaywallReason.refill => 'refill',
     PaywallReason.uncertain => 'uncertain',
     PaywallReason.moreMeds => 'more_meds',
+    PaywallReason.moreDoseTimes => 'more_dose_times',
     PaywallReason.history => 'history',
     PaywallReason.weeklySummary => 'weekly_summary',
     PaywallReason.weekly => 'weekly',
@@ -57,6 +61,7 @@ extension PaywallReasonQuery on PaywallReason {
       'refill' => PaywallReason.refill,
       'uncertain' => PaywallReason.uncertain,
       'more_meds' => PaywallReason.moreMeds,
+      'more_dose_times' => PaywallReason.moreDoseTimes,
       'history' => PaywallReason.history,
       'weekly_summary' => PaywallReason.weeklySummary,
       'weekly' => PaywallReason.weekly,
@@ -97,7 +102,11 @@ extension PaywallReasonQuery on PaywallReason {
     ),
     PaywallReason.moreMeds => (
       'Every medicine, one schedule',
-      'Free covers 2 medicines per pet. Pro tracks every one, so no dose is left to memory.',
+      'Free covers 1 medicine per pet. Pro tracks every one, so no dose is left to memory.',
+    ),
+    PaywallReason.moreDoseTimes => (
+      'Morning and evening, both covered',
+      'Free covers the morning dose. Pro adds afternoon and evening reminders, so no dose is forgotten.',
     ),
     PaywallReason.history => (
       'Their whole story, not just a month',

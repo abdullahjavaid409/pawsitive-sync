@@ -104,7 +104,9 @@ void main() {
   testWidgets('medicine form saves the selected pet, daily times and supply', (
     tester,
   ) async {
-    final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 14));
+    // Pro: Juniper already has Free's one medicine.
+    final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 14))
+      ..debugStorePro = true;
     final router = await _pump(tester, care);
     router.go('${AppRoutes.schedule}?pet=juniper');
     await tester.pumpAndSettle();
@@ -136,6 +138,28 @@ void main() {
       care.doses.where((d) => d.medicationId == medicine.id),
       hasLength(2),
     );
+  });
+
+  testWidgets('Free: evening dose time opens the paywall, not the schedule', (
+    tester,
+  ) async {
+    final care = CareRepository(clock: () => DateTime(2026, 10, 3, 14));
+    final petId = (await care.addPet(name: 'Pip', species: Species.cat))!;
+    final router = await _pump(tester, care);
+    router.go('${AppRoutes.schedule}?pet=$petId');
+    await tester.pumpAndSettle();
+    expect(
+      find.text(
+        'Free includes the morning dose and its reminder. Pro adds afternoon and evening.',
+      ),
+      findsOneWidget,
+    );
+    await _reveal(tester, find.text('Evening'));
+    await tester.tap(find.text('Evening'));
+    await tester.pumpAndSettle();
+    expect(find.text('Morning and evening, both covered'), findsOneWidget);
+    expect(AppLog.logged('medication.add.blocked'), isTrue);
+    expect(care.medications, isEmpty);
   });
 
   testWidgets(

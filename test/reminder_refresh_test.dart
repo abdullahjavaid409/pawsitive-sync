@@ -28,12 +28,15 @@ Future<(CareRepository, DateTime Function(), void Function(DateTime))> _care(
   var now = at;
   final care = CareRepository.sample(clock: () => now);
   if (gaba) {
+    // Pro for setup only: Free schedules one morning medicine per pet.
+    care.debugStorePro = true;
     await care.addMedication(
       petId: 'juniper',
       name: 'Gaba',
       amount: '50 mg',
       parts: [DayPart.afternoon],
     );
+    care.debugStorePro = false;
   }
   return (care, () => now, (DateTime next) => now = next);
 }

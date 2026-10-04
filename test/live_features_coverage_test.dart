@@ -71,6 +71,8 @@ Future<void> _exerciseAllLiveFeatures() async {
     amount: '1 tab',
     parts: [DayPart.morning],
   );
+  // Pro for setup only: Free schedules the morning dose only.
+  care.debugStorePro = true;
   await care.addMedication(
     petId: petId,
     name: 'Insulin',
@@ -78,6 +80,7 @@ Future<void> _exerciseAllLiveFeatures() async {
     parts: [DayPart.morning, DayPart.evening],
     supplyTotal: 30,
   );
+  care.debugStorePro = false;
   await care.addMedication(
     petId: 'missing',
     name: 'Test',

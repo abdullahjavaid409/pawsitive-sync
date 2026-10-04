@@ -62,12 +62,15 @@ void main() {
 
     test('dose logging always free', () async {
       final care = await careWithOnePet();
+      // A twice-daily schedule from when they had Pro keeps working on Free.
+      care.debugStorePro = true;
       await care.addMedication(
         petId: care.pets.first.id,
         name: 'Daily',
         amount: '1 tab',
         parts: [DayPart.morning, DayPart.evening],
       );
+      care.debugStorePro = false;
       final morning = care.doses.firstWhere(
         (d) => d.name == 'Daily' && d.part == DayPart.morning,
       );
@@ -83,6 +86,54 @@ void main() {
       expect(await care.markDoseUncertain(evening.id), isTrue);
       expectLogged('dose.log.completed');
       expectLogged('dose.uncertain.completed');
+    });
+
+    test('one morning medicine per pet; more opens the paywall', () async {
+      final care = await careWithOnePet();
+      final petId = care.pets.first.id;
+      expect(care.canScheduleDoseParts([DayPart.morning]), isTrue);
+      expect(care.canScheduleDoseParts([DayPart.evening]), isFalse);
+      expect(
+        care.canScheduleDoseParts([DayPart.morning, DayPart.evening]),
+        isFalse,
+      );
+
+      // Afternoon/evening doses are Pro; nothing is saved.
+      expect(
+        await care.addMedication(
+          petId: petId,
+          name: 'Insulin',
+          amount: '2 u',
+          parts: [DayPart.morning, DayPart.evening],
+        ),
+        isFalse,
+      );
+      expect(care.medications, isEmpty);
+      expectLogged(
+        'medication.add.blocked',
+        fields: {'reason': 'free_tier_times'},
+      );
+
+      expect(
+        await care.addMedication(
+          petId: petId,
+          name: 'Daily',
+          amount: '1 tab',
+          parts: [DayPart.morning],
+        ),
+        isTrue,
+      );
+      expect(care.canAddMedication(petId), isFalse);
+      expect(
+        await care.addMedication(
+          petId: petId,
+          name: 'Second',
+          amount: '1 tab',
+          parts: [DayPart.morning],
+        ),
+        isFalse,
+      );
+      expectLogged('medication.add.blocked', fields: {'reason': 'free_tier'});
     });
 
     test('care events and reports view are free', () async {
@@ -109,6 +160,24 @@ void main() {
   });
 
   group('Pro tier — isPro unlocks every paid feature', () {
+    test('every dose time and medicine', () async {
+      final care = await careWithOnePet()
+        ..debugStorePro = true;
+      final petId = care.pets.first.id;
+      for (final name in ['Insulin', 'Gaba']) {
+        expect(
+          await care.addMedication(
+            petId: petId,
+            name: name,
+            amount: '1',
+            parts: [DayPart.morning, DayPart.afternoon, DayPart.evening],
+          ),
+          isTrue,
+        );
+      }
+      expect(care.medications, hasLength(2));
+    });
+
     test('startTrial opens all gates', () async {
       final care = await careWithOnePet();
       care.applyStoreEntitlement(true, BillingPlan.yearly);
