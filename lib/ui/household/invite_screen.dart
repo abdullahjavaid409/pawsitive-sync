@@ -3,10 +3,12 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/legal/app_links.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
+import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
+import 'package:pawsitive_sync/domain/paywall_reason.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -35,6 +37,7 @@ class _InviteScreenState extends State<InviteScreen> {
   }
 
   Future<void> _ensureShared() async {
+    if (!mounted || _connecting) return;
     final care = context.read<CareRepository>();
     if (care.isConnected) {
       await _loadWebLink();
@@ -51,15 +54,20 @@ class _InviteScreenState extends State<InviteScreen> {
       _error = error;
     });
     if (error != null) {
-      AppLog.event('invite.connect_failed', {'error': error});
+      // The repository already logged the failure kind; no free text here.
+      AppLog.event('invite.connect_failed');
     } else {
       AppLog.event('invite.connect_ready');
       await _loadWebLink();
     }
   }
 
+  /// Requested once when the screen opens (Pro + connected) and again only
+  /// from the explicit "Try again" button. Never from build or listeners.
   Future<void> _loadWebLink() async {
+    if (!mounted || _loadingWebLink) return;
     final care = context.read<CareRepository>();
+    // Free: the row is locked and the API is never called.
     if (!care.canInviteHousehold || !care.isConnected) return;
     setState(() => _loadingWebLink = true);
     final link = await care.ensureSitterWebLink();
@@ -239,58 +247,70 @@ class _InviteScreenState extends State<InviteScreen> {
                         ),
                       ),
                       const SizedBox(height: 12),
-                      SurfaceCard(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            if (_loadingWebLink)
-                              const Center(child: CircularProgressIndicator())
-                            else if (_webLink != null)
-                              SelectableText(
-                                _webLink!,
-                                style: text.bodyMedium?.copyWith(
-                                  color: tokens.brandDark,
+                      if (!care.canInviteHousehold)
+                        _LockedSitterLink(
+                          onTap: () {
+                            AppLog.event('sitter.link_locked');
+                            context.push(
+                              AppRoutes.paywallWith(
+                                reason: PaywallReason.invite.queryValue,
+                              ),
+                            );
+                          },
+                        )
+                      else
+                        SurfaceCard(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              if (_loadingWebLink)
+                                const Center(child: CircularProgressIndicator())
+                              else if (_webLink != null)
+                                SelectableText(
+                                  _webLink!,
+                                  style: text.bodyMedium?.copyWith(
+                                    color: tokens.brandDark,
+                                  ),
+                                )
+                              else
+                                Text(
+                                  _webLinkError ?? 'Could not create a browser link. Try again.',
+                                  style: text.bodyMedium?.copyWith(
+                                    color: scheme.error,
+                                  ),
                                 ),
-                              )
-                            else
-                              Text(
-                                _webLinkError ?? 'Could not create a browser link. Try again.',
-                                style: text.bodyMedium?.copyWith(
-                                  color: scheme.error,
+                              const SizedBox(height: 12),
+                              OutlinedButton.icon(
+                                onPressed: _webLink == null && !_loadingWebLink
+                                    ? _loadWebLink
+                                    : _webLink == null
+                                    ? null
+                                    : () async {
+                                        await Clipboard.setData(
+                                          ClipboardData(text: _webLink!),
+                                        );
+                                        if (!mounted) return;
+                                        AppLog.event('invite.web_link_copied');
+                                        setState(() => _webLinkCopied = true);
+                                      },
+                                icon: Icon(
+                                  _webLinkCopied
+                                      ? Icons.check_rounded
+                                      : Icons.link_rounded,
+                                  size: 18,
+                                ),
+                                label: Text(
+                                  _webLink == null && !_loadingWebLink
+                                      ? 'Try again'
+                                      : _webLinkCopied
+                                      ? 'Link copied'
+                                      : 'Copy browser link',
                                 ),
                               ),
-                            const SizedBox(height: 12),
-                            OutlinedButton.icon(
-                              onPressed: _webLink == null && !_loadingWebLink
-                                  ? _loadWebLink
-                                  : _webLink == null
-                                  ? null
-                                  : () async {
-                                      await Clipboard.setData(
-                                        ClipboardData(text: _webLink!),
-                                      );
-                                      if (!mounted) return;
-                                      AppLog.event('invite.web_link_copied');
-                                      setState(() => _webLinkCopied = true);
-                                    },
-                              icon: Icon(
-                                _webLinkCopied
-                                    ? Icons.check_rounded
-                                    : Icons.link_rounded,
-                                size: 18,
-                              ),
-                              label: Text(
-                                _webLink == null && !_loadingWebLink
-                                    ? 'Try again'
-                                    : _webLinkCopied
-                                    ? 'Link copied'
-                                    : 'Copy browser link',
-                              ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
                       if (joinLink != null) ...[
                         const SizedBox(height: 24),
                         Text(
@@ -379,6 +399,66 @@ class _InviteScreenState extends State<InviteScreen> {
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Free tier: the sitter browser link is a Pro feature. Shown locked, and
+/// the link is never requested from the server.
+class _LockedSitterLink extends StatelessWidget {
+  const _LockedSitterLink({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final tokens = context.paws;
+    final text = Theme.of(context).textTheme;
+    return Semantics(
+      button: true,
+      label: 'Browser link for sitters, Pro',
+      excludeSemantics: true,
+      child: SurfaceCard(
+        padding: EdgeInsets.zero,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.lock_outline_rounded,
+                  color: scheme.onSurfaceVariant,
+                ),
+                const Spacer(),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: tokens.brandSoft,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
+                    child: Text(
+                      'Pro',
+                      style: text.labelMedium?.copyWith(
+                        color: tokens.brandDark,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
+              ],
+            ),
           ),
         ),
       ),

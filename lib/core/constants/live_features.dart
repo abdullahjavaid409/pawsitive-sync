@@ -81,7 +81,7 @@ abstract final class LiveFeatures {
       name: 'Browser sitter link (no app)',
       tier: FeatureTier.pro,
       logs: [
-        'sitter.link_ready',
+        'sitter.link_created',
         'sitter.link_cached',
         'sitter.link_skipped',
         'sitter.link_failed',
@@ -102,7 +102,12 @@ abstract final class LiveFeatures {
       id: 'pro_gates',
       name: 'Pro unlocks invites / multi-pet / export / low supply',
       tier: FeatureTier.pro,
-      logs: ['billing.store.entitlement_changed', 'household.reset'],
+      logs: [
+        'billing.store.entitlement_changed',
+        'billing.pro.unlocked',
+        'billing.share_pro.completed',
+        'household.reset',
+      ],
     ),
     LiveFeatureSpec(
       id: 'billing',

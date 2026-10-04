@@ -203,6 +203,21 @@ Future<void> _exerciseAllLiveFeatures() async {
   await connected.sync(force: true);
   await connected.sync(force: true);
 
+  // Subscriber shares Pro with a Free household
+  final shareAdapter = FakeHouseholdAdapter([
+    (201, connectHouseholdBody(isPro: false)),
+    (200, {'ok': true}),
+    (200, {'isPro': true, 'plan': 'yearly'}),
+  ]);
+  final sharer = CareRepository(
+    api: fakeHouseholdApi(shareAdapter),
+    clock: clock,
+  );
+  await sharer.addPet(name: 'Miso', species: Species.cat);
+  await sharer.connect();
+  sharer.applyStoreEntitlement(true, BillingPlan.yearly);
+  await sharer.startTrial();
+
   // Cached sitter link
   SharedPreferences.setMockInitialValues({
     'sitter_web_token_v1:ABC234': 'cached-sitter-token',

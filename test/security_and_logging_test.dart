@@ -228,6 +228,81 @@ void main() {
     });
   });
 
+  group('Carrying Pro into a household', () {
+    tearDown(() => RevenueCatService.debugOnIdentify = null);
+
+    test('store account is identified before Pro is pushed to the server', () async {
+      final adapter = FakeHouseholdAdapter([
+        (201, connectHouseholdBody(isPro: false, householdId: 'hh_9')),
+        (200, {'isPro': false, 'plan': 'yearly'}), // webhook not seen yet
+        (200, {'ok': true}), // push register
+      ]);
+      final order = <String>[];
+      RevenueCatService.debugOnIdentify = (id) {
+        order.add('identify:$id@${adapter.requests.length}');
+      };
+      final care = CareRepository(api: fakeHouseholdApi(adapter), clock: _clock);
+      await care.addPet(name: 'Milo', species: Species.cat);
+      care.applyStoreEntitlement(true, BillingPlan.yearly);
+      expect(await care.connect(), isNull);
+
+      final trialAt = adapter.requests.indexWhere(
+        (r) => r.path == '/v1/billing/trial',
+      );
+      expect(trialAt, 1);
+      // First identify happened after POST /v1/households (1 request) and
+      // before POST /v1/billing/trial.
+      expect(order.first, 'identify:hh_9:you@1');
+      expectLogged('billing.pro.carry_pending', fields: {'isPro': false});
+      expectNotLogged('billing.pro.carried_online');
+    });
+
+    test('sitter link 403 shares Pro once, retries once, then explains', () async {
+      final adapter = FakeHouseholdAdapter([
+        (201, connectHouseholdBody(isPro: true)),
+        (200, {'ok': true}), // push register
+        (403, {'error': 'Browser sitter links need Pawsitive Pro.'}),
+        (200, {'isPro': false, 'plan': 'yearly'}), // share Pro: still Free
+        (403, {'error': 'Browser sitter links need Pawsitive Pro.'}),
+      ]);
+      final care = CareRepository(api: fakeHouseholdApi(adapter), clock: _clock);
+      await care.addPet(name: 'Milo', species: Species.cat);
+      care.applyStoreEntitlement(true, BillingPlan.yearly);
+      await care.connect();
+      AppLog.testRecords.clear();
+
+      final results = await Future.wait([
+        care.ensureSitterWebLink(),
+        care.ensureSitterWebLink(), // concurrent tap: shares the request
+      ]);
+      expect(results, [isNull, isNull]);
+      expect(
+        adapter.requests.where((r) => r.path == '/v1/sitter-links'),
+        hasLength(2),
+        reason: 'one request + one retry, never more',
+      );
+      expectLogged('sitter.link_retry');
+      expectLogged('sitter.link_failed', fields: {'status': 403});
+      expect(care.lastError, contains('still being set up'));
+    });
+
+    test('sitter link 403 then success after sharing Pro', () async {
+      final adapter = FakeHouseholdAdapter([
+        (201, connectHouseholdBody(isPro: true)),
+        (200, {'ok': true}),
+        (403, {'error': 'Browser sitter links need Pawsitive Pro.'}),
+        (200, {'isPro': true, 'plan': 'yearly'}),
+        (201, {'token': 'tok-ok', 'expiresAt': '2026-11-03T00:00:00Z'}),
+      ]);
+      final care = CareRepository(api: fakeHouseholdApi(adapter), clock: _clock);
+      await care.addPet(name: 'Milo', species: Species.cat);
+      care.applyStoreEntitlement(true, BillingPlan.yearly);
+      await care.connect();
+      expect(await care.ensureSitterWebLink(), endsWith('/sitter#t=tok-ok'));
+      expectLogged('sitter.link_created');
+    });
+  });
+
   group('No personal data in logs', () {
     test('partner dose detection logs ids, never the partner name', () async {
       final care = CareRepository(
