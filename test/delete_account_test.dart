@@ -257,8 +257,14 @@ void main() {
       expect(care.accountDeleteScope, AccountDeleteScope.local);
       expect(await care.deleteAccount(), isNull);
       expect(adapter.calls, isEmpty);
+      expect(
+        AppLog.testRecords
+            .lastWhere((r) => r.name == 'account.deleted')
+            .fields['scope'],
+        'local',
+      );
+      // Reading again opens a fresh, empty database (the file was deleted).
       expect(await outbox.read(), isEmpty);
-      expect(AppLog.testRecords.last.fields['scope'], 'local');
 
       // Nothing at all on the phone: still succeeds.
       expect(await CareRepository().deleteAccount(), isNull);

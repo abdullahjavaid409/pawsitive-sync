@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart' show mapEquals;
+import 'package:flutter/foundation.dart' show mapEquals, visibleForTesting;
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/data/legacy_prefs_store.dart';
 import 'package:pawsitive_sync/data/local_database.dart';
@@ -85,16 +85,26 @@ class HouseholdStore {
   final Map<String, Map<String, Map<String, Object?>>> _rows = {};
   Map<String, String> _meta = {};
 
+  /// Log objects as last read/written. Models are immutable, so the same
+  /// instance means the same row: a save skips building rows for the whole
+  /// history and only looks at logs that are new or were replaced.
+  final Map<String, DoseRecord> _logObjects = {};
+
   /// False until the small tables were read (or fully written) through this
   /// store; until then a write replaces them wholesale.
   bool _primed = false;
   int _generation = -1;
   int _maxSeq = 0;
 
+  /// Rows upserted or deleted by the last committed [write] (perf tests).
+  @visibleForTesting
+  int lastWriteRows = 0;
+
   void _syncGeneration() {
     if (_generation == _db.generation) return;
     _generation = _db.generation;
     _rows.clear();
+    _logObjects.clear();
     _meta = {};
     _primed = false;
     _maxSeq = 0;
@@ -118,11 +128,7 @@ class HouseholdStore {
     }
     final members = await _readTable(db, 'members', LocalRows.toMember);
     final pets = await _readTable(db, 'pets', LocalRows.toPet);
-    final allMeds = await _readTable(
-      db,
-      'medications',
-      LocalRows.toMedication,
-    );
+    final allMeds = await _readTable(db, 'medications', LocalRows.toMedication);
     final logRows = await db.query(
       'dose_logs',
       where: sinceDay == null ? null : 'day >= ?',
@@ -130,6 +136,9 @@ class HouseholdStore {
       orderBy: 'day DESC, minute DESC, seq DESC',
     );
     final logs = _parseRows('dose_logs', logRows, LocalRows.toLog);
+    _logObjects
+      ..clear()
+      ..addEntries([for (final log in logs) MapEntry(log.id, log)]);
     _maxSeq =
         Sqflite.firstIntValue(
           await db.rawQuery('SELECT max(seq) FROM dose_logs'),
@@ -144,7 +153,9 @@ class HouseholdStore {
       memberId: meta['member_id'] ?? 'you',
       inviteCode: meta['invite_code'] ?? '',
       isPro: meta['is_pro'] == '1',
-      plan: meta['plan'] == 'monthly' ? BillingPlan.monthly : BillingPlan.yearly,
+      plan: meta['plan'] == 'monthly'
+          ? BillingPlan.monthly
+          : BillingPlan.yearly,
       members: members,
       pets: pets,
       medications: [
@@ -266,8 +277,12 @@ class HouseholdStore {
     final logUpserts = <Map<String, Object?>>[];
     var seq = _maxSeq;
     for (final log in house.logs.reversed) {
+      if (!house.replaceLogs && identical(_logObjects[log.id], log)) continue;
       final cached = logCache[log.id];
-      final row = LocalRows.log(log, cached == null ? ++seq : cached['seq']! as int);
+      final row = LocalRows.log(
+        log,
+        cached == null ? ++seq : cached['seq']! as int,
+      );
       if (cached == null || !mapEquals(cached, row)) {
         logUpserts.add(row);
       }
@@ -281,6 +296,7 @@ class HouseholdStore {
         logUpserts.isEmpty &&
         logDeletes.isEmpty &&
         !house.replaceLogs) {
+      lastWriteRows = 0;
       return;
     }
 
@@ -339,13 +355,28 @@ class HouseholdStore {
     for (final id in logDeletes) {
       logCache.remove(id);
     }
-    // Keep the cache to what memory holds, so it never outgrows the window.
-    if (logCache.length > house.logs.length) {
+    if (house.replaceLogs) _logObjects.clear();
+    for (final log in house.logs) {
+      _logObjects[log.id] = log;
+    }
+    // Keep the caches to what memory holds, so they never outgrow it.
+    if (logCache.length > house.logs.length ||
+        _logObjects.length > house.logs.length) {
       final live = {for (final log in house.logs) log.id};
       logCache.removeWhere((id, _) => !live.contains(id));
+      _logObjects.removeWhere((id, _) => !live.contains(id));
     }
     _maxSeq = seq;
     _primed = true;
+    lastWriteRows =
+        metaChanges.length +
+        logUpserts.length +
+        logDeletes.length +
+        [
+          members,
+          pets,
+          medications,
+        ].fold(0, (sum, c) => sum + c.upserts.length + c.deletes.length);
   }
 
   _TableChange _diff(String table, List<Map<String, Object?>> rows) {
@@ -356,9 +387,7 @@ class HouseholdStore {
       after: after,
       upserts: [
         for (final row in rows)
-          if (!_primed ||
-              !mapEquals(before['${row['id']}'], row))
-            row,
+          if (!_primed || !mapEquals(before['${row['id']}'], row)) row,
       ],
       deletes: [
         for (final id in before.keys)
@@ -394,6 +423,7 @@ class HouseholdStore {
         await batch.commit(noResult: true);
       });
       _rows.clear();
+      _logObjects.clear();
       _meta = {};
       _primed = true;
       _maxSeq = 0;

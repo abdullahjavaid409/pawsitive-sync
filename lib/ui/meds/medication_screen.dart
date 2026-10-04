@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/moment_art.dart';
@@ -87,12 +86,8 @@ class MedicationScreen extends StatelessWidget {
                 ),
                 const Spacer(),
                 TextButton(
-                  onPressed: () {
-                    AppLog.event('medication.stop_tapped', {
-                      'medicationId': medication.id,
-                    });
-                    _confirmStop(context, care, medication);
-                  },
+                  // Logged as nav.push to=stop_medicine (the dialog).
+                  onPressed: () => _confirmStop(context, care, medication),
                   style: TextButton.styleFrom(
                     foregroundColor: scheme.error,
                     textStyle: text.titleMedium,
@@ -221,10 +216,8 @@ class MedicationScreen extends StatelessWidget {
                       children: [
                         Expanded(
                           child: FilledButton(
+                            // medication.refill.* is logged by the repository.
                             onPressed: () async {
-                              AppLog.event('medication.refill_tapped', {
-                                'medicationId': medication.id,
-                              });
                               final saved = await care.refill(medication.id);
                               if (!context.mounted) return;
                               if (!saved) {
@@ -429,6 +422,7 @@ class MedicationScreen extends StatelessWidget {
   ) async {
     final stop = await showDialog<bool>(
       context: context,
+      routeSettings: const RouteSettings(name: 'stop_medicine'),
       builder: (context) => AlertDialog(
         title: Text('Stop ${medication.name}?'),
         content: const Text(
@@ -447,7 +441,7 @@ class MedicationScreen extends StatelessWidget {
       ),
     );
     if (stop != true || !context.mounted) return;
-    AppLog.event('medication.stop_confirmed', {'medicationId': medication.id});
+    // medication.remove.completed is logged by the repository.
     final ok = await care.removeMedication(medication.id);
     if (!context.mounted) return;
     if (!ok) {

@@ -112,15 +112,14 @@ class _EditPetScreenState extends State<EditPetScreen> {
     );
 
     if (!mounted) return;
+    // pet.update.* is logged by the repository.
     if (!ok) {
-      AppLog.event('pet.update.ui_failed', {'petId': widget.petId});
       setState(() {
         _busy = false;
         _error = care.lastError ?? 'Could not save. Try again.';
       });
       return;
     }
-    AppLog.event('pet.update.ui_success', {'petId': widget.petId});
 
     _dirty = false;
     ScaffoldMessenger.of(context).showSnackBar(

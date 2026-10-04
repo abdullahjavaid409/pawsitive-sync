@@ -52,13 +52,8 @@ class _InviteScreenState extends State<InviteScreen> {
       _connecting = false;
       _error = error;
     });
-    if (error != null) {
-      // The repository already logged the failure kind; no free text here.
-      AppLog.event('invite.connect_failed');
-    } else {
-      AppLog.event('invite.connect_ready');
-      await _loadWebLink();
-    }
+    // household.connected / connect_failed are logged by the repository.
+    if (error == null) await _loadWebLink();
   }
 
   /// On open: the cached link only (no server call). A new link is created
@@ -71,9 +66,10 @@ class _InviteScreenState extends State<InviteScreen> {
   Future<void> _createWebLink() async {
     if (_loadingWebLink) return;
     final care = context.read<CareRepository>();
-    AppLog.event('sitter.create_opened');
+    // Logged as nav.push to=sitter_label (the sheet).
     final label = await showModalBottomSheet<String>(
       context: context,
+      routeSettings: const RouteSettings(name: 'sitter_label'),
       isScrollControlled: true,
       showDragHandle: true,
       builder: (_) => _SitterLabelSheet(initial: care.defaultSitterLabel()),

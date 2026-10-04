@@ -110,11 +110,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       });
       return;
     }
-    AppLog.event('medication.saved', {
-      'parts': _parts.length,
-      'courseDays': _courseDays ?? 'ongoing',
-      'tracksSupply': _trackSupply,
-    });
+    // medication.add.completed (parts, endDay, tracksSupply) is the log line.
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('${_name.text.trim()} is on ${pet.name}’s Today list.'),

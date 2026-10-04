@@ -12,10 +12,11 @@ import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:provider/provider.dart';
 
+/// Named so the navigation log reads `nav.push to=log_dose`.
 Future<void> showLogDoseSheet(BuildContext context, Dose dose) {
-  AppLog.event('dose.opened', {'doseId': dose.id, 'part': dose.part.name});
   return showModalBottomSheet<void>(
     context: context,
+    routeSettings: const RouteSettings(name: 'log_dose'),
     sheetAnimationStyle: AppMotion.sheet(context),
     showDragHandle: false,
     isScrollControlled: true,
@@ -34,6 +35,7 @@ Future<void> showDoubleDoseGuard(BuildContext context, Dose dose) {
   AppLog.event('dose.already', {'doseId': dose.id});
   return showModalBottomSheet<void>(
     context: context,
+    routeSettings: const RouteSettings(name: 'dose_already'),
     useRootNavigator: true,
     isScrollControlled: true,
     useSafeArea: true,
@@ -127,19 +129,14 @@ class _LogDoseSheetState extends State<_LogDoseSheet> {
       LogOutcome.uncertain => await care.markDoseUncertain(widget.dose.id),
     };
     if (!mounted) return;
+    // The outcome (completed / rejected / failed) is logged by the repository.
     if (!saved) {
-      // Reason is logged by the repository; lastError may hold a caregiver name.
-      AppLog.event('dose.log.ui_failed', {
-        'doseId': widget.dose.id,
-        'outcome': outcome.name,
-      });
       setState(() {
         _busy = false;
         _error = care.lastError ?? 'Could not save. Try again.';
       });
       return;
     }
-    AppLog.event('dose.log.saved', {'outcome': outcome.name});
     setState(() => _saved = outcome);
     await Future<void>.delayed(const Duration(milliseconds: 900));
     if (mounted) Navigator.of(context).pop();

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
@@ -10,26 +12,31 @@ import 'fake_household_api.dart';
 /// Counts writes so we can prove bursts of changes are coalesced.
 class _CountingStore extends HouseholdStore {
   int writes = 0;
-  final watch = Stopwatch();
 
   @override
   Future<void> write(StoredHousehold house) async {
     writes++;
-    watch.start();
     await super.write(house);
-    watch.stop();
   }
 }
 
-const _day = '2026-10-03';
+/// Timings print only with `PERF=1 flutter test test/persist_perf_test.dart`.
+void _report(String line) {
+  // ignore: avoid_print
+  if (Platform.environment['PERF'] == '1') print('perf: $line');
+}
 
+final _clock = DateTime(2026, 10, 3, 14);
+
+/// [count] logs over the last 90 days (all inside the window loaded at
+/// launch: the worst case for restore).
 List<DoseRecord> _logs(int count) => [
   for (var i = 0; i < count; i++)
     DoseRecord(
       id: 'log-$i',
       medicationId: 'med-${i % 20}',
       part: DayPart.values[i % 3],
-      day: i < 20 ? _day : '2026-0${1 + i % 9}-1${i % 9}',
+      day: dayKey(_clock.subtract(Duration(days: 1 + i % 90))),
       memberId: i.isEven ? 'you' : 'dan',
       outcome: LogOutcome.given,
       amount: '2 units',
@@ -38,8 +45,8 @@ List<DoseRecord> _logs(int count) => [
     ),
 ];
 
-StoredHousehold _house(int logs, {String? token}) => StoredHousehold(
-  token: token,
+StoredHousehold _house(int logs) => StoredHousehold(
+  token: null,
   memberId: 'you',
   inviteCode: 'ABC234',
   isPro: false,
@@ -76,8 +83,8 @@ StoredHousehold _house(int logs, {String? token}) => StoredHousehold(
         name: 'Med $i',
         amount: '1 mg',
         parts: DayPart.values,
-        supplyTotal: 0,
-        dosesLeft: 0,
+        supplyTotal: 30,
+        dosesLeft: 30,
         startDay: '2026-01-01',
       ),
   ],
@@ -93,34 +100,42 @@ void main() {
   });
   tearDown(AppLog.disableTestCapture);
 
-  test('persist + restore 5k logs stays fast', () async {
-    final store = HouseholdStore();
-    final house = _house(5000);
+  test('5k logs: launch restore, then one dose log writes one row', () async {
+    await HouseholdStore().write(_house(5000));
     const runs = 10;
-    final write = Stopwatch()..start();
-    for (var i = 0; i < runs; i++) {
-      await store.write(house);
+    var restoreUs = 0;
+    var writeUs = 0;
+    for (var run = 0; run < runs; run++) {
+      final store = HouseholdStore();
+      final care = CareRepository(store: store, clock: () => _clock);
+      final restore = Stopwatch()..start();
+      await care.restore();
+      restoreUs += restore.elapsedMicroseconds;
+      expect(care.logs.length, 5000 + run);
+
+      final write = Stopwatch()..start();
+      expect(
+        await care.logDose(
+          doseId: 'med-$run.morning',
+          memberId: 'you',
+          amount: '',
+          timeLabel: '2:00 PM',
+        ),
+        isTrue,
+      );
+      await care.flushPersist();
+      writeUs += write.elapsedMicroseconds;
+      // The new log row + the medicine's supply count. Nothing else.
+      expect(store.lastWriteRows, 2);
     }
-    write.stop();
-    final read = Stopwatch()..start();
-    StoredHousehold? back;
-    for (var i = 0; i < runs; i++) {
-      back = await store.read();
-    }
-    read.stop();
-    // ignore: avoid_print
-    print(
-      'perf: write(5k logs) avg=${write.elapsedMicroseconds ~/ runs}us '
-      'read avg=${read.elapsedMicroseconds ~/ runs}us',
+    _report(
+      'restore(5k logs) avg=${restoreUs ~/ runs}us '
+      'dose-log write avg=${writeUs ~/ runs}us',
     );
-    expect(back!.logs, hasLength(3000), reason: 'store caps saved history');
   });
 
   test('doses getter with 3k logs × 20 meds', () async {
-    final care = CareRepository(
-      store: HouseholdStore(),
-      clock: () => DateTime(2026, 10, 3, 14),
-    );
+    final care = CareRepository(store: HouseholdStore(), clock: () => _clock);
     await HouseholdStore().write(_house(3000));
     await care.restore();
     const runs = 200;
@@ -130,8 +145,7 @@ void main() {
       count += care.doses.length;
     }
     watch.stop();
-    // ignore: avoid_print
-    print('perf: doses getter avg=${watch.elapsedMicroseconds ~/ runs}us');
+    _report('doses getter avg=${watch.elapsedMicroseconds ~/ runs}us');
     expect(count, greaterThan(0));
   });
 
@@ -143,12 +157,11 @@ void main() {
         token: 'house-token',
       ),
       store: store,
-      clock: () => DateTime(2026, 10, 3, 14),
+      clock: () => _clock,
     );
     await care.sync(force: true);
     await Future<void>.delayed(const Duration(milliseconds: 20));
-    // ignore: avoid_print
-    print('perf: writes per sync=${store.writes}');
+    _report('writes per sync=${store.writes}');
     expect(store.writes, 1);
   });
 }

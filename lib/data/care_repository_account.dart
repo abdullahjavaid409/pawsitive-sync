@@ -70,7 +70,8 @@ extension CareAccount on CareRepository {
     }
     // Solo phones (or no household at all) have nothing on the server; any
     // queued outbox ops are discarded by the wipe, never sent.
-    await wipeDevice();
+    // One line for the whole delete: account.deleted (not also account.wiped).
+    await _wipe();
     AppLog.event('account.deleted', {'scope': scope.name});
     return null;
   }
@@ -93,6 +94,11 @@ extension CareAccount on CareRepository {
   /// Each step is isolated so one failure (Keychain locked, RevenueCat
   /// offline) never leaves the rest behind.
   Future<void> wipeDevice() async {
+    await _wipe();
+    AppLog.event('account.wiped');
+  }
+
+  Future<void> _wipe() async {
     Future<void> step(String name, Future<void> Function() run) async {
       try {
         await run();
@@ -122,6 +128,5 @@ extension CareAccount on CareRepository {
       await prefs.clear();
     });
     _accountDeletePending = false;
-    AppLog.event('account.wiped');
   }
 }

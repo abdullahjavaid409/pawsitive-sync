@@ -184,8 +184,8 @@ class _PaywallScreenState extends State<PaywallScreen> {
     final ok = await care.restoreBilling();
     if (!mounted) return;
     setState(() => _restoring = false);
+    // billing.restore.completed / failed are logged by the repository.
     if (ok) {
-      AppLog.event('billing.restore.paywall_success');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Pro restored on this account.')),
       );

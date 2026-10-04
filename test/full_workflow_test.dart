@@ -6,6 +6,8 @@ import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'test_log_helpers.dart';
+
 /// End-to-end care journey: delete → fresh start → every feature → delete again.
 void main() {
   setUp(() {
@@ -45,7 +47,9 @@ void main() {
     await onboarding.finish(reminders: false);
     await OnboardingState.write(true);
     expect(onboarding.isComplete, isTrue);
-    expect(AppLog.logged('onboarding.finished'), isTrue);
+    // Setup's one log line is household.created_from_onboarding (below);
+    // finish() only counts the funnel step.
+    expectNotLogged('onboarding.finished');
 
     care.applyOnboarding(onboarding);
     final pet = care.primaryPet!;
@@ -170,7 +174,6 @@ void main() {
     // Every major feature emitted at least one log in this journey.
     for (final event in [
       'household.reset',
-      'onboarding.finished',
       'household.created_from_onboarding',
       'medication.add.completed',
       'dose.log.completed',

@@ -64,7 +64,6 @@ class _JoinScreenState extends State<JoinScreen> {
 
   Future<void> _join() async {
     if (_busy) return;
-    AppLog.event('join.started');
     FocusScope.of(context).unfocus();
     setState(() {
       _busy = true;
@@ -74,16 +73,14 @@ class _JoinScreenState extends State<JoinScreen> {
     final onboarding = context.read<OnboardingViewModel>();
     final error = await care.join(code: _code.text, name: _name.text);
     if (!mounted) return;
+    // household.joined / join_* are logged by the repository.
     if (error != null) {
-      // household.join_* already logged the reason; no free text here.
-      AppLog.event('join.ui_failed');
       setState(() {
         _busy = false;
         _error = error;
       });
       return;
     }
-    AppLog.event('join.completed');
     if (!onboarding.isComplete) await onboarding.finish(reminders: false);
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(

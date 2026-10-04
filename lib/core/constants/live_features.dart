@@ -4,6 +4,10 @@ abstract final class LiveFeatures {
   static const version = '1.0.0';
 
   /// Repository + service logs that must be exercised in automated tests.
+  ///
+  /// One line per user action: these data-layer events are the record of
+  /// an outcome; screens don't log a second "saved"/"failed" line for it
+  /// (see one_log_per_action_test.dart).
   static const coverage = <LiveFeatureSpec>[
     LiveFeatureSpec(
       id: 'dose_log',
@@ -126,6 +130,15 @@ abstract final class LiveFeatures {
         'billing.restore.requested',
         'billing.restore.skipped',
       ],
+    ),
+    // Migration and write-failure lines (`store.migrated`,
+    // `store.migrate_failed`, `store.write_failed`) need a crafted disk and
+    // are asserted in local_database_test.dart.
+    LiveFeatureSpec(
+      id: 'local_store',
+      name: 'On-phone database (offline, per-record saves)',
+      tier: FeatureTier.free,
+      logs: ['store.opened', 'data.restored'],
     ),
     LiveFeatureSpec(
       id: 'onboarding',

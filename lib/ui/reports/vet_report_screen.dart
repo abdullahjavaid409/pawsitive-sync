@@ -208,7 +208,7 @@ class _VetReportScreenState extends State<VetReportScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  line.medication.name,
+                                  line.medication.historyName,
                                   style: text.titleMedium,
                                 ),
                                 const SizedBox(height: 4),
@@ -230,7 +230,7 @@ class _VetReportScreenState extends State<VetReportScreen> {
                       ),
                       const SizedBox(height: 14),
                       Semantics(
-                        label: '${line.medication.name} doses given',
+                        label: '${line.medication.historyName} doses given',
                         value: '${line.given} of ${line.expected}',
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(5),
@@ -322,7 +322,7 @@ class _VetReportScreenState extends State<VetReportScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  line.medication.name,
+                                  line.medication.historyName,
                                   style: text.titleSmall,
                                 ),
                                 const SizedBox(height: 3),
@@ -477,7 +477,7 @@ class _VetReportScreenState extends State<VetReportScreen> {
       '',
       'Doses given:',
       for (final line in report.lines)
-        '• ${line.medication.name}${line.medication.amount.isEmpty ? '' : ' ${line.medication.amount}'} (${line.medication.whenLabel.toLowerCase()}): ${line.given} of ${line.expected}',
+        '• ${line.medication.historyName}${line.medication.amount.isEmpty ? '' : ' ${line.medication.amount}'} (${line.medication.whenLabel.toLowerCase()}): ${line.given} of ${line.expected}',
       if (report.skipped > 0) 'Skipped on purpose: ${report.skipped}',
       if (report.uncertain > 0) 'Not sure if given: ${report.uncertain}',
       if (report.missed > 0) 'Missed (no log): ${report.missed}',

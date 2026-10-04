@@ -3,6 +3,7 @@ import 'package:pawsitive_sync/core/constants/live_features.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/data/household_api.dart';
+import 'package:pawsitive_sync/data/household_store.dart';
 import 'package:pawsitive_sync/data/push_service.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
@@ -42,8 +43,10 @@ void main() {
 
 Future<void> _exerciseAllLiveFeatures() async {
   final clock = () => DateTime(2026, 10, 3, 14);
-  final care = CareRepository(clock: clock);
+  final care = CareRepository(clock: clock, store: HouseholdStore());
   await care.addPet(name: 'Milo', species: Species.cat);
+  await care.flushPersist();
+  await CareRepository(clock: clock, store: HouseholdStore()).restore();
   final petId = care.pets.first.id;
 
   // Pets

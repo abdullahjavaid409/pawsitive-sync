@@ -65,15 +65,14 @@ class _AddPetScreenState extends State<AddPetScreen> {
       weightKg: PetLimits.parseWeightKg(_weight.text) ?? 0,
     );
     if (!mounted) return;
+    // pet.add.completed / rejected / blocked are logged by the repository.
     if (id == null) {
-      AppLog.event('pet.add.ui_failed', {'species': _species.name});
       setState(() {
         _busy = false;
         _error = care.lastError ?? 'Could not save. Try again.';
       });
       return;
     }
-    AppLog.event('pet.add.ui_success', {'petId': id, 'species': _species.name});
     final messenger = ScaffoldMessenger.of(context);
     final router = GoRouter.of(context);
     messenger.showSnackBar(

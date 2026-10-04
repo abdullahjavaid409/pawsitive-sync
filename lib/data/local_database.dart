@@ -129,13 +129,13 @@ class LocalDatabase {
 
   static Future<void> _createSchema(Database db) async {
     final batch = db.batch()
+      ..execute('CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)')
       ..execute(
-        'CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
-      )
-      ..execute('''
+        '''
         CREATE TABLE members (
           id TEXT PRIMARY KEY, position INTEGER NOT NULL, name TEXT NOT NULL,
-          role TEXT NOT NULL, joined INTEGER NOT NULL, is_you INTEGER NOT NULL)''')
+          role TEXT NOT NULL, joined INTEGER NOT NULL, is_you INTEGER NOT NULL)''',
+      )
       ..execute('''
         CREATE TABLE pets (
           id TEXT PRIMARY KEY, position INTEGER NOT NULL, name TEXT NOT NULL,
@@ -289,17 +289,25 @@ abstract final class LocalRows {
     'seq': seq,
   };
 
-  static DoseRecord toLog(Map<String, Object?> row) => doseRecordFromJson({
-    'id': row['id'],
-    'medicationId': row['medication_id'],
-    'part': row['part'],
-    'day': row['day'],
-    'memberId': row['member_id'],
-    'outcome': row['outcome'],
-    'amount': row['amount'],
-    'timeLabel': row['time_label'],
-    'note': row['note'],
-  });
+  /// Built directly (no intermediate JSON map): launch reads thousands.
+  static DoseRecord toLog(Map<String, Object?> row) => DoseRecord(
+    id: row['id']! as String,
+    medicationId: row['medication_id']! as String,
+    part: _byName(DayPart.values, row['part'], DayPart.morning),
+    day: row['day']! as String,
+    memberId: row['member_id']! as String,
+    outcome: _byName(LogOutcome.values, row['outcome'], LogOutcome.given),
+    amount: row['amount'] as String? ?? '',
+    timeLabel: row['time_label'] as String? ?? '',
+    note: row['note'] as String?,
+  );
+
+  static T _byName<T extends Enum>(List<T> values, Object? name, T fallback) {
+    for (final value in values) {
+      if (value.name == name) return value;
+    }
+    return fallback;
+  }
 
   static Map<String, Object?> careEvent(CareEvent event, int position) => {
     'id': event.id,

@@ -15,9 +15,11 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 /// in the same test sees what an earlier one saved, as after a relaunch.
 Future<void> testExecutable(FutureOr<void> Function() testMain) async {
   sqfliteFfiInit();
-  setUp(() async {
+  setUp(() {
     FlutterSecureStorage.setMockInitialValues({});
-    await LocalDatabase.shared.close();
+    // Not awaited: a previous widget test may have started a write inside
+    // its fake-async zone that will never be pumped again.
+    unawaited(LocalDatabase.shared.close().catchError((Object _) {}));
     LocalDatabase.shared = LocalDatabase(
       factory: databaseFactoryFfiNoIsolate,
       path: () async => inMemoryDatabasePath,

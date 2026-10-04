@@ -691,7 +691,11 @@ class CareRepository extends ChangeNotifier {
           expected++;
           if (!logged.contains('$key|${part.name}')) {
             missedDoses.add(
-              MissedDose(medicationName: medication.name, day: day, part: part),
+              MissedDose(
+                medicationName: medication.historyName,
+                day: day,
+                part: part,
+              ),
             );
           }
         }
@@ -785,19 +789,32 @@ class CareRepository extends ChangeNotifier {
     } on Object catch (error, stack) {
       AppLog.error('store.billing_state_failed', error, stack);
     }
-    _careEvents
-      ..clear()
-      ..addAll(await _eventsStore.read());
+    try {
+      _careEvents
+        ..clear()
+        ..addAll(await _eventsStore.read());
+    } on Object catch (error, stack) {
+      AppLog.error('store.read_failed', error, stack, {'table': 'care_events'});
+    }
     try {
       await _photos?.init();
     } on Object catch (error, stack) {
       AppLog.error('pet.photo_store_failed', error, stack);
     }
-    final saved = await _store?.read(
-      sinceDay: dayKey(
-        now.subtract(const Duration(days: HouseholdStore.recentDays)),
-      ),
-    );
+    final StoredHousehold? saved;
+    try {
+      saved = await _store?.read(
+        sinceDay: dayKey(
+          now.subtract(const Duration(days: HouseholdStore.recentDays)),
+        ),
+      );
+    } on Object catch (error, stack) {
+      // The data may still be on disk; saving over it from an empty memory
+      // would lose it. This run works from memory only (logging still works).
+      _storeUnreadable = true;
+      AppLog.error('store.read_failed', error, stack, {'table': 'household'});
+      return;
+    }
     if (saved == null) return;
     _apply(
       householdId: saved.householdId,
@@ -1252,8 +1269,11 @@ class CareRepository extends ChangeNotifier {
   /// Saves the household. Every change in the same turn (and any change made
   /// while a save is still running) collapses into one write of the latest
   /// state, so a burst of updates never serializes the whole history twice.
+  /// Set when launch couldn't read the saved household (see [restore]).
+  bool _storeUnreadable = false;
+
   void _persist() {
-    if (_store == null || _persistQueued) return;
+    if (_store == null || _persistQueued || _storeUnreadable) return;
     _persistQueued = true;
     final previous = _persistRunning ?? Future<void>.value();
     _persistRunning = previous.then((_) => _writeStore());
@@ -1421,18 +1441,20 @@ class CareRepository extends ChangeNotifier {
   Future<void> syncIfStale() => sync();
 
   /// [force] bypasses the recent-sync window (e.g. pull-to-refresh).
-  Future<void> sync({bool force = false}) async {
+  /// [source] (`auto`, `pull_refresh`, `retry`) goes on the one log line
+  /// the sync ends with, so a tap doesn't need a line of its own.
+  Future<void> sync({bool force = false, String source = 'auto'}) async {
     final api = _api;
     if (api == null) {
-      AppLog.event('household.sync_skipped', {'reason': 'no_api'});
+      AppLog.event('household.sync_skipped', {'reason': 'no_api', 'source': source});
       return;
     }
     if (!isConnected) {
-      AppLog.event('household.sync_skipped', {'reason': 'not_connected'});
+      AppLog.event('household.sync_skipped', {'reason': 'not_connected', 'source': source});
       return;
     }
     if (syncing) {
-      AppLog.event('household.sync_skipped', {'reason': 'in_progress'});
+      AppLog.event('household.sync_skipped', {'reason': 'in_progress', 'source': source});
       return;
     }
     if (!force &&
@@ -1440,6 +1462,7 @@ class CareRepository extends ChangeNotifier {
         now.difference(_lastSyncedAt!) < _syncMinInterval) {
       AppLog.event('household.sync_skipped', {
         'reason': 'recent',
+        'source': source,
         'secondsAgo': now.difference(_lastSyncedAt!).inSeconds,
       });
       return;
@@ -1453,7 +1476,10 @@ class CareRepository extends ChangeNotifier {
       _mergeSnapshot(house);
       _persist();
       _lastSyncedAt = now;
-      AppLog.event('household.synced', {'doses': doses.length});
+      AppLog.event('household.synced', {
+        'doses': doses.length,
+        'source': source,
+      });
       // Pending uploads/removals first, then fetch photos others set.
       await syncPetPhotos();
       await refreshPhotoCache();
@@ -1463,7 +1489,10 @@ class CareRepository extends ChangeNotifier {
       }
     } on HouseholdException catch (error) {
       syncError = error.message;
-      AppLog.event('household.sync_failed', {'kind': error.kind.name});
+      AppLog.event('household.sync_failed', {
+        'kind': error.kind.name,
+        'source': source,
+      });
       if (error.kind == HouseholdErrorKind.unauthorized) {
         await _dropSession('sync_unauthorized', error);
       }
@@ -1801,10 +1830,17 @@ class CareRepository extends ChangeNotifier {
   }
 
   Future<void> removeCareEvent(String eventId) async {
+    CareEvent? removed;
+    for (final event in _careEvents) {
+      if (event.id == eventId) removed = event;
+    }
     _careEvents.removeWhere((event) => event.id == eventId);
     _persistEvents();
     notifyListeners();
-    AppLog.event('care_event.removed', {'eventId': eventId});
+    AppLog.event('care_event.removed', {
+      'eventId': eventId,
+      'kind': ?removed?.kind.name,
+    });
   }
 
   void _replaceMedication(Medication medication) {
@@ -2351,6 +2387,7 @@ class CareRepository extends ChangeNotifier {
       );
     }
     AppLog.event('household.created_from_onboarding', {
+      'reminders': model.remindersOn,
       'conditions': model.conditions.length,
       'caregivers': model.caregivers.length,
       'localOnly': _api != null && !isConnected,
@@ -2393,16 +2430,27 @@ class CareRepository extends ChangeNotifier {
       logs: const [],
     );
     await flushPersist();
-    await _store?.clear();
+    // Each clear is isolated: a failing database must not stop the reset
+    // (account deletion then removes the file itself).
+    Future<void> clearing(String table, Future<void>? Function() run) async {
+      try {
+        await run();
+      } on Object catch (error, stack) {
+        AppLog.error('store.clear_failed', error, stack, {'table': table});
+      }
+    }
+
+    await clearing('household', () => _store?.clear());
+    _storeUnreadable = false;
     try {
       await SecureTokens.deleteSitterTokens();
     } on Object catch (error, stack) {
       AppLog.error('sitter.token_clear_failed', error, stack);
     }
-    await _syncEngine.outbox.clear();
+    await clearing('outbox', _syncEngine.outbox.clear);
     syncError = null;
     _careEvents.clear();
-    await _eventsStore.clear();
+    await clearing('care_events', _eventsStore.clear);
     _storePro = false;
     _storeProLastRun = false;
     _proActiveLogged = false;

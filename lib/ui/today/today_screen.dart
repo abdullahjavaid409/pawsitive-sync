@@ -65,8 +65,8 @@ class _TodayScreenState extends State<TodayScreen> {
         .take(5)
         .toList();
 
+    // Logged as nav.push to=/schedule; the save logs the pet.
     void addMedicine() {
-      AppLog.event('medication.add_opened', {'petId': selectedId ?? 'default'});
       context.push(
         selectedId == null
             ? AppRoutes.schedule
@@ -78,10 +78,9 @@ class _TodayScreenState extends State<TodayScreen> {
       body: SafeArea(
         bottom: false,
         child: RefreshIndicator(
-          onRefresh: () {
-            AppLog.event('today.pull_refresh', {'connected': care.isConnected});
-            return care.isConnected ? care.sync(force: true) : Future.value();
-          },
+          // One line: household.synced / sync_skipped / sync_failed with
+          // source=pull_refresh.
+          onRefresh: () => care.sync(force: true, source: 'pull_refresh'),
           child: ListView(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: carePagePaddingOf(context),
@@ -97,20 +96,15 @@ class _TodayScreenState extends State<TodayScreen> {
                           AppLog.event('today.pro_badge_tapped');
                           context.push(AppRoutes.paywall);
                         },
-                  onSettings: () {
-                    AppLog.event('settings.opened');
-                    context.push(AppRoutes.settings);
-                  },
+                  // Logged as nav.push to=/settings.
+                  onSettings: () => context.push(AppRoutes.settings),
                 ),
               ),
               if (care.hasApi && (care.isConnected || care.syncError != null))
                 _HouseholdSync(
                   syncing: care.syncing,
                   error: care.syncError,
-                  onRetry: () {
-                    AppLog.event('household.sync_retry');
-                    return care.sync(force: true);
-                  },
+                  onRetry: () => care.sync(force: true, source: 'retry'),
                 ),
               const SizedBox(height: 24),
               if (care.pets.isNotEmpty) ...[
@@ -145,22 +139,16 @@ class _TodayScreenState extends State<TodayScreen> {
                   const SizedBox(height: 16),
                   _LowSupply(
                     medication: low,
-                    onTap: () {
-                      AppLog.event('pro.low_supply.opened', {
-                        'medicationId': low.id,
-                      });
-                      context.push(AppRoutes.medication(low.id));
-                    },
+                    // Logged as nav.push to=/medication/:id.
+                    onTap: () => context.push(AppRoutes.medication(low.id)),
                   ),
                 ],
                 if (due.isNotEmpty &&
                     (care.isConnected || care.members.length > 1)) ...[
                   const SizedBox(height: 16),
                   _DoubleDoseAlert(
-                    onCheckHousehold: () {
-                      AppLog.event('double_dose.check_household');
-                      context.go(AppRoutes.household);
-                    },
+                    // Logged as nav.tab to=household.
+                    onCheckHousehold: () => context.go(AppRoutes.household),
                   ),
                 ],
                 if (care.pets.isNotEmpty) ...[
@@ -188,11 +176,8 @@ class _TodayScreenState extends State<TodayScreen> {
                             event: event,
                             pet: care.tryPetById(event.petId),
                             showDivider: index < upcomingCare.length - 1,
+                            // care_event.removed is logged by the repository.
                             onRemove: () {
-                              AppLog.event('care_event.dismissed', {
-                                'eventId': event.id,
-                                'kind': event.kind.name,
-                              });
                               AppLog.unawaitedLogged(
                                 care.removeCareEvent(event.id),
                                 'care_event.remove_failed',
@@ -280,11 +265,8 @@ class _TodayScreenState extends State<TodayScreen> {
                             event: event,
                             pet: care.tryPetById(event.petId),
                             showDivider: index < upcomingCare.length - 1,
+                            // care_event.removed is logged by the repository.
                             onRemove: () {
-                              AppLog.event('care_event.dismissed', {
-                                'eventId': event.id,
-                                'kind': event.kind.name,
-                              });
                               AppLog.unawaitedLogged(
                                 care.removeCareEvent(event.id),
                                 'care_event.remove_failed',
@@ -318,11 +300,8 @@ class _TodayScreenState extends State<TodayScreen> {
     );
   }
 
+  /// Logged as nav.push to the sheet it opens (log_dose / dose_already).
   Future<void> _openDose(BuildContext context, Dose dose) async {
-    AppLog.event('dose.tapped', {
-      'doseId': dose.id,
-      'status': dose.status.name,
-    });
     if (dose.status == DoseStatus.given) {
       await showDoubleDoseGuard(context, dose);
       return;

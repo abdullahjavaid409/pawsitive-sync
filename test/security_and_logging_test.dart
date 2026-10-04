@@ -75,11 +75,10 @@ void main() {
           await SecureTokens.read(SecureTokens.householdKey),
           'legacy-token',
         );
+        // The old blob is gone once moved into the database (which never
+        // holds the token).
         final prefs = await SharedPreferences.getInstance();
-        expect(
-          prefs.getString('household_v2'),
-          isNot(contains('legacy-token')),
-        );
+        expect(prefs.getString('household_v2'), isNull);
         expectLogged('store.token_migrated');
 
         // Second launch reads it from secure storage only.

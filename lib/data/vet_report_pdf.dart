@@ -201,9 +201,8 @@ Future<VetReportPdf> buildVetReportPdf({
           data: [
             for (final line in report.lines)
               [
-                line.removed
-                    ? '${line.medication.name} (stopped)'
-                    : line.medication.name,
+                // "Antibiotic (stopped Oct 2)" for a stopped medicine.
+                line.medication.historyName,
                 line.medication.doseLabel,
                 line.medication.whenLabel.isEmpty
                     ? '—'

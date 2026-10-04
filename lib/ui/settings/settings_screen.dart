@@ -111,17 +111,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _deleteAccount() async {
     if (_busy) return;
     final care = context.read<CareRepository>();
-    AppLog.event('settings.delete_account_opened', {
-      'scope': care.accountDeleteScope.name,
-    });
+    // Logged as nav.push to=delete_account; the scope is logged by
+    // account.delete_requested.
     final deleted = await showDialog<bool>(
       context: context,
+      routeSettings: const RouteSettings(name: 'delete_account'),
       // Never dismissed by a stray tap while the request is running.
       barrierDismissible: false,
       builder: (_) => _DeleteAccountDialog(care: care),
     );
     if (deleted != true || !mounted) return;
-    AppLog.event('settings.account_deleted');
     context.read<OnboardingViewModel>().resetForSignOut();
     context.go(AppRoutes.welcome);
   }
@@ -288,8 +287,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     if (leave != true || !context.mounted) return;
                     final error = await care.leaveHousehold();
                     if (!context.mounted) return;
+                    // household.left / leave_failed: logged by the repository.
                     if (error != null) {
-                      AppLog.event('settings.leave_failed');
                       ScaffoldMessenger.of(context)
                           .showSnackBar(SnackBar(content: Text(error)));
                       return;

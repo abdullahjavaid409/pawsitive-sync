@@ -10,7 +10,9 @@ Use this after a **Delete account** (Settings) or on a fresh install. Filter Dev
 | **Connected household** | Writes sync to server; pull-to-refresh fetches latest |
 | **API calls** | Only on: Invite (connect), Join, dose/med writes when connected, manual refresh, billing resume — **not** on every app open |
 
-Logs: `data.restored` on launch · `household.sync_skipped` when no unnecessary fetch
+Logs: `store.opened ms=…` + `data.restored` on launch (first launch after the SQLite update also `store.migrated pets=… logs=… ms=…`, or `store.migrate_failed` — the app then keeps using the old data and retries next launch) · `household.sync_skipped` when no unnecessary fetch · a failed save logs `store.write_failed table=…`
+
+One line per action: the repository logs the outcome (`*.completed` / `*.rejected` / `*.failed`); screens don't add a second "saved" line. Opening a screen, sheet or dialog is one `nav.push to=…` (sheets and dialogs are named: `log_dose`, `add_care_event`, `stop_medicine`, `delete_account`, `sitter_label`).
 
 ---
 
@@ -18,7 +20,7 @@ Logs: `data.restored` on launch · `household.sync_skipped` when no unnecessary 
 
 | Step | Action | Expected log |
 |------|--------|--------------|
-| 0.1 | Settings → **Delete account on this phone** → confirm | `settings.account_deleted`, `household.reset` |
+| 0.1 | Settings → **Delete account on this phone** → confirm | `household.reset`, `account.deleted` |
 | 0.2 | Land on **Welcome** | `welcome` |
 | 0.3 | Automated test | `test/full_workflow_test.dart` (63+ tests) |
 
@@ -34,7 +36,7 @@ Logs: `data.restored` on launch · `household.sync_skipped` when no unnecessary 
 | 1.4 | Pick caregivers → Continue | `onboarding.step` step=caregivers |
 | 1.5 | Reminders on/off | `onboarding.step`, `reminders.on` or `reminders.off` |
 | 1.6 | Finish paywall / continue free | `billing.continued_free` or purchase logs |
-| 1.7 | Complete setup | `onboarding.finished`, `household.created_from_onboarding` |
+| 1.7 | Complete setup | `household.created_from_onboarding` (with `reminders=`) |
 
 ---
 
@@ -44,16 +46,16 @@ Logs: `data.restored` on launch · `household.sync_skipped` when no unnecessary 
 |------|--------|--------------|
 | 2.1 | Open app | `app.started` |
 | 2.2 | Tap pet filter | `pet.filter` |
-| 2.3 | Tap a due dose | `dose.tapped`, `dose.opened` |
+| 2.3 | Tap a due dose | `nav.push to=log_dose` |
 | 2.4 | **Log dose** | `dose.log.completed` |
 | 2.5 | **Not sure if given** | `dose.uncertain.completed` |
 | 2.6 | **Skip dose** | `dose.skip.completed` |
 | 2.7 | Tap given dose | `dose.already` |
-| 2.8 | Household banner → retry | `household.sync_retry`, `household.synced` |
-| 2.9 | Due + connected → **Check before you give** | `double_dose.check_household` |
-| 2.10 | Add medicine shortcut | `medication.add_opened` |
+| 2.8 | Household banner → retry | `household.synced source=retry` |
+| 2.9 | Due + connected → **Check before you give** | `nav.tab to=household` |
+| 2.10 | Add medicine shortcut | `nav.push to=/schedule` |
 | 2.11 | Care shortcuts (Pets / Household / Reports) | `today.shortcut.*` |
-| 2.12 | Settings gear | `settings.opened` |
+| 2.12 | Settings gear | `nav.push to=/settings` |
 
 ---
 
@@ -61,7 +63,7 @@ Logs: `data.restored` on launch · `household.sync_skipped` when no unnecessary 
 
 | Step | Action | Expected log |
 |------|--------|--------------|
-| 3.1 | Name + times + course length + save | `medication.add.completed`, `medication.saved` |
+| 3.1 | Name + times + course length + save | `medication.add.completed` |
 | 3.2 | Empty name save | `medication.add_rejected` reason=missing_name |
 | 3.3 | No time selected | validation error (UI) |
 
@@ -71,9 +73,9 @@ Logs: `data.restored` on launch · `household.sync_skipped` when no unnecessary 
 
 | Step | Action | Expected log |
 |------|--------|--------------|
-| 4.1 | Today → Coming up → **Add** | `care_event.sheet_opened` |
-| 4.2 | Save vet/vaccine reminder | `care_event.saved`, `care_event.added` |
-| 4.3 | Swipe to dismiss | `care_event.dismissed`, `care_event.removed` |
+| 4.1 | Today → Coming up → **Add** | `nav.push to=add_care_event` |
+| 4.2 | Save vet/vaccine reminder | `care_event.added` |
+| 4.3 | Swipe to dismiss | `care_event.removed` |
 
 ---
 
@@ -82,7 +84,7 @@ Logs: `data.restored` on launch · `household.sync_skipped` when no unnecessary 
 | Step | Action | Expected log |
 |------|--------|--------------|
 | 5.1 | Add pet (Free, already 1 pet) | `pet.add.blocked` → paywall |
-| 5.2 | Add pet (Pro) | `pet.add.completed`, `pet.add.ui_success` |
+| 5.2 | Add pet (Pro) | `pet.add.completed` |
 | 5.3 | Edit pet → save | `pet.update.completed` |
 | 5.4 | 3+ pets → vertical list | (UI only) |
 
@@ -92,15 +94,15 @@ Logs: `data.restored` on launch · `household.sync_skipped` when no unnecessary 
 
 | Step | Action | Expected log |
 |------|--------|--------------|
-| 6.1 | Invite (Pro) | `invite.opened`, `invite.connect_ready` |
+| 6.1 | Invite (Pro) | `nav.push to=/invite`, `household.connected` |
 | 6.2 | Copy browser sitter link | `invite.web_link_copied`, `sitter.link_ready` |
 | 6.2b | Copy app invite link | `invite.copied`, `invite.link_copied` |
 | 6.2c | Open browser link on phone (no app) | Server: `dose.logged` source=sitter |
 | 6.2d | Partner logs dose → your phone | `push.partner_detected`, `push.partner_logged` |
 | 6.3 | Share | `invite.share_tapped` |
 | 6.4 | Invite (Free) | `invite.blocked` |
-| 6.5 | Join with code | `join.started`, `household.joined`, `join.completed` |
-| 6.6 | Bad code | `household.join_rejected` or `join.ui_failed` |
+| 6.5 | Join with code | `household.joined` |
+| 6.6 | Bad code | `household.join_rejected` or `household.join_failed` |
 
 ---
 
@@ -109,8 +111,8 @@ Logs: `data.restored` on launch · `household.sync_skipped` when no unnecessary 
 | Step | Action | Expected log |
 |------|--------|--------------|
 | 7.1 | Open from Today | `nav.push` |
-| 7.2 | **I refilled it** (Pro, low supply) | `medication.refill_tapped`, `medication.refill.completed` |
-| 7.3 | **Stop medicine** | `medication.stop_tapped`, `medication.stop_confirmed`, `medication.remove.completed` |
+| 7.2 | **I refilled it** (Pro, low supply) | `medication.refill.completed` |
+| 7.3 | **Stop medicine** | `nav.push to=stop_medicine`, `medication.remove.completed` |
 
 ---
 

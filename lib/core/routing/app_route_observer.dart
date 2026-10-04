@@ -17,8 +17,28 @@ class AppRouteObserver extends NavigatorObserver {
     };
   }
 
+  /// Route name for self-closing confirmation dialogs (`showMoment`). Not
+  /// navigation, so neither their push nor their pop is logged.
+  static const moment = 'moment';
+
+  /// Screens that log a richer line of their own when they open
+  /// (`billing.paywall.opened` has the reason and placement).
+  static const _selfLogged = {'/paywall'};
+
+  /// The first page of a tab's navigator. It's part of a navigation already
+  /// logged: the shell push (launch) or `nav.tab` (first visit to a tab).
+  static bool _isTabRoot(Route<dynamic> route, Route<dynamic>? previous) {
+    if (previous != null) return false;
+    final navigator = route.navigator;
+    return navigator != null &&
+        navigator.context.findAncestorStateOfType<NavigatorState>() != null;
+  }
+
   @override
   void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    final name = route.settings.name;
+    if (name == moment || _selfLogged.contains(name)) return;
+    if (_isTabRoot(route, previousRoute)) return;
     AppLog.event('nav.push', {
       'to': _name(route),
       'from': previousRoute?.settings.name ?? 'none',
@@ -27,6 +47,7 @@ class AppRouteObserver extends NavigatorObserver {
 
   @override
   void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    if (route.settings.name == moment) return;
     AppLog.event('nav.pop', {
       'from': _name(route),
       'to': previousRoute?.settings.name ?? 'none',

@@ -247,7 +247,7 @@ void main() {
       await qa.tap(find.text('Delete account on this phone'));
       await qa.tap(find.text('Delete'));
       await qa.see('Get started');
-      qa.event('settings.account_deleted');
+      qa.event('account.deleted');
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getString('household_v2'), isNull);
     });
