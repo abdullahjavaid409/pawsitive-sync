@@ -150,10 +150,17 @@ void main() {
     await tester.pumpAndSettle();
     expect(
       find.text(
-        'Free includes the morning dose and its reminder. Pro adds afternoon and evening.',
+        'Free includes one morning dose (4 AM to noon) and its reminder. Pro adds afternoon, evening and any time.',
       ),
       findsOneWidget,
     );
+    // Afternoon and evening say "Pro" before anyone taps them.
+    expect(find.bySemanticsLabel(RegExp(r'^Evening, .*, Pro$')), findsOneWidget);
+    expect(
+      find.bySemanticsLabel(RegExp(r'^Afternoon, .*, Pro$')),
+      findsOneWidget,
+    );
+    expect(find.bySemanticsLabel(RegExp(r'^Morning, .*, Pro$')), findsNothing);
     await _reveal(tester, find.text('Evening'));
     await tester.tap(find.text('Evening'));
     await tester.pumpAndSettle();

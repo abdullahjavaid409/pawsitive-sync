@@ -45,6 +45,19 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   Future<void> _pickTime(DayPart part) async {
     final minute = await pickDoseTime(context, part, _minuteFor(part));
     if (minute == null || !mounted) return;
+    final care = context.read<CareRepository>();
+    if (!care.canUseDoseTime(part, minute)) {
+      // Free keeps the morning reminder in the morning; the old time stays.
+      AppLog.event('medication.add.blocked', {
+        'reason': 'free_tier_time_window',
+        'part': part.name,
+        'from': 'schedule_time',
+      });
+      await context.push(
+        AppRoutes.paywallWith(reason: 'more_dose_times', from: 'schedule_time'),
+      );
+      if (!mounted || !care.canUseDoseTime(part, minute)) return;
+    }
     setState(() {
       _error = null;
       _times[part] = minute;
@@ -141,6 +154,23 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       });
       await context.push(
         AppRoutes.paywallWith(reason: 'more_meds', from: 'schedule_save'),
+      );
+      return;
+    }
+    // Pro can end while the form is open (expiry, refund): a schedule
+    // picked on Pro then needs Pro again, not a silent failed save.
+    final morning = _times[DayPart.morning];
+    if (!care.canScheduleDoseParts(_parts) ||
+        (_parts.contains(DayPart.morning) &&
+            morning != null &&
+            !care.canUseDoseTime(DayPart.morning, morning))) {
+      AppLog.event('medication.add.blocked', {
+        'reason': 'free_tier_times',
+        'petId': pet.id,
+        'from': 'schedule_save',
+      });
+      await context.push(
+        AppRoutes.paywallWith(reason: 'more_dose_times', from: 'schedule_save'),
       );
       return;
     }
@@ -350,6 +380,9 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                                             _minuteFor(part),
                                           ),
                                           selected: _parts.contains(part),
+                                          locked: !care.canScheduleDoseParts({
+                                            part,
+                                          }),
                                           horizontal: stacked,
                                           onPressed: () => _togglePart(
                                             care,
@@ -388,7 +421,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                                 if (!care.isPro) ...[
                                   const SizedBox(height: 10),
                                   Text(
-                                    'Free includes the morning dose and its reminder. Pro adds afternoon and evening.',
+                                    'Free includes one morning dose (4 AM to noon) and its reminder. Pro adds afternoon, evening and any time.',
                                     style: text.bodyMedium?.copyWith(
                                       color: scheme.onSurfaceVariant,
                                     ),
@@ -717,8 +750,12 @@ class _PartTile extends StatelessWidget {
     required this.selected,
     required this.onPressed,
     required this.horizontal,
+    this.locked = false,
   });
   final DayPart part;
+
+  /// Free can't pick this part at all: shows a lock and says "Pro".
+  final bool locked;
 
   /// The reminder time for this part (custom pick or default).
   final String timeLabel;
@@ -752,6 +789,9 @@ class _PartTile extends StatelessWidget {
           ? StrokeIcon(StrokeIconKind.check, size: 13, color: scheme.onPrimary)
           : null,
     );
+    final indicator = locked
+        ? StrokeIcon(StrokeIconKind.lock, size: 17, color: color)
+        : check;
     final label = Column(
       crossAxisAlignment: horizontal
           ? CrossAxisAlignment.start
@@ -765,7 +805,7 @@ class _PartTile extends StatelessWidget {
     return Semantics(
       button: true,
       selected: selected,
-      label: '${part.label}, $timeLabel',
+      label: '${part.label}, $timeLabel${locked ? ', Pro' : ''}',
       excludeSemantics: true,
       child: Material(
         color: selected
@@ -793,14 +833,14 @@ class _PartTile extends StatelessWidget {
                       const SizedBox(width: 14),
                       Expanded(child: label),
                       const SizedBox(width: 8),
-                      check,
+                      indicator,
                     ],
                   )
                 : Column(
                     children: [
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [icon, check],
+                        children: [icon, indicator],
                       ),
                       const SizedBox(height: 14),
                       label,

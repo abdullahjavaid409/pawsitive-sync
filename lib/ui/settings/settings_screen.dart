@@ -179,7 +179,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     subtitle: Text(
                       care.isPro
                           ? 'Every pet, invites, refill alerts, vet export'
-                          : 'One pet with full dose tracking · Pro for shared care',
+                          : 'One pet, one morning medicine · Pro for every dose and shared care',
                     ),
                     trailing: care.isPro
                         ? null

@@ -107,7 +107,7 @@ void main() {
     });
 
     await qa.step('Pro gate: evening dose time opens paywall', () async {
-      await qa.see('Free includes the morning dose', partial: true);
+      await qa.see('Free includes one morning dose', partial: true);
       await qa.tap(find.text('Evening'));
       await qa.see('Morning and evening, both covered');
       qa.event('billing.paywall.opened', {'reason': 'more_dose_times'});

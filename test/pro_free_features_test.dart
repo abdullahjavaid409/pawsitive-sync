@@ -136,6 +136,98 @@ void main() {
       expectLogged('medication.add.blocked', fields: {'reason': 'free_tier'});
     });
 
+    test('morning reminder stays in the morning on Free', () async {
+      final care = await careWithOnePet();
+      final petId = care.pets.first.id;
+      expect(care.canUseDoseTime(DayPart.morning, 4 * 60), isTrue);
+      expect(care.canUseDoseTime(DayPart.morning, 11 * 60 + 59), isTrue);
+      expect(care.canUseDoseTime(DayPart.morning, 3 * 60 + 59), isFalse);
+      expect(care.canUseDoseTime(DayPart.morning, 12 * 60), isFalse);
+      expect(care.canUseDoseTime(DayPart.morning, 21 * 60), isFalse);
+
+      // A "morning" dose at 9 PM would be a free evening reminder.
+      expect(
+        await care.addMedication(
+          petId: petId,
+          name: 'Sneaky',
+          amount: '1 tab',
+          parts: [DayPart.morning],
+          times: {DayPart.morning: 21 * 60},
+        ),
+        isFalse,
+      );
+      expect(care.medications, isEmpty);
+      expect(care.lastError, contains('4:00 AM and noon'));
+      expectLogged(
+        'medication.add.blocked',
+        fields: {'reason': 'free_tier_time_window'},
+      );
+
+      expect(
+        await care.addMedication(
+          petId: petId,
+          name: 'Daily',
+          amount: '1 tab',
+          parts: [DayPart.morning],
+          times: {DayPart.morning: 7 * 60 + 15},
+        ),
+        isTrue,
+      );
+      final id = care.medications.single.id;
+      expect(
+        await care.setMedicationTimes(id, {DayPart.morning: 21 * 60}),
+        isFalse,
+      );
+      expectLogged(
+        'medication.times.blocked',
+        fields: {'reason': 'free_tier_time_window'},
+      );
+      expect(care.medications.single.minuteFor(DayPart.morning), 7 * 60 + 15);
+      expect(
+        await care.setMedicationTimes(id, {DayPart.morning: 9 * 60}),
+        isTrue,
+      );
+      // Back to the default time is always allowed.
+      expect(await care.setMedicationTimes(id, const {}), isTrue);
+    });
+
+    test('a Pro-era schedule keeps working after Pro ends', () async {
+      final care = await careWithOnePet()
+        ..debugStorePro = true;
+      final petId = care.pets.first.id;
+      for (final name in ['Insulin', 'Gaba']) {
+        await care.addMedication(
+          petId: petId,
+          name: name,
+          amount: '1',
+          parts: [DayPart.morning, DayPart.evening],
+          times: {DayPart.morning: 21 * 60 + 30},
+        );
+      }
+      care.debugStorePro = false;
+      expect(care.isPro, isFalse);
+      expect(care.medications, hasLength(2));
+      // Every dose still shows and can be logged.
+      expect(care.doses.where((d) => d.part == DayPart.evening), hasLength(2));
+      final insulin = care.medications.first;
+      // The late morning time saved on Pro stays; changing another part's
+      // time leaves it alone and saves.
+      expect(
+        await care.setMedicationTimes(insulin.id, {
+          DayPart.morning: 21 * 60 + 30,
+          DayPart.evening: 19 * 60,
+        }),
+        isTrue,
+      );
+      expect(insulin.minuteFor(DayPart.morning), 21 * 60 + 30);
+      expect(
+        care.medicationById(insulin.id)!.minuteFor(DayPart.evening),
+        19 * 60,
+      );
+      // But nothing new beyond the Free limits.
+      expect(care.canAddMedication(petId), isFalse);
+    });
+
     test('care events and reports view are free', () async {
       final care = await careWithOnePet();
       await care.addMedication(

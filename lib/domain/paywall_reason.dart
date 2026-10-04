@@ -16,7 +16,8 @@ enum PaywallReason {
   /// A free pet already has its maximum number of medicines.
   moreMeds,
 
-  /// A free user picked an afternoon or evening dose time.
+  /// A free user picked an afternoon or evening dose time, or moved the
+  /// morning reminder out of the morning.
   moreDoseTimes,
 
   /// A free user asked for history older than the free window.
@@ -106,7 +107,7 @@ extension PaywallReasonQuery on PaywallReason {
     ),
     PaywallReason.moreDoseTimes => (
       'Morning and evening, both covered',
-      'Free covers the morning dose. Pro adds afternoon and evening reminders, so no dose is forgotten.',
+      'Free covers one morning dose. Pro adds afternoon and evening reminders at any time, so no dose is forgotten.',
     ),
     PaywallReason.history => (
       'Their whole story, not just a month',

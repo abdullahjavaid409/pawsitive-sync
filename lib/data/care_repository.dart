@@ -578,6 +578,16 @@ class CareRepository extends ChangeNotifier {
       (parts.toSet().length <= PetLimits.maxDoseTimesPerDayFree &&
           parts.every((part) => part == DayPart.morning));
 
+  /// Free keeps a morning reminder between
+  /// [PetLimits.freeMorningFirstMinute] and [PetLimits.freeMorningLastMinute];
+  /// Pro allows any time. Other parts only exist on Free from a Pro-era
+  /// schedule, which keeps its full freedom.
+  bool canUseDoseTime(DayPart part, int minute) =>
+      isPro ||
+      part != DayPart.morning ||
+      (minute >= PetLimits.freeMorningFirstMinute &&
+          minute <= PetLimits.freeMorningLastMinute);
+
   /// Pro-only: weekly summary notification.
   bool get canUseWeeklySummary => isPro;
 
@@ -2351,6 +2361,17 @@ class CareRepository extends ChangeNotifier {
       });
       return Future.value(false);
     }
+    final morning = times[DayPart.morning];
+    if (parts.contains(DayPart.morning) &&
+        morning != null &&
+        !canUseDoseTime(DayPart.morning, morning)) {
+      lastError = _freeMorningWindowError;
+      AppLog.event('medication.add.blocked', {
+        'reason': 'free_tier_time_window',
+        'petId': petId,
+      });
+      return Future.value(false);
+    }
     final medication = Medication(
       id: newId('med'),
       petId: petId,
@@ -2407,6 +2428,18 @@ class CareRepository extends ChangeNotifier {
       return Future.value(false);
     }
     final next = DoseTimes.normalize(times, medication.parts);
+    // Only a changed morning time is checked: one saved on Pro is kept.
+    final morning = next[DayPart.morning] ?? DayPart.morning.defaultMinute;
+    if (medication.parts.contains(DayPart.morning) &&
+        morning != medication.minuteFor(DayPart.morning) &&
+        !canUseDoseTime(DayPart.morning, morning)) {
+      lastError = _freeMorningWindowError;
+      AppLog.event('medication.times.blocked', {
+        'reason': 'free_tier_time_window',
+        'medicationId': medicationId,
+      });
+      return Future.value(false);
+    }
     if (DoseTimes.same(next, medication.times)) {
       AppLog.event('medication.times.noop', {'medicationId': medicationId});
       return Future.value(true);
@@ -2428,6 +2461,10 @@ class CareRepository extends ChangeNotifier {
       }),
     );
   }
+
+  static const _freeMorningWindowError =
+      'Free keeps the morning reminder between 4:00 AM and noon. '
+      'Upgrade to Pro for any time.';
 
   Future<bool> removeMedication(String medicationId) {
     lastError = null;

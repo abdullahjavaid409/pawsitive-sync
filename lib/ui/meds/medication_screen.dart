@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/moment_art.dart';
@@ -454,6 +455,22 @@ class MedicationScreen extends StatelessWidget {
       medication.minuteFor(part),
     );
     if (minute == null || !context.mounted) return;
+    if (!care.canUseDoseTime(part, minute) &&
+        minute != medication.minuteFor(part)) {
+      // Free keeps the morning reminder in the morning; the old time stays.
+      AppLog.event('medication.times.blocked', {
+        'reason': 'free_tier_time_window',
+        'medicationId': medication.id,
+        'from': 'medication_time',
+      });
+      await context.push(
+        AppRoutes.paywallWith(
+          reason: 'more_dose_times',
+          from: 'medication_time',
+        ),
+      );
+      if (!context.mounted || !care.canUseDoseTime(part, minute)) return;
+    }
     final current = care.medicationById(medication.id) ?? medication;
     final ok = await care.setMedicationTimes(medication.id, {
       ...current.times,

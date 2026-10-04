@@ -15,6 +15,12 @@ abstract final class PetLimits {
   /// have; logging any dose is never limited.
   static const maxDoseTimesPerDayFree = 1;
 
+  /// Free tier: the morning reminder stays in the morning (4:00–11:59 AM),
+  /// so it can't be moved to stand in for an evening dose. A time saved
+  /// earlier (while on Pro) is kept; only new picks are checked.
+  static const freeMorningFirstMinute = 4 * 60;
+  static const freeMorningLastMinute = 12 * 60 - 1;
+
   /// Free tier: days of dose history shown. Older logs stay stored (and
   /// still back the double-dose check); Pro shows them again.
   static const freeHistoryDays = 30;
