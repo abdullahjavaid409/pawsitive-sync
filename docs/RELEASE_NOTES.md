@@ -5,13 +5,13 @@
 **Never wonder if someone already gave the dose.**
 
 **Free — one pet, full safety**
-• **Did I already give it?** — one-tap logging and double-dose checks  
+• **Did I already give it?** — one-tap logging and double-dose checks (always free)  
 • **Not sure if given** — mark uncertain so the next person checks first  
-• **What's due today** — morning, afternoon, and evening in one list  
-• **Reminders** — local notifications when a dose is due  
+• **One medicine with a morning reminder**  
 • **Works offline** — log without Wi‑Fi; sync when connected  
 
 **Pro — when care is shared or you have multiple pets**
+• **Every medicine, every dose time** — morning, afternoon and evening reminders at any time  
 • **More than one pet on meds** — track up to 10 pets in one household  
 • **Did my partner or sitter dose?** — invite with a code; everyone sees who logged what  
 • **Vet asked for a log** — export week-by-week reports for checkups  
@@ -34,7 +34,7 @@ Free: log doses, double-dose checks, and “not sure if given” for one pet.
 Pro: invite partner, family, or sitter — everyone sees the same list and who logged what.
 
 **Pain: “What's due today?”**
-Today shows morning, afternoon, and evening doses, progress for the day, and local reminders.
+Today shows what's due, progress for the day, and local reminders (Free: a morning dose; Pro: morning, afternoon and evening).
 
 **Pain: “We have multiple pets on meds” (Pro)**
 Track up to 10 pets in one household.
@@ -45,8 +45,8 @@ Export week-by-week reports. Free still lets you view dose history in the app.
 **Pain: “We almost ran out” (Pro)**
 Low-supply alerts before the bottle is empty.
 
-Free: one pet, full dose tracking, safety, reminders, offline logging.  
-Pro: every pet, household invites, vet export, refill warnings.
+Free: one pet, one medicine with a morning reminder, dose logging, double-dose safety, offline logging.  
+Pro: every pet, every medicine and dose time, household invites, vet export, refill warnings.
 
 ---
 
