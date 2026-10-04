@@ -13,6 +13,8 @@ import 'package:pawsitive_sync/data/revenue_cat_service.dart';
 import 'package:pawsitive_sync/data/dose_reminders.dart';
 import 'package:pawsitive_sync/data/reminder_choice.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
+import 'package:pawsitive_sync/ui/settings/notification_settings.dart';
+import 'package:pawsitive_sync/ui/today/engagement_cards.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -91,7 +93,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
     final allowed = await DoseReminders.ask();
     await onboarding.saveReminders(allowed);
-    if (allowed) await DoseReminders.scheduleNext(care);
+    if (allowed) await DoseReminders.reschedule(care, reason: 'toggled');
     if (!mounted) return;
     setState(() => _remindersOn = allowed);
     if (!allowed) {
@@ -122,6 +124,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     );
     if (deleted != true || !mounted) return;
     context.read<OnboardingViewModel>().resetForSignOut();
+    maybeEngagement(context, listen: false)?.clear();
     context.go(AppRoutes.welcome);
   }
 
@@ -209,17 +212,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 24),
             Text('NOTIFICATIONS', style: text.labelSmall),
             const SizedBox(height: 8),
-            SurfaceCard(
-              child: SwitchListTile(
-                title: const Text('Dose reminders'),
-                subtitle: const Text(
-                  'A nudge when medicine is due. You can change this anytime.',
-                ),
-                value: _remindersOn ?? false,
-                onChanged: _remindersOn == null
-                    ? null
-                    : (on) => _toggleReminders(on),
-              ),
+            NotificationSettings(
+              remindersOn: _remindersOn,
+              onToggleReminders: _toggleReminders,
+              care: care,
             ),
             const SizedBox(height: 24),
             Text('LEGAL', style: text.labelSmall),
@@ -293,7 +289,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           .showSnackBar(SnackBar(content: Text(error)));
                       return;
                     }
-                    await DoseReminders.cancel();
+                    // Pets and medicines stay on this phone, so do their
+                    // reminders; doses from the old household drop out.
+                    await DoseReminders.reschedule(care, reason: 'left_household');
                     if (!context.mounted) return;
                     context.go(AppRoutes.today);
                   },

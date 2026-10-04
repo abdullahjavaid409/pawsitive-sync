@@ -18,6 +18,7 @@ import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:pawsitive_sync/ui/care/add_care_event_sheet.dart';
 import 'package:pawsitive_sync/ui/today/dose_sheets.dart';
+import 'package:pawsitive_sync/ui/today/engagement_cards.dart';
 import 'package:provider/provider.dart';
 
 /// Daily care leads with progress and the next useful action.
@@ -29,6 +30,41 @@ class TodayScreen extends StatefulWidget {
 
 class _TodayScreenState extends State<TodayScreen> {
   String? _petId;
+
+  @override
+  void initState() {
+    super.initState();
+    DoseReminders.pendingOpen.addListener(_openFromNotification);
+    // A cold-start tap is already waiting before Today first builds.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _openFromNotification());
+  }
+
+  @override
+  void dispose() {
+    DoseReminders.pendingOpen.removeListener(_openFromNotification);
+    super.dispose();
+  }
+
+  /// A notification tap opens that dose's log sheet (or the "already
+  /// given" guard); a message (e.g. "Logged …") shows as a snackbar.
+  void _openFromNotification() {
+    final open = DoseReminders.pendingOpen.value;
+    if (open == null || !mounted) return;
+    DoseReminders.pendingOpen.value = null;
+    final care = context.read<CareRepository>();
+    final message = open.message;
+    if (message != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    }
+    final doseId = open.doseId;
+    if (doseId == null) return;
+    final dose = care.doseById(doseId);
+    if (dose == null) {
+      AppLog.event('reminders.open_missing', {'doseId': doseId});
+      return;
+    }
+    AppLog.unawaitedLogged(_openDose(context, dose), 'reminders.open_failed');
+  }
 
   // Tab screen: rebuilds on data changes only while visible.
   @override
@@ -126,6 +162,8 @@ class _TodayScreenState extends State<TodayScreen> {
                   total: doses.length,
                   due: due.length,
                 ),
+                const CareDaysNote(),
+                TodayMoments(care: care),
                 if (next != null) ...[
                   const SizedBox(height: 16),
                   _NextDose(
@@ -241,6 +279,8 @@ class _TodayScreenState extends State<TodayScreen> {
                           context.push(AppRoutes.addPet);
                         },
                 ),
+                // A course that just ended may leave nothing scheduled today.
+                TodayMoments(care: care),
                 if (care.pets.isNotEmpty) ...[
                   const SizedBox(height: 24),
                   CareSectionHeader(
@@ -1102,7 +1142,7 @@ class _RemindersBannerState extends State<_RemindersBanner> {
     final messenger = ScaffoldMessenger.of(context);
     final allowed = await DoseReminders.ask();
     await onboarding.saveReminders(allowed);
-    if (allowed) await DoseReminders.scheduleNext(care);
+    if (allowed) await DoseReminders.reschedule(care, reason: 'toggled');
     if (!mounted) return;
     setState(() => _busy = false);
     messenger.showSnackBar(
@@ -1119,7 +1159,7 @@ class _RemindersBannerState extends State<_RemindersBanner> {
   @override
   Widget build(BuildContext context) {
     final on = context.watch<OnboardingViewModel>().remindersOn;
-    if (on) return const SizedBox.shrink();
+    if (on) return const ReminderPermissionNote(remindersOn: true);
     final scheme = Theme.of(context).colorScheme;
     final tokens = context.paws;
     final text = Theme.of(context).textTheme;

@@ -97,6 +97,15 @@ flutter build ios --dart-define=ANALYTICS_ENABLED=false   # turn off in release
 
 ---
 
+## Optional: iOS Time Sensitive dose reminders
+
+Off by default. To let dose reminders break through Focus: add
+`com.apple.developer.usernotifications.time-sensitive = true` to
+`ios/Runner/Runner.entitlements` (Xcode → Signing & Capabilities → Time
+Sensitive Notifications, which also updates the App ID), then build with
+`--dart-define=IOS_TIME_SENSITIVE=true`. Without the entitlement iOS treats
+the level as normal, so leaving it off never breaks a build.
+
 ## What we deliberately skip in v1
 
 | Feature | Why |

@@ -99,9 +99,9 @@ class CarePageHeader extends StatelessWidget {
           children: [
             Row(
               children: [
-                if (leading != null) leading!,
+                ?leading,
                 const Spacer(),
-                if (action != null) action!,
+                ?action,
               ],
             ),
             SizedBox(height: spacing.sm),

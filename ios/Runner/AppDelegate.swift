@@ -1,6 +1,9 @@
 import Flutter
 import UIKit
+import UserNotifications
 import WidgetKit
+// For setPluginRegistrantCallback (notification actions run in a background isolate).
+import flutter_local_notifications
 
 @main
 @objc class AppDelegate: FlutterAppDelegate, FlutterImplicitEngineDelegate {
@@ -8,6 +11,13 @@ import WidgetKit
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
+    // "Snooze 15 min" runs Dart in a background engine without opening the
+    // app; that engine needs the plugins (notifications, preferences) too.
+    FlutterLocalNotificationsPlugin.setPluginRegistrantCallback { registry in
+      GeneratedPluginRegistrant.register(with: registry)
+    }
+    // Taps, action buttons and foreground presentation reach the plugin.
+    UNUserNotificationCenter.current().delegate = self as UNUserNotificationCenterDelegate
     return super.application(application, didFinishLaunchingWithOptions: launchOptions)
   }
 

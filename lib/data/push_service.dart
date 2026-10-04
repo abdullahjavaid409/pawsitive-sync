@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/data/dose_reminders.dart';
 import 'package:pawsitive_sync/data/household_api.dart';
@@ -331,24 +330,6 @@ abstract final class PushService {
     }
   }
 
-  static final FlutterLocalNotificationsPlugin _local =
-      FlutterLocalNotificationsPlugin();
-  static var _localReady = false;
-
-  static Future<void> _ensureLocal() async {
-    if (_localReady) return;
-    const android = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const ios = DarwinInitializationSettings(
-      requestAlertPermission: false,
-      requestBadgePermission: false,
-      requestSoundPermission: false,
-    );
-    await _local.initialize(
-      const InitializationSettings(android: android, iOS: ios),
-    );
-    _localReady = true;
-  }
-
   /// Shows a local alert when a household partner logs a dose (after sync).
   /// Skipped once the server pushes to this device (it would be a duplicate).
   static Future<void> notifyPartnerLogged({
@@ -370,26 +351,11 @@ abstract final class PushService {
       return;
     }
     try {
-      await _ensureLocal();
-      final id = logId.hashCode & 0x7fffffff;
-      await _local.show(
-        id,
+      // Through DoseReminders: one plugin owner, so taps keep working.
+      await DoseReminders.showHousehold(
+        logId,
         'Dose logged',
         '$who gave $medicationName to $petName',
-        const NotificationDetails(
-          android: AndroidNotificationDetails(
-            'household',
-            'Household updates',
-            channelDescription: 'When a partner or sitter logs a dose.',
-            importance: Importance.high,
-            priority: Priority.high,
-          ),
-          iOS: DarwinNotificationDetails(
-            presentAlert: true,
-            presentBadge: false,
-            presentSound: true,
-          ),
-        ),
       );
       AppLog.event('push.partner_logged', {'logId': logId});
     } catch (error, stack) {

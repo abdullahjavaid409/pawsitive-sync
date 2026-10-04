@@ -13,7 +13,7 @@ const clockSkewS = 60;
 
 /** Bundle id(s) Apple puts in `aud`. Comma-separated to allow a Services ID too. */
 function audiences() {
-  return (process.env.APPLE_BUNDLE_ID || "com.abdulmanan.pawsitivesync")
+  return (process.env.APPLE_BUNDLE_ID || "com.pawsitivesync.app")
     .split(",")
     .map((value) => value.trim())
     .filter(Boolean);

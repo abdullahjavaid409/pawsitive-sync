@@ -35,7 +35,7 @@ class _CareTabBuilderState extends State<CareTabBuilder> {
     }
     // Depends on TickerMode, so showing the screen again runs this and then
     // build() with the latest data.
-    _visible = TickerMode.of(context);
+    _visible = TickerMode.valuesOf(context).enabled;
   }
 
   void _onCareChanged() {

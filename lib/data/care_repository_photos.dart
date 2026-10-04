@@ -445,7 +445,7 @@ extension CarePetPhotos on CareRepository {
         });
         if (error.kind == 'rejected') expired.add(pet.id);
         // Offline: the cached/own photo or the species mark keeps showing.
-        if (error.isNetwork || error.kind == 'cancelled') throw error;
+        if (error.isNetwork || error.kind == 'cancelled') rethrow;
       } on Object catch (error, stack) {
         AppLog.error('pet.photo_download_failed', error, stack, {
           'petId': pet.id,

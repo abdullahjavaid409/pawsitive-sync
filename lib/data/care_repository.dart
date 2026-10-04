@@ -19,6 +19,7 @@ import 'package:pawsitive_sync/data/local_database.dart';
 import 'package:pawsitive_sync/data/push_service.dart';
 import 'package:pawsitive_sync/data/sync_engine.dart';
 import 'package:pawsitive_sync/data/sync_outbox.dart';
+import 'package:pawsitive_sync/data/sync_policy.dart';
 import 'package:pawsitive_sync/data/onboarding_profile.dart';
 import 'package:pawsitive_sync/data/onboarding_state.dart';
 import 'package:pawsitive_sync/data/pet_photo_codec.dart';
@@ -212,17 +213,15 @@ class SitterLink {
 /// household is created on the server and shared with everyone who joins.
 class CareRepository extends ChangeNotifier {
   CareRepository({
-    HouseholdApi? api,
-    HouseholdStore? store,
+    this._api,
+    this._store,
     CareEventsStore? eventsStore,
     SyncEngine? syncEngine,
     PetPhotoStore? photoStore,
     PetPhotoTransfer? photoTransfer,
     DateTime Function()? clock,
     bool sample = false,
-  }) : _api = api,
-       _store = store,
-       _eventsStore = eventsStore ?? CareEventsStore(),
+  }) : _eventsStore = eventsStore ?? CareEventsStore(),
        _syncEngine = syncEngine ?? SyncEngine(),
        _photos = photoStore,
        _photoTransfer = photoTransfer ?? PetPhotoTransfer(),
@@ -364,6 +363,29 @@ class CareRepository extends ChangeNotifier {
   BillingPlan _plan = BillingPlan.yearly;
   Future<String?>? _connecting;
   DateTime? _lastSyncedAt;
+
+  /// Last successful server snapshot, kept across launches so a cold open
+  /// within [SyncPolicy.maxAge] uses local data instead of the network.
+  static const _lastSyncKey = 'household_last_sync_v1';
+
+  /// Consecutive offline/timeout sync failures (for [SyncPolicy.backoff]).
+  int _offlineFailures = 0;
+  DateTime? _lastFailureAt;
+
+  void _markSynced() {
+    _lastSyncedAt = now;
+    _offlineFailures = 0;
+    _lastFailureAt = null;
+    final at = now.millisecondsSinceEpoch;
+    unawaited(
+      SharedPreferences.getInstance()
+          .then((prefs) => prefs.setInt(_lastSyncKey, at))
+          .catchError((Object error, StackTrace stack) {
+            AppLog.error('store.last_sync_failed', error, stack);
+            return false;
+          }),
+    );
+  }
   static const _syncMinInterval = Duration(seconds: 45);
 
   DateTime get now => _clock();
@@ -534,6 +556,22 @@ class CareRepository extends ChangeNotifier {
 
   static String doseIdFor(String medicationId, DayPart part) =>
       '$medicationId.${part.name}';
+
+  /// The log for [doseId] (`<medicationId>.<part>`) on [day], if any —
+  /// what the double-dose check looks at.
+  DoseRecord? loggedDose(String doseId, String day) {
+    final split = doseId.lastIndexOf('.');
+    if (split < 0) return null;
+    final part = DayPart.values
+        .where((p) => p.name == doseId.substring(split + 1))
+        .firstOrNull;
+    if (part == null) return null;
+    return _logFor(doseId.substring(0, split), part, day);
+  }
+
+  /// The local day changed while the app was open (midnight): Today and
+  /// anything keyed on the date re-read [now].
+  void dayChanged() => notifyListeners();
 
   DoseRecord? _logFor(String medicationId, DayPart part, String day) {
     for (final log in _logs) {
@@ -857,6 +895,10 @@ class CareRepository extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       _storeProLastRun = prefs.getBool(_lastStoreProKey) ?? false;
       _accountDeletePending = prefs.getBool(_deletePendingKey) ?? false;
+      final synced = prefs.getInt(_lastSyncKey);
+      _lastSyncedAt = synced == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(synced);
     } on Object catch (error, stack) {
       AppLog.error('store.billing_state_failed', error, stack);
     }
@@ -1001,7 +1043,7 @@ class CareRepository extends ChangeNotifier {
   void _applySession(HouseholdSession session, {required bool joined}) {
     final house = session.snapshot;
     // A create/join answer is a fresh server snapshot, same as a sync.
-    _lastSyncedAt = now;
+    _markSynced();
     if (joined) {
       _replaceSavedLogs = true;
       _deletedLogIds.clear();
@@ -1611,13 +1653,50 @@ class CareRepository extends ChangeNotifier {
     }
   }
 
-  /// Pulls server state when already connected. Skips if synced recently.
-  Future<void> syncIfStale() => sync();
+  /// The automatic sync (launch, resume): asks the server only when
+  /// [SyncPolicy] says so — pending outbox changes, data older than
+  /// 15 minutes, or never synced — and otherwise uses local data, logging
+  /// `household.sync_skipped reason=fresh|no_network`. Pushes, pull to
+  /// refresh and connect/join call [sync] with `force` directly.
+  Future<void> syncIfStale({String source = 'auto'}) async {
+    if (_api == null || !isConnected || syncing) {
+      return sync(source: source); // logs no_api / not_connected / in_progress
+    }
+    var pending = false;
+    try {
+      pending = (await _syncEngine.outbox.read()).isNotEmpty;
+    } on Object catch (error, stack) {
+      // Unknown outbox: syncing is the safe side (it flushes first).
+      AppLog.error('sync.outbox_read_failed', error, stack);
+      pending = true;
+    }
+    final decision = SyncPolicy.decide(
+      now: now,
+      lastSuccess: _lastSyncedAt,
+      hasPending: pending,
+      offlineFailures: _offlineFailures,
+      lastFailure: _lastFailureAt,
+    );
+    if (!decision.sync) {
+      AppLog.event('household.sync_skipped', {
+        'reason': decision.reasonName,
+        'source': source,
+        if (_lastSyncedAt != null)
+          'secondsAgo': now.difference(_lastSyncedAt!).inSeconds,
+      });
+      return;
+    }
+    await sync(force: true, source: source, reason: decision.reasonName);
+  }
 
   /// [force] bypasses the recent-sync window (e.g. pull-to-refresh).
   /// [source] (`auto`, `pull_refresh`, `retry`) goes on the one log line
   /// the sync ends with, so a tap doesn't need a line of its own.
-  Future<void> sync({bool force = false, String source = 'auto'}) async {
+  Future<void> sync({
+    bool force = false,
+    String source = 'auto',
+    String? reason,
+  }) async {
     final api = _api;
     if (api == null) {
       AppLog.event('household.sync_skipped', {'reason': 'no_api', 'source': source});
@@ -1650,10 +1729,11 @@ class CareRepository extends ChangeNotifier {
       final house = await AppLog.trace('household.sync', api.fetchHousehold);
       _mergeSnapshot(house);
       _persist();
-      _lastSyncedAt = now;
+      _markSynced();
       AppLog.event('household.synced', {
         'doses': doses.length,
         'source': source,
+        'reason': ?reason,
       });
       // Pending uploads/removals first, then fetch photos others set.
       await syncPetPhotos();
@@ -1664,6 +1744,11 @@ class CareRepository extends ChangeNotifier {
       }
     } on HouseholdException catch (error) {
       syncError = error.message;
+      if (error.kind == HouseholdErrorKind.offline) {
+        // Timeouts count as offline: nothing was merged, back off.
+        _offlineFailures++;
+        _lastFailureAt = now;
+      }
       AppLog.event('household.sync_failed', {
         'kind': error.kind.name,
         'source': source,
@@ -2686,6 +2771,13 @@ class CareRepository extends ChangeNotifier {
     await RevenueCatService.logOut();
     await UpgradeNudgeState.clear();
     _lastSyncedAt = null;
+    _offlineFailures = 0;
+    _lastFailureAt = null;
+    try {
+      await (await SharedPreferences.getInstance()).remove(_lastSyncKey);
+    } on Object catch (error, stack) {
+      AppLog.error('store.last_sync_failed', error, stack);
+    }
     _sitterLink = null;
     _sitterLinks.clear();
     _archivedMedications.clear();
@@ -2695,6 +2787,9 @@ class CareRepository extends ChangeNotifier {
     AppLog.event('household.reset');
     notifyListeners();
   }
+
+  /// "8:02 AM" — how log times are written.
+  static String clockLabel(DateTime time) => _clockLabel(time);
 
   static String _clockLabel(DateTime time) {
     final hour = time.hour % 12 == 0 ? 12 : time.hour % 12;

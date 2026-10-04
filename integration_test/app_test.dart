@@ -298,6 +298,14 @@ void main() {
       );
       expect(_care(t).isConnected, isTrue);
       expect(_care(t).isPro, isTrue, reason: 'trial must survive going online');
+      // The code shows as soon as the server answers; household.connected is
+      // logged after the follow-up steps (store identity, outbox, photos).
+      // Push registration never delays it (it runs in the background).
+      await qa.waitUntil(
+        () => qa.count('household.connected') > 0,
+        seconds: 20,
+        what: 'household.connected',
+      );
       qa.event('household.connected');
       await qa.tap(find.byTooltip('Back'));
     });
@@ -434,6 +442,12 @@ void main() {
       await qa.tap(find.byTooltip('Settings'));
       await qa.tap(find.text('Leave household'));
       await qa.tap(find.text('Leave'));
+      // Reset finishes after the store sign-out and local clears.
+      await qa.waitUntil(
+        () => qa.count('household.reset') > 0,
+        seconds: 20,
+        what: 'household.reset',
+      );
       qa.event('household.reset');
       expect(
         (await partner.fetchHousehold()).pets,

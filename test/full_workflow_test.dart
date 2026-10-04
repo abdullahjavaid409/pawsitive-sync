@@ -18,7 +18,7 @@ void main() {
   tearDown(AppLog.disableTestCapture);
 
   test('complete delete → setup → features → delete logs every step', () async {
-    final clock = () => DateTime(2026, 10, 3, 14);
+    DateTime clock() => DateTime(2026, 10, 3, 14);
     final care = CareRepository.sample(clock: clock);
     final onboarding = OnboardingViewModel();
 

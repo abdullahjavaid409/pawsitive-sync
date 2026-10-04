@@ -6,6 +6,7 @@ import 'package:pawsitive_sync/core/config/app_config.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/data/dose_reminders.dart';
+import 'package:pawsitive_sync/data/engagement.dart';
 import 'package:pawsitive_sync/data/household_api.dart';
 import 'package:pawsitive_sync/data/household_store.dart';
 import 'package:pawsitive_sync/data/pet_photo_store.dart';
@@ -35,9 +36,11 @@ Future<Widget> bootstrap() async {
     store: HouseholdStore(),
     photoStore: PetPhotoStore(),
   );
-  var (_, onboarding) = await (
+  final engagement = EngagementState();
+  var (_, onboarding, _) = await (
     care.restore(),
     OnboardingViewModel.load(),
+    engagement.load(),
   ).wait;
   if (care.accountDeletePending) {
     // The app was killed mid-delete last time. Rare, so it is the one case
@@ -61,16 +64,21 @@ Future<Widget> bootstrap() async {
   // wakes the app in the background for a silent push.
   PushService.onDosesLoggedElsewhere = (_) async {
     await care.sync(force: true, source: 'push');
-    if (onboarding.isComplete && onboarding.remindersOn) {
-      await DoseReminders.scheduleNext(care);
-    }
+    // Awaited (not left to the debounced listener): a background wake has
+    // only ~30 s before iOS suspends the app again.
+    await DoseReminders.reschedule(care, reason: 'push');
   };
+  // Any change to doses, medicines or pets re-aims reminders (debounced).
+  DoseReminders.attach(care);
+  engagement.update(care);
+  care.addListener(() => engagement.update(care));
   PushService.listen();
   unawaited(_warmUp(care, onboarding));
   return MultiProvider(
     providers: [
       ChangeNotifierProvider.value(value: care),
       ChangeNotifierProvider.value(value: onboarding),
+      ChangeNotifierProvider.value(value: engagement),
     ],
     child: const PawsitiveApp(),
   );
@@ -97,9 +105,11 @@ Future<void> _warmUp(
       // only calls the server when the token or setting changed.
       if (care.isConnected) care.refreshPushRegistration(),
     ]);
-    // After the sync, so the reminder targets the dose still open.
-    if (onboarding.isComplete && onboarding.remindersOn) {
-      await DoseReminders.scheduleNext(care);
+    // A tap or "Given" that cold-started the app, now that data is loaded.
+    await DoseReminders.handleLaunch();
+    // After the sync, so reminders skip doses already given elsewhere.
+    if (onboarding.isComplete) {
+      await DoseReminders.reschedule(care, reason: 'launch');
     }
     AppLog.event('app.warmed', {
       'ms': watch.elapsedMilliseconds,

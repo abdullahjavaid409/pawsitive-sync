@@ -46,7 +46,7 @@ void main() {
 
   group('Medication course end', () {
     test('medication with endDay is inactive after course ends', () async {
-      final clock = () => DateTime(2026, 10, 10, 14);
+      DateTime clock() => DateTime(2026, 10, 10, 14);
       final care = CareRepository.sample(clock: clock);
       final endDay = dayKey(clock().add(const Duration(days: 7)));
       await care.addMedication(
@@ -66,7 +66,7 @@ void main() {
     });
 
     test('ended medication does not appear in today doses', () async {
-      final clock = () => DateTime(2026, 10, 20, 14);
+      DateTime clock() => DateTime(2026, 10, 20, 14);
       final care = CareRepository.sample(clock: clock);
       await care.addMedication(
         petId: 'miso',
@@ -148,7 +148,7 @@ void main() {
 
   group('Care events', () {
     test('adds and lists upcoming care events', () async {
-      final clock = () => DateTime(2026, 10, 3);
+      DateTime clock() => DateTime(2026, 10, 3);
       final care = CareRepository.sample(clock: clock);
       final ok = await care.addCareEvent(
         petId: 'miso',

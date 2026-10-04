@@ -42,7 +42,7 @@ void main() {
 }
 
 Future<void> _exerciseAllLiveFeatures() async {
-  final clock = () => DateTime(2026, 10, 3, 14);
+  DateTime clock() => DateTime(2026, 10, 3, 14);
   final care = CareRepository(clock: clock, store: HouseholdStore());
   await care.addPet(name: 'Milo', species: Species.cat);
   await care.flushPersist();

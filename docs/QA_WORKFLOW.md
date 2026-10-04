@@ -147,6 +147,25 @@ One line per action: the repository logs the outcome (`*.completed` / `*.rejecte
 
 ---
 
+## 10b. Reminders & engagement (local only — no API calls)
+
+Use the iOS simulator with real, hand-entered data; local backend only.
+
+| Do | Expect | Log |
+|----|--------|-----|
+| Turn reminders on, add a med (AM + PM) | Notifications pending for every dose of the next days (≤ 52 + engagement) | `reminders.scheduled trigger=data doses=… followUps=…` |
+| Wait for a reminder (set the clock just before 8:00) | "Miso's Insulin · 8:00 AM" with **Given** / **Snooze 15 min** | — |
+| Tap **Given** | App opens on Today, dose logged, snackbar "Logged …"; other phones' reminders clear (silent push) | `reminders.given`, `dose.log.completed` |
+| Tap **Given** on a dose Sam already logged | No second log; notification "Already given — Sam gave … at 8:02 AM" | `reminders.given_rejected reason=already_logged` |
+| Tap **Snooze 15 min** (app killed) | One reminder 15 min later; no 30-min follow-up on top | `reminders.snoozed` |
+| Ignore a reminder | One "Still due: …" 30 min later, never more | — |
+| Tap a reminder | Today opens that dose's log sheet (cold start too) | `reminders.opened action=tap coldStart=…` |
+| Change the time zone in Settings, reopen | Doses re-aimed to 8:00 / 1:00 / 8:00 local | `reminders.timezone_changed`, `trigger=timezone_changed` |
+| Deny notifications in phone Settings, reopen | No scheduling; honest note on Today (Not now hides 14 days) and in Settings | `reminders.schedule_skipped reason=permission_denied` |
+| Settings → each engagement switch | Takes effect at once; summary/refill respect quiet hours | `settings.engagement_changed` |
+| Partner logs a dose (connected) | Today: "Sam gave Miso's Insulin — thanks, Sam" (dismissible) | `engagement.thanks_dismissed` on ✕ |
+| Reopen within 15 min (connected, nothing queued) | No network call | `household.sync_skipped reason=fresh` |
+
 ## 11. Final delete
 
 Repeat **§0** — confirm empty Today, Welcome screen, no pets/meds in logs after `household.reset`.

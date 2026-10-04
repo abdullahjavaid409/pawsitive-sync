@@ -30,6 +30,13 @@ class FakeHouseholdAdapter implements HttpClientAdapter {
       );
     }
     final (status, body) = replies.removeAt(0);
+    if (body == 'offline') {
+      // No network at all (as Dio reports a dropped/absent connection).
+      throw DioException(
+        requestOptions: options,
+        type: DioExceptionType.connectionError,
+      );
+    }
     return ResponseBody.fromString(
       jsonEncode(body),
       status,

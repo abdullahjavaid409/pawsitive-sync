@@ -6,11 +6,13 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/app_router.dart';
+import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/app_colors.dart';
 import 'package:pawsitive_sync/core/theme/app_theme.dart';
 import 'package:pawsitive_sync/core/widgets/dismiss_keyboard.dart';
 import 'package:pawsitive_sync/data/analytics_service.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
+import 'package:pawsitive_sync/data/dose_reminders.dart';
 import 'package:pawsitive_sync/data/apple_widgets.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
@@ -51,6 +53,21 @@ class _PawsitiveAppState extends State<PawsitiveApp>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    DoseReminders.pendingOpen.addListener(_openFromNotification);
+    // A cold-start tap may have landed before the first frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _openFromNotification());
+  }
+
+  /// Notification tap or action → Today; TodayScreen opens the dose sheet
+  /// and clears [DoseReminders.pendingOpen]. Setup still owns the screen
+  /// until onboarding is done (the router redirect keeps it there).
+  void _openFromNotification() {
+    if (!mounted || DoseReminders.pendingOpen.value == null) return;
+    if (!context.read<OnboardingViewModel>().isComplete) {
+      DoseReminders.pendingOpen.value = null;
+      return;
+    }
+    _router?.go(AppRoutes.today);
   }
 
   @override
@@ -68,6 +85,7 @@ class _PawsitiveAppState extends State<PawsitiveApp>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    DoseReminders.pendingOpen.removeListener(_openFromNotification);
     _widgetCare?.removeListener(_refreshWidgets);
     _router?.dispose();
     super.dispose();
@@ -83,7 +101,17 @@ class _PawsitiveAppState extends State<PawsitiveApp>
         'billing.sync.failed',
       );
       if (care.isConnected) {
-        AppLog.unawaitedLogged(care.syncIfStale(), 'household.sync_failed');
+        AppLog.unawaitedLogged(
+          care.syncIfStale(source: 'resume'),
+          'household.sync_failed',
+        );
+      }
+      // Time zone, clock, day or OS permission may have changed meanwhile.
+      if (context.read<OnboardingViewModel>().isComplete) {
+        AppLog.unawaitedLogged(
+          DoseReminders.onResume(care),
+          'reminders.schedule_failed',
+        );
       }
       _refreshWidgets();
     } else if (state == AppLifecycleState.paused) {

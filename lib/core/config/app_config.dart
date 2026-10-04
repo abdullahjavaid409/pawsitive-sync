@@ -34,6 +34,12 @@ abstract final class AppConfig {
     defaultValue: kReleaseMode,
   );
 
+  /// iOS Time Sensitive interruption level for dose reminders. Only turn
+  /// on once the `com.apple.developer.usernotifications.time-sensitive`
+  /// entitlement is in Runner.entitlements and the provisioning profile —
+  /// without it iOS treats the level as "active" anyway, so off is safe.
+  static const iosTimeSensitive = bool.fromEnvironment('IOS_TIME_SENSITIVE');
+
   static bool get hasApi => apiBaseUrl.trim().isNotEmpty;
 
   static bool get hasRevenueCat =>

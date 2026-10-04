@@ -12,6 +12,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/data/analytics_service.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
+import 'package:pawsitive_sync/data/dose_reminders.dart';
 import 'package:pawsitive_sync/data/household_api.dart';
 import 'package:pawsitive_sync/data/household_store.dart';
 import 'package:pawsitive_sync/data/onboarding_state.dart';
@@ -28,6 +29,7 @@ import 'package:pawsitive_sync/ui/settings/settings_screen.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'fake_reminder_platform.dart';
 import 'photo_test_helpers.dart';
 
 const _notifications = MethodChannel(
@@ -39,6 +41,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late Directory dir;
   final notificationCalls = <String>[];
+  late FakeReminderPlatform reminders;
   final widgetPayloads = <String>[];
 
   setUp(() async {
@@ -48,6 +51,8 @@ void main() {
     dir = await Directory.systemTemp.createTemp('delete_account_test');
     notificationCalls.clear();
     widgetPayloads.clear();
+    reminders = FakeReminderPlatform();
+    DoseReminders.platform = reminders;
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
     messenger.setMockMethodCallHandler(_notifications, (call) async {
@@ -150,7 +155,7 @@ void main() {
     expect(care.pets, isEmpty);
     expect(care.careEvents, isEmpty);
     expect(care.isConnected, isFalse);
-    expect(notificationCalls, contains('cancelAll'));
+    expect(reminders.cancelAllCalls, 1, reason: 'every reminder is cancelled');
     expect(widgetPayloads.last, contains('"hasPets":false'));
     expect(widgetPayloads.last, contains('"days":[]'));
   });

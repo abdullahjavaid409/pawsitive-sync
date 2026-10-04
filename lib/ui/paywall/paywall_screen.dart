@@ -274,7 +274,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
       if (!mounted) return;
       if (model.remindersOn) {
         AppLog.unawaitedLogged(
-          DoseReminders.scheduleNext(care),
+          DoseReminders.reschedule(care, reason: 'onboarding'),
           'reminders.schedule_failed',
         );
       } else {
