@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:pawsitive_sync/core/config/app_config.dart';
 import 'package:pawsitive_sync/core/legal/app_links.dart';
 import 'package:pawsitive_sync/core/legal/subscription_disclosure.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
@@ -70,6 +69,10 @@ class _PaywallScreenState extends State<PaywallScreen> {
   bool _restoring = false;
   String? _error;
   PaywallOffer? _offer;
+
+  /// True until RevenueCat answers. Prices and trials are never guessed:
+  /// the paywall shows them only once the store has sent them.
+  bool _loadingOffer = true;
   late final PaywallReason? _moment = PaywallReasonQuery.fromQuery(
     widget.reason,
   );
@@ -101,40 +104,54 @@ class _PaywallScreenState extends State<PaywallScreen> {
     if (care.plan != BillingPlan.yearly) {
       care.setPlan(BillingPlan.yearly);
     }
+    await _loadOffer();
+  }
+
+  Future<void> _loadOffer() async {
+    setState(() {
+      _loadingOffer = true;
+      _error = null;
+    });
     if (RevenueCatService.isReady) {
       AppLog.event('billing.paywall.rc_ready', {'placement': _placement});
       unawaited(RevenueCatService.syncAttributes({'last_paywall': _placement}));
-      final offer = await RevenueCatService.loadOffer(_placement);
-      if (mounted) setState(() => _offer = offer);
-    } else {
-      AppLog.event('billing.paywall.rc_fallback', {'reason': 'not_configured'});
     }
+    final offer = await RevenueCatService.loadOffer(_placement);
+    if (!mounted) return;
+    setState(() {
+      _offer = offer;
+      _loadingOffer = false;
+    });
+    AppLog.event(
+      offer == null ? 'billing.paywall.offer_unavailable' : 'billing.paywall.offer_shown',
+      {
+        'placement': _placement,
+        'rcReady': RevenueCatService.isReady,
+        if (offer != null) 'offering': offer.offeringId,
+      },
+    );
   }
 
-  /// Store's localized price; the US fallback only when no offer loaded.
+  /// The store's localized price, or a placeholder until RevenueCat answers.
   String _price(BillingPlan plan) =>
-      _offer?.forPlan(plan)?.priceString ??
-      SubscriptionDisclosure.fallbackPrice(plan);
+      _offer?.forPlan(plan)?.priceString ?? (_loadingOffer ? '…' : '—');
 
-  /// Trial days this user will actually get on [plan], or null.
-  int? _trialDays(BillingPlan plan) {
-    final offer = _offer?.forPlan(plan);
-    return offer != null
-        ? offer.trialDays
-        : SubscriptionDisclosure.fallbackTrialDays(plan);
-  }
+  /// Trial days RevenueCat says this user gets on [plan]; null = no trial.
+  int? _trialDays(BillingPlan plan) => _offer?.forPlan(plan)?.trialDays;
+
+  bool get _canBuy => _offer?.forPlan(context.read<CareRepository>().plan) != null;
 
   String get _yearlyPerMonth =>
-      _offer?.yearly?.perMonthString ??
-      (_offer == null ? '\$2.50' : _price(BillingPlan.yearly));
+      _offer?.yearly?.perMonthString ?? _price(BillingPlan.yearly);
 
   String? get _yearlyBadge {
-    if (_offer == null) return 'Save 50%';
-    final pct = _offer!.yearlySavingsPercent;
+    final pct = _offer?.yearlySavingsPercent;
     return pct == null ? null : 'Save $pct%';
   }
 
   String _ctaLabel(BillingPlan plan) {
+    if (_loadingOffer) return 'Loading prices…';
+    if (_offer?.forPlan(plan) == null) return 'Try again';
     final name = plan == BillingPlan.yearly ? 'Yearly' : 'Monthly';
     final days = _trialDays(plan);
     if (days != null) return 'Start $days-day free trial · $name';
@@ -168,6 +185,16 @@ class _PaywallScreenState extends State<PaywallScreen> {
       _error = null;
     });
     final care = context.read<CareRepository>();
+    if (!_canBuy) {
+      AppLog.event('billing.paywall.offer_retry', {'placement': _placement});
+      setState(() => _busy = false);
+      await _loadOffer();
+      if (mounted && _offer == null) {
+        setState(() => _error = 'Couldn’t load prices from the App Store. '
+            'Check your connection and try again.');
+      }
+      return;
+    }
     AppLog.event('billing.trial.tap', {'plan': care.plan.name});
 
     if (RevenueCatService.isReady) {
@@ -184,9 +211,6 @@ class _PaywallScreenState extends State<PaywallScreen> {
         });
         return;
       }
-    } else if (AppConfig.qaLocalPro) {
-      AppLog.event('billing.trial.qa_local');
-      await care.startTrial();
     } else {
       AppLog.event('billing.trial.store_unavailable');
       setState(() {
@@ -402,7 +426,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
                       const SizedBox(height: 8),
                     ],
                     FilledButton(
-                      onPressed: locked ? null : _startTrial,
+                      onPressed: locked || _loadingOffer ? null : _startTrial,
                       child: _busy
                           ? const SizedBox.square(
                               dimension: 20,
@@ -411,17 +435,19 @@ class _PaywallScreenState extends State<PaywallScreen> {
                           : Text(_ctaLabel(care.plan)),
                     ),
                     const SizedBox(height: 8),
-                    Text(
-                      SubscriptionDisclosure.compactLine(
-                        care.plan,
-                        price: _price(care.plan),
-                        trialDays: _trialDays(care.plan),
+                    // Apple 3.1.2 terms, only with the store's real price.
+                    if (_offer?.forPlan(care.plan) != null)
+                      Text(
+                        SubscriptionDisclosure.compactLine(
+                          care.plan,
+                          price: _price(care.plan),
+                          trialDays: _trialDays(care.plan),
+                        ),
+                        style: text.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                        textAlign: TextAlign.center,
                       ),
-                      style: text.bodySmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                      textAlign: TextAlign.center,
-                    ),
                     if (!upgradeFlow)
                       TextButton(
                         onPressed: locked ? null : _continueFree,

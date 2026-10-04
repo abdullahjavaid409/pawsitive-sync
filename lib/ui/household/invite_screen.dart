@@ -79,9 +79,9 @@ class _InviteScreenState extends State<InviteScreen> {
     }
     final link = AppLinks.householdJoinLink(care.inviteCode);
     final install = link == null
-        ? 'Install PawsitiveSync from the App Store'
-        : 'Get PawsitiveSync: $link';
-    return 'Help me with $who’s medicine on PawsitiveSync, so no dose is missed or given twice.\n\n'
+        ? 'Install Pawsitive from the App Store'
+        : 'Get Pawsitive: $link';
+    return 'Help me with $who’s medicine on Pawsitive, so no dose is missed or given twice.\n\n'
         '$install, tap “I have an invite code”, and enter: ${care.inviteCode}';
   }
 
@@ -91,7 +91,7 @@ class _InviteScreenState extends State<InviteScreen> {
     await SharePlus.instance.share(
       ShareParams(
         text: _message(care),
-        subject: 'Join our PawsitiveSync household',
+        subject: 'Join our Pawsitive household',
         sharePositionOrigin: box == null
             ? null
             : box.localToGlobal(Offset.zero) & box.size,

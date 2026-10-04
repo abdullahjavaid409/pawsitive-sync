@@ -1,28 +1,29 @@
 import 'package:flutter/foundation.dart' show kReleaseMode;
 
-/// One place for app settings. Everything here has a safe default — no keys required to run.
+/// One place for app settings. Defaults are the live API and RevenueCat.
 abstract final class AppConfig {
   static const _productionApi = 'https://pawsitive-api-production.up.railway.app';
 
-  /// Household sync server. Empty = fully offline (pets and doses stay on this phone).
-  /// Only release builds default to production, so debug runs never write real data.
-  static const apiBaseUrl = bool.hasEnvironment('API_BASE_URL')
-      ? String.fromEnvironment('API_BASE_URL')
-      : (kReleaseMode ? _productionApi : '');
-
-  /// RevenueCat iOS public key. Empty = Pro trial works locally; store purchases need a key.
-  /// Automated QA only (`--dart-define=QA_LOCAL_PRO=true`): the paywall
-  /// unlocks Pro without a store so test runs can cover Pro flows. Never set
-  /// for builds people use — normal debug and release go through the store.
-  static const qaLocalPro = bool.fromEnvironment('QA_LOCAL_PRO');
+  /// Household sync server. Every build (debug, profile, release) uses the
+  /// live Railway API. Override with `--dart-define=API_BASE_URL=…` (the
+  /// integration tests point at a local backend); an empty value = offline.
+  static const apiBaseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: _productionApi,
+  );
 
   /// Numeric App Store ID (App Store Connect → App Information → Apple ID).
   /// Empty until set: invites share the code only, never a dead link.
   static const appStoreId = String.fromEnvironment('APP_STORE_ID');
 
-  static const revenueCatIosKey = String.fromEnvironment('REVENUECAT_IOS_KEY');
+  /// RevenueCat iOS public SDK key — public by design, so it ships as the
+  /// default and every build talks to RevenueCat. Pro comes only from here.
+  static const revenueCatIosKey = String.fromEnvironment(
+    'REVENUECAT_IOS_KEY',
+    defaultValue: 'appl_cFhDWMzoxMhLmHBKcwwODdKVyac',
+  );
 
-  /// RevenueCat Android public key. Empty = same as iOS — local trial only.
+  /// RevenueCat Android public key. Empty = Free on Android.
   static const revenueCatAndroidKey = String.fromEnvironment(
     'REVENUECAT_ANDROID_KEY',
   );

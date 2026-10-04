@@ -125,9 +125,9 @@ void main() {
 
     // --- 8. Pro unlock + second pet ---
     expect(care.canAddPet, isFalse);
-    await care.startTrial();
+    care.applyStoreEntitlement(true, BillingPlan.yearly);
     expect(care.isPro, isTrue);
-    expect(AppLog.logged('billing.pro.unlocked'), isTrue);
+    expect(AppLog.logged('billing.store.entitlement_changed'), isTrue);
     final secondId = await care.addPet(name: 'Miso', species: Species.cat);
     expect(secondId, isNotNull);
     expect(AppLog.logged('pet.add.completed'), isTrue);
@@ -177,7 +177,7 @@ void main() {
       'dose.uncertain.completed',
       'dose.skip.completed',
       'care_event.added',
-      'billing.pro.unlocked',
+      'billing.store.entitlement_changed',
       'pet.add.completed',
       'medication.refill.completed',
       'medication.remove.completed',

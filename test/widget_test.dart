@@ -27,7 +27,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('See who already gave it.'), findsOneWidget);
-    expect(find.text('PawsitiveSync'), findsOneWidget);
+    expect(find.text('Pawsitive'), findsOneWidget);
 
     await tester.ensureVisible(find.text('Get started'));
     await tester.tap(find.text('Get started'));
@@ -267,7 +267,7 @@ void main() {
 
   test('a new pet can be added after setup with Pro', () async {
     final care = CareRepository.sample();
-    await care.startTrial();
+    care.applyStoreEntitlement(true, BillingPlan.yearly);
     final id = await care.addPet(
       name: 'Pepper',
       species: Species.dog,

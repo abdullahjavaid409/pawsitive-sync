@@ -1,13 +1,10 @@
-import 'dart:convert';
 import 'dart:developer' as developer;
 
-import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
+import 'package:flutter/foundation.dart'
+    show debugPrint, debugPrintStack, kDebugMode;
 import 'package:pawsitive_sync/data/analytics_service.dart';
 
-/// One structured line for the DevTools Logging view.
-///
-/// The message stays readable in the console. The JSON on `error` is the
-/// data object DevTools opens in the details pane. Call this from a
+/// One structured line: `[pawsitive.area] name key=value …`. Call this from a
 /// repository, a navigation change, or a tap handler. Never from `build`.
 class AppLogRecord {
   const AppLogRecord({
@@ -45,16 +42,14 @@ abstract final class AppLog {
   static void event(String name, [Map<String, Object?> fields = const {}]) {
     if (_captureForTests) {
       testRecords.add(
-        AppLogRecord(name: name, fields: Map.unmodifiable(fields), isError: false),
+        AppLogRecord(
+          name: name,
+          fields: Map.unmodifiable(fields),
+          isError: false,
+        ),
       );
     }
-    developer.log(
-      _line(name, fields),
-      name: 'pawsitive.${name.split('.').first}',
-      level: 800,
-      error: _json(fields),
-    );
-    if (kDebugMode) debugPrint('[applog] ${_line(name, fields)}');
+    _print(name, fields);
     AnalyticsService.track(name);
   }
 
@@ -66,17 +61,17 @@ abstract final class AppLog {
   ]) {
     if (_captureForTests) {
       testRecords.add(
-        AppLogRecord(name: name, fields: Map.unmodifiable(fields), isError: true),
+        AppLogRecord(
+          name: name,
+          fields: Map.unmodifiable(fields),
+          isError: true,
+        ),
       );
     }
-    developer.log(
-      _line(name, fields),
-      name: 'pawsitive.${name.split('.').first}',
-      level: 1000,
-      error: error,
-      stackTrace: stack,
-    );
-    if (kDebugMode) debugPrint('[applog:error] ${_line(name, fields)} — $error');
+    _print(name, fields, error: error);
+    if (kDebugMode && stack != null) {
+      debugPrintStack(stackTrace: stack, maxFrames: 8);
+    }
   }
 
   /// Marks one async case on the DevTools performance timeline.
@@ -85,9 +80,19 @@ abstract final class AppLog {
     return body().whenComplete(task.finish);
   }
 
-  static String? _json(Map<String, Object?> fields) {
-    if (fields.isEmpty) return null;
-    return jsonEncode(fields);
+  /// Exactly one console line per event, the same in a terminal
+  /// (`flutter run`), the IDE debug console and DevTools → Logging (filter by
+  /// `pawsitive`). developer.log is not used: the IDE shows it but a terminal
+  /// does not, so pairing it with print doubled every line.
+  static void _print(
+    String name,
+    Map<String, Object?> fields, {
+    Object? error,
+  }) {
+    if (!kDebugMode) return;
+    final channel = 'pawsitive.${name.split('.').first}';
+    final tail = error == null ? '' : ' — ERROR $error';
+    debugPrint('[$channel] ${_line(name, fields)}$tail');
   }
 
   static String _line(String name, Map<String, Object?> fields) {

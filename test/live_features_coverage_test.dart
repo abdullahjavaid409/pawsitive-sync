@@ -126,7 +126,7 @@ Future<void> _exerciseAllLiveFeatures() async {
 
   // Billing / Pro
   await care.setPlan(BillingPlan.monthly);
-  await care.startTrial();
+  care.applyStoreEntitlement(true, BillingPlan.yearly);
   await care.restoreBilling();
 
   // Onboarding (separate instance)
@@ -190,14 +190,14 @@ Future<void> _exerciseAllLiveFeatures() async {
       ),
     ),
     (503, {'error': 'busy'}),
-    (403, {'error': 'Browser sitter links need PawsitiveSync Pro.'}),
+    (403, {'error': 'Browser sitter links need Pawsitive Pro.'}),
   ]);
   final connected = CareRepository(
     api: fakeHouseholdApi(adapter),
     clock: clock,
   );
   await connected.addPet(name: 'Miso', species: Species.cat);
-  await connected.startTrial();
+  connected.applyStoreEntitlement(true, BillingPlan.yearly);
   await connected.connect();
   await connected.ensureSitterWebLink();
   await connected.sync(force: true);
@@ -215,7 +215,7 @@ Future<void> _exerciseAllLiveFeatures() async {
     clock: clock,
   );
   await cached.addPet(name: 'Miso', species: Species.cat);
-  await cached.startTrial();
+  cached.applyStoreEntitlement(true, BillingPlan.yearly);
   await cached.connect();
   await cached.ensureSitterWebLink();
 
@@ -223,14 +223,14 @@ Future<void> _exerciseAllLiveFeatures() async {
   final failAdapter = FakeHouseholdAdapter([
     (201, connectHouseholdBody(inviteCode: 'FAIL01')),
     (200, {'ok': true}),
-    (403, {'error': 'Browser sitter links need PawsitiveSync Pro.'}),
+    (403, {'error': 'Browser sitter links need Pawsitive Pro.'}),
   ]);
   final failLink = CareRepository(
     api: fakeHouseholdApi(failAdapter),
     clock: clock,
   );
   await failLink.addPet(name: 'Miso', species: Species.cat);
-  await failLink.startTrial();
+  failLink.applyStoreEntitlement(true, BillingPlan.yearly);
   await failLink.connect();
   await failLink.ensureSitterWebLink(force: true);
 

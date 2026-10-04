@@ -270,9 +270,11 @@ void main() {
       await qa.tap(find.text('Continue with 1 selected'));
       await qa.tap(find.text('Continue'));
       await qa.tap(find.text('Not now'));
-      await qa.tap(find.text('Start 7-day free trial · Yearly'));
-      await qa.see('Pro');
-      qa.event('billing.trial.qa_local');
+      await qa.tap(find.text('Continue free with 1 pet'));
+      // Pro only comes from RevenueCat; stand in for its entitlement listener.
+      _care(t).applyStoreEntitlement(true, BillingPlan.yearly);
+      await qa.settle(500);
+      qa.event('billing.store.entitlement_changed');
       expect(_care(t).isPro, isTrue);
     });
 

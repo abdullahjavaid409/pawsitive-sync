@@ -107,6 +107,10 @@ abstract final class RevenueCatService {
 
   static bool get isReady => _initialized;
 
+  /// Tests only: the offer RevenueCat would return, without the SDK.
+  @visibleForTesting
+  static PaywallOffer? debugOffer;
+
   /// Called whenever the store's view of Pro changes while the app runs:
   /// a purchase that finishes after our timeout, Ask to Buy approval,
   /// renewal, expiry, refund. [CareRepository] wires this at launch.
@@ -245,6 +249,7 @@ abstract final class RevenueCatService {
   /// different offering per placement (price test, copy test, country), and
   /// falls back to the current offering when no rule matches.
   static Future<PaywallOffer?> loadOffer(String placement) async {
+    if (debugOffer != null) return debugOffer;
     if (!_initialized) return null;
     final cached = _offerCache[placement];
     if (cached != null) return cached;

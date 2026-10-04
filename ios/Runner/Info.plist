@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>PawsitiveSync</string>
+	<string>Pawsitive</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -42,13 +42,13 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>PawsitiveSync uses the camera so you can add a photo of your pet to their profile.</string>
+	<string>Pawsitive uses the camera so you can add a photo of your pet to their profile.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>PawsitiveSync can save a pet photo you choose to your library when you export or share.</string>
+	<string>Pawsitive can save a pet photo you choose to your library when you export or share.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>PawsitiveSync uses your photo library so you can choose a picture of your pet for their profile.</string>
+	<string>Pawsitive uses your photo library so you can choose a picture of your pet for their profile.</string>
 	<key>NSUserNotificationsUsageDescription</key>
-	<string>PawsitiveSync sends reminders when your pet's medicine is due, so doses are not missed.</string>
+	<string>Pawsitive sends reminders when your pet's medicine is due, so doses are not missed.</string>
 	<key>PawsitiveAppGroup</key>
 	<string>group.com.pawsitivesync.shared</string>
 	<key>UIApplicationSceneManifest</key>

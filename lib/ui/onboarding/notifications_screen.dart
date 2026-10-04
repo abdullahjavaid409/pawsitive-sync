@@ -123,7 +123,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
-                                      'PawsitiveSync',
+                                      'Pawsitive',
                                       style: text.titleSmall,
                                     ),
                                   ),

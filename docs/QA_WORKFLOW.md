@@ -160,9 +160,9 @@ flutter test test/all_features_logs_test.dart     # per-feature log assertions
 flutter test test/full_workflow_test.dart         # delete → full journey → delete
 
 # Live app on the simulator against the local backend (never production).
-# QA_LOCAL_PRO lets the paywall unlock Pro without a store — tests only.
+# Pro comes only from RevenueCat; the test fakes its entitlement callback.
 flutter test integration_test/app_test.dart -d <sim> \
-  --dart-define=API_BASE_URL=http://127.0.0.1:3100 --dart-define=QA_LOCAL_PRO=true
+  --dart-define=API_BASE_URL=http://127.0.0.1:3100
 
 # Real RevenueCat on a device (sandbox), server off:
 flutter run --dart-define-from-file=config/dev.json

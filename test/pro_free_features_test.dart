@@ -111,19 +111,19 @@ void main() {
   group('Pro tier — isPro unlocks every paid feature', () {
     test('startTrial opens all gates', () async {
       final care = await careWithOnePet();
-      await care.startTrial();
+      care.applyStoreEntitlement(true, BillingPlan.yearly);
 
       expect(care.isPro, isTrue);
       expect(care.canInviteHousehold, isTrue);
       expect(care.canShareVetReport, isTrue);
       expect(care.canShowLowSupplyAlerts, isTrue);
       expect(care.canAddPet, isTrue);
-      expectLogged('billing.pro.unlocked', fields: {'source': 'trial'});
+      expectLogged('billing.store.entitlement_changed', fields: {'active': true});
     });
 
     test('second pet allowed on Pro', () async {
       final care = await careWithOnePet();
-      await care.startTrial();
+      care.applyStoreEntitlement(true, BillingPlan.yearly);
       final id = await care.addPet(name: 'Juniper', species: Species.dog);
       expect(id, isNotNull);
       expect(care.pets, hasLength(2));
@@ -138,7 +138,7 @@ void main() {
 
     test('low supply alerts enabled on Pro', () async {
       final care = await careWithOnePet();
-      await care.startTrial();
+      care.applyStoreEntitlement(true, BillingPlan.yearly);
       await lowSupplyMed(care);
       expect(care.canShowLowSupplyAlerts, isTrue);
       expect(care.lowSupply, isNotNull);
@@ -146,7 +146,7 @@ void main() {
 
     test('Pro respects 10-pet household cap', () async {
       final care = CareRepository.sample();
-      await care.startTrial();
+      care.applyStoreEntitlement(true, BillingPlan.yearly);
       final toAdd = PetLimits.maxPetsPerHousehold - care.pets.length;
       for (var i = 0; i < toAdd; i++) {
         final id = await care.addPet(name: 'Pet $i', species: Species.cat);
@@ -162,7 +162,7 @@ void main() {
   group('Toggle — Free → Pro → reset', () {
     test('reset returns to Free gates', () async {
       final care = await careWithOnePet();
-      await care.startTrial();
+      care.applyStoreEntitlement(true, BillingPlan.yearly);
       expect(care.canInviteHousehold, isTrue);
 
       await care.reset();

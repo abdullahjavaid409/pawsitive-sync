@@ -102,7 +102,7 @@ abstract final class LiveFeatures {
       id: 'pro_gates',
       name: 'Pro unlocks invites / multi-pet / export / low supply',
       tier: FeatureTier.pro,
-      logs: ['billing.pro.unlocked', 'household.reset'],
+      logs: ['billing.store.entitlement_changed', 'household.reset'],
     ),
     LiveFeatureSpec(
       id: 'billing',

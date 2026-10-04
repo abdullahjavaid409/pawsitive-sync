@@ -2,15 +2,6 @@ import 'package:pawsitive_sync/domain/models.dart';
 
 /// Apple Guideline 3.1.2 — subscription terms shown before purchase.
 abstract final class SubscriptionDisclosure {
-  /// Fallback store prices when RevenueCat is not configured (debug/QA).
-  /// Release builds always show the store's localized price.
-  static String fallbackPrice(BillingPlan plan) =>
-      plan == BillingPlan.yearly ? '\$29.99' : '\$4.99';
-
-  /// Only yearly carries the intro offer in App Store Connect.
-  static int? fallbackTrialDays(BillingPlan plan) =>
-      plan == BillingPlan.yearly ? 7 : null;
-
   static String period(BillingPlan plan) =>
       plan == BillingPlan.yearly ? 'year' : 'month';
 

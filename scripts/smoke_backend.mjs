@@ -169,14 +169,19 @@ async function main() {
     fail('POST /v1/logs (partner)', `status ${partnerLog.status}`);
   }
 
-  // 9. Sitter link (Pro required — enable trial on household)
-  await json('POST', '/v1/billing/trial', null, ownerToken);
+  // 9. Billing: the server never grants its own trial — Pro only via RevenueCat.
+  const refresh = await json('POST', '/v1/billing/trial', null, ownerToken);
+  if (refresh.status === 200 && refresh.data.isPro === false) {
+    pass('POST /v1/billing/trial', 'no store purchase → still Free');
+  } else {
+    fail('POST /v1/billing/trial', `status ${refresh.status} isPro=${refresh.data?.isPro}`);
+  }
   const sitterLink = await json('POST', '/v1/sitter-links', { label: 'Smoke sitter' }, ownerToken);
   const sitterToken = sitterLink.data.token;
-  if (sitterLink.status === 201 && sitterToken) {
-    pass('POST /v1/sitter-links', 'browser sitter token created');
+  if (sitterLink.status === 400) {
+    pass('POST /v1/sitter-links', 'Free household blocked (Pro only)');
   } else {
-    fail('POST /v1/sitter-links', `status ${sitterLink.status} — needs backend v4`);
+    fail('POST /v1/sitter-links', `status ${sitterLink.status} — expected 400 for Free`);
   }
 
   // 10. Sitter view + log

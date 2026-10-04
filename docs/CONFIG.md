@@ -29,9 +29,10 @@ flutter pub get
 flutter run
 ```
 
-- Pets, doses, and reminders work on this phone.
-- Pro trial unlocks locally for testing.
-- No account, no Apple Sign-In, no API keys needed.
+- Pets, doses, and reminders work on this phone, offline too.
+- Every build (debug included) talks to the **live** Railway API and RevenueCat.
+- Pro and free trials come only from RevenueCat — there is no local, debug or server trial.
+- No account, no Apple Sign-In, nothing to pass.
 
 ---
 
@@ -41,11 +42,11 @@ Lets partners and sitters see doses in real time.
 
 | Setting | What to pass | Default |
 |---------|--------------|---------|
-| API server | `--dart-define=API_BASE_URL=https://your-api.example.com` | Release builds: Railway production URL. Debug/profile builds: offline |
+| API server | `--dart-define=API_BASE_URL=https://your-api.example.com` | Railway production URL in every build |
 
-Debug and profile builds never touch production unless you ask them to, so
-testing cannot write real households or analytics. To try sync locally, run the
-backend (see `backend/`) and point the app at it:
+Debug runs write to the live server, like a real user. Analytics stays off
+outside release builds. For automated tests, run the backend (see `backend/`)
+and point the app at it:
 
 ```bash
 flutter run --dart-define=API_BASE_URL=http://127.0.0.1:3100
@@ -61,7 +62,16 @@ flutter build ios --dart-define=API_BASE_URL=
 
 ## Optional: App Store / Play purchases (RevenueCat)
 
-Without keys, the paywall still works — “Continue free” and local Pro trial for QA.
+Pro status, prices and free trials come only from RevenueCat. The public iOS
+key is the default in `AppConfig`, so every build is configured. The paywall
+shows no price or trial until RevenueCat sends the offering. Trials are App
+Store introductory offers that RevenueCat reports, never granted by the app or
+server.
+
+The server checks a purchase made before sharing with RevenueCat's REST API.
+That needs a **secret** key on Railway: `REVENUECAT_SECRET_KEY` (RevenueCat →
+Project settings → API keys → secret key). Without it, household Pro arrives
+only through the webhook.
 
 | Setting | Where to get it |
 |---------|-----------------|

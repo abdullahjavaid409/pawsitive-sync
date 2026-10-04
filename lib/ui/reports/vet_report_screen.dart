@@ -429,7 +429,7 @@ class _VetReportScreenState extends State<VetReportScreen> {
             '• ${line.medication.name} · ${log.when} · ${log.who}',
       ],
       '',
-      'Sent from PawsitiveSync',
+      'Sent from Pawsitive',
     ];
     return lines.join('\n');
   }

@@ -122,7 +122,8 @@ class CareRepository extends ChangeNotifier {
   final List<DoseRecord> _logs = [];
   final List<CareEvent> _careEvents = [];
 
-  /// Household Pro from the server (webhook or trial) — shared with partners.
+  /// Household Pro from the server, set only by the RevenueCat webhook —
+  /// shared with partners. Ignored until this phone is in a shared household.
   bool _isPro = false;
 
   /// This phone's own App Store / Play subscription, straight from RevenueCat.
@@ -152,7 +153,9 @@ class CareRepository extends ChangeNotifier {
   String get billingUserId =>
       isConnected && _householdId.isNotEmpty ? '$_householdId:$_memberId' : '';
 
-  bool get isPro => _isPro || _storePro;
+  /// Pro only ever comes from RevenueCat: this phone's own subscription, or
+  /// the household's (server copy of a partner's RevenueCat entitlement).
+  bool get isPro => _storePro || (isConnected && _isPro);
 
   @visibleForTesting
   set debugStorePro(bool value) => _storePro = value;
@@ -689,9 +692,9 @@ class CareRepository extends ChangeNotifier {
           token: _api?.token,
           memberId: _memberId,
           inviteCode: _inviteCode,
-          // Includes this phone's store subscription so a paying user stays
-          // Pro on a launch where RevenueCat can't start (outage, offline).
-          isPro: isPro,
+          // Server household Pro only. This phone's own subscription is read
+          // from RevenueCat each launch (its SDK caches it for offline).
+          isPro: _isPro,
           plan: _plan,
           members: _members,
           pets: _pets,
@@ -725,7 +728,6 @@ class CareRepository extends ChangeNotifier {
       return 'Set up your pet first.';
     }
     try {
-      final wasPro = _isPro;
       final session = await AppLog.trace(
         'household.create',
         () => api.createHousehold(
@@ -740,7 +742,7 @@ class CareRepository extends ChangeNotifier {
         ),
       );
       _applySession(session);
-      if (wasPro && !_isPro) await _carryProOnline(api);
+      if (_storePro && !_isPro) await _carryProOnline(api);
       syncError = null;
       await _afterConnected();
       AppLog.event('household.connected');
@@ -832,8 +834,8 @@ class CareRepository extends ChangeNotifier {
   // ---------------------------------------------------------------------------
   // Writes
 
-  /// A trial or purchase started before sharing lives only on this phone; the
-  /// new household starts as Free, so push Pro up instead of losing it.
+  /// A subscription bought before sharing lives only in this phone's
+  /// RevenueCat account; the new household starts as Free, so push it up.
   Future<void> _carryProOnline(HouseholdApi api) async {
     try {
       final billing = await api.startTrial();
@@ -841,7 +843,6 @@ class CareRepository extends ChangeNotifier {
       _plan = billing.plan;
       AppLog.event('billing.pro.carried_online', {'plan': _plan.name});
     } on HouseholdException catch (error) {
-      _isPro = true;
       AppLog.event('billing.pro.carry_failed', {'kind': error.kind.name});
     }
   }
@@ -1333,7 +1334,13 @@ class CareRepository extends ChangeNotifier {
     );
   }
 
+  /// Shares this phone's RevenueCat subscription with the household server
+  /// so partners get Pro too. Never grants Pro on its own.
   Future<void> startTrial() async {
+    if (!_storePro) {
+      AppLog.event('billing.trial.skipped', {'reason': 'no_store_entitlement'});
+      return;
+    }
     await _write(
       'billing.trial',
       (api) async {
@@ -1341,14 +1348,12 @@ class CareRepository extends ChangeNotifier {
         _isPro = billing.isPro;
         _plan = billing.plan;
       },
-      () {
-        _isPro = true;
-        return true;
-      },
+      // Solo phones: Pro is this phone's RevenueCat entitlement, nothing to push.
+      () => _storePro,
     );
     AppLog.event('billing.pro.unlocked', {
       'plan': _plan.name,
-      'source': 'trial',
+      'source': 'revenuecat',
     });
   }
 
@@ -1425,9 +1430,7 @@ class CareRepository extends ChangeNotifier {
   void applyStoreEntitlement(bool active, BillingPlan? plan) {
     if (_storePro == active) return;
     _storePro = active;
-    // Solo phones keep Pro locally; drop it when their own subscription ends.
     // Shared households keep whatever the server says (partner may pay).
-    if (!active && !isConnected) _isPro = false;
     AppLog.event('billing.store.entitlement_changed', {
       'active': active,
       'plan': plan?.name ?? 'unknown',
@@ -1456,12 +1459,11 @@ class CareRepository extends ChangeNotifier {
         await setPlan(status.plan!);
       }
       AppLog.event('billing.sync.pro_unlocked', {'plan': _plan.name});
-    } else if (!status.isPro && _isPro && !isConnected) {
-      // Shared households get Pro from the server (purchase webhook or trial);
-      // a partner without their own subscription must not switch it off.
-      _isPro = false;
+    } else if (!status.isPro && storeChanged) {
+      // Shared households keep server Pro (a partner may pay); solo phones
+      // drop to Free because isPro is RevenueCat-only.
       _changed();
-      AppLog.event('billing.sync.pro_revoked');
+      AppLog.event('billing.sync.pro_revoked', {'householdPro': isPro});
     } else {
       if (storeChanged) _changed();
       AppLog.event('billing.sync.unchanged', {

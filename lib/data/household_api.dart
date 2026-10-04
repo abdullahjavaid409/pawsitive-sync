@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:characters/characters.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
@@ -48,10 +50,7 @@ class BatchOpResult {
 }
 
 class BatchSyncResponse {
-  const BatchSyncResponse({
-    required this.results,
-    this.household,
-  });
+  const BatchSyncResponse({required this.results, this.household});
 
   final List<BatchOpResult> results;
   final HouseholdSnapshot? household;
@@ -90,8 +89,7 @@ class HouseholdException implements Exception {
 
 /// Talks to the household API on Railway. No polling: fetch once, write on an action.
 class HouseholdApi {
-  HouseholdApi(Uri base, {Dio? dio, int retries = 2})
-    : _dio = dio ?? Dio() {
+  HouseholdApi(Uri base, {Dio? dio, int retries = 2}) : _dio = dio ?? Dio() {
     _dio.options
       ..baseUrl = base.toString().replaceFirst(RegExp(r'/$'), '')
       ..connectTimeout = const Duration(seconds: 8)
@@ -104,21 +102,22 @@ class HouseholdApi {
         onRequest: (options, handler) {
           final value = token;
           if (value != null) options.headers['authorization'] = 'Bearer $value';
+          // Same id in the app log and the Railway request log; kept on retries.
+          options.headers.putIfAbsent('x-request-id', _requestId);
+          options.extra.putIfAbsent(_startedKey, DateTime.now);
           handler.next(options);
         },
       ),
       _RetryReads(_dio, retries),
-      if (kDebugMode)
-        LogInterceptor(
-          requestHeader: false,
-          responseHeader: false,
-          responseBody: false,
-          logPrint: (line) => debugPrint('[api] $line'),
-        ),
+      if (kDebugMode) _ApiLog(),
     ]);
   }
 
   final Dio _dio;
+
+  static final _random = Random();
+  static String _requestId() =>
+      List.generate(8, (_) => _random.nextInt(16).toRadixString(16)).join();
 
   /// Set once this device has joined or created a household.
   String? token;
@@ -218,7 +217,8 @@ class HouseholdApi {
       ],
     });
     final results = [
-      for (final item in body['results'] is List ? body['results'] as List : const [])
+      for (final item
+          in body['results'] is List ? body['results'] as List : const [])
         if (item is Map<String, dynamic>)
           BatchOpResult(
             id: '${item['id']}',
@@ -312,18 +312,34 @@ class HouseholdApi {
     final serverMessage = data is Map && data['error'] is String
         ? data['error'] as String
         : null;
-    AppLog.event('api.failed', {
-      'path': error.requestOptions.path,
-      'status': status ?? 0,
-      'type': error.type.name,
-    });
+    // The one log line for a failed call (success lines come from _ApiLog).
+    AppLog.event(
+      'api.failed',
+      _callFields(error.requestOptions, {
+        'status': status ?? 0,
+        'type': error.type.name,
+        'error': ?serverMessage,
+      }),
+    );
     switch (error.type) {
       case DioExceptionType.connectionTimeout:
       case DioExceptionType.sendTimeout:
       case DioExceptionType.receiveTimeout:
       case DioExceptionType.connectionError:
+      case DioExceptionType.cancel:
         return const HouseholdException(
           "Can't reach the household. Check your internet and try again.",
+          kind: HouseholdErrorKind.offline,
+        );
+      // No response at all (socket closed, DNS) reads as offline too.
+      case DioExceptionType.unknown when status == null:
+        return const HouseholdException(
+          "Can't reach the household. Check your internet and try again.",
+          kind: HouseholdErrorKind.offline,
+        );
+      case DioExceptionType.badCertificate:
+        return const HouseholdException(
+          "Couldn't make a secure connection. Check your network and try again.",
           kind: HouseholdErrorKind.offline,
         );
       default:
@@ -333,6 +349,10 @@ class HouseholdApi {
       401 => HouseholdException(
         serverMessage ?? 'This phone is no longer in the household.',
         kind: HouseholdErrorKind.unauthorized,
+      ),
+      403 => HouseholdException(
+        serverMessage ?? 'That needs Pawsitive Pro.',
+        kind: HouseholdErrorKind.invalid,
       ),
       404 => HouseholdException(
         serverMessage ?? 'That was not found.',
@@ -386,6 +406,14 @@ class _RetryReads extends Interceptor {
     if (options.method != 'GET' || !transient || attempt >= _retries) {
       return handler.next(err);
     }
+    AppLog.event(
+      'api.retry',
+      _callFields(options, {
+        'attempt': attempt + 1,
+        'status': status,
+        'type': err.type.name,
+      }),
+    );
     await Future<void>.delayed(Duration(milliseconds: 400 * (attempt + 1)));
     options.extra['attempt'] = attempt + 1;
     try {
@@ -541,4 +569,42 @@ int _int(Object? value) {
 double _double(Object? value) {
   if (value is num) return value.toDouble();
   return double.tryParse('$value') ?? 0;
+}
+
+const _startedKey = 'apiStarted';
+
+/// Method, path, request id and elapsed time for one call's log line.
+/// Never bodies, tokens or query values.
+Map<String, Object?> _callFields(
+  RequestOptions options, [
+  Map<String, Object?> extra = const {},
+]) {
+  final started = options.extra[_startedKey];
+  return {
+    'method': options.method,
+    'path': options.uri.path,
+    ...extra,
+    if (started is DateTime)
+      'ms': DateTime.now().difference(started).inMilliseconds,
+    'rid': options.headers['x-request-id'],
+  };
+}
+
+/// Debug line for each successful call:
+/// `[pawsitive.api] api.ok method=POST path=/v1/sync/batch status=200 ms=84 rid=3fa1c2d0`.
+/// Failures are logged once as `api.failed` by [HouseholdApi._translate].
+class _ApiLog extends Interceptor {
+  @override
+  void onResponse(
+    Response<dynamic> response,
+    ResponseInterceptorHandler handler,
+  ) {
+    debugPrint(
+      '[pawsitive.api] api.ok ${_line(_callFields(response.requestOptions, {'status': response.statusCode}))}',
+    );
+    handler.next(response);
+  }
+
+  static String _line(Map<String, Object?> fields) =>
+      fields.entries.map((e) => '${e.key}=${e.value}').join(' ');
 }

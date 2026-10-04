@@ -11,7 +11,7 @@ import 'package:pawsitive_sync/data/apple_widgets.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
 
-/// Applies the PawsitiveSync theme and router.
+/// Applies the Pawsitive theme and router.
 class PawsitiveApp extends StatefulWidget {
   const PawsitiveApp({super.key});
 
@@ -68,7 +68,7 @@ class _PawsitiveAppState extends State<PawsitiveApp> with WidgetsBindingObserver
   @override
   Widget build(BuildContext context) {
     return MaterialApp.router(
-      title: 'PawsitiveSync',
+      title: 'Pawsitive',
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
       themeMode: ThemeMode.system,

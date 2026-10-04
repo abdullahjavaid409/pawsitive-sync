@@ -6,10 +6,12 @@ import 'package:pawsitive_sync/core/routing/app_router.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/app_theme.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
+import 'package:pawsitive_sync/data/revenue_cat_service.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/domain/paywall_reason.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
+import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'test_log_helpers.dart';
@@ -17,11 +19,41 @@ import 'test_log_helpers.dart';
 /// Every paywall moment, on small and large phones, light and dark, with
 /// large text: no overflow, honest trial copy, Apple 3.1.2 essentials present.
 void main() {
+  // What RevenueCat returns for the default offering: the paywall shows only
+  // these prices and trials, never its own.
+  Package package(String id, PackageType type, double price, String label) =>
+      Package(
+        id,
+        type,
+        StoreProduct(id, '', '', price, label, 'USD'),
+        const PresentedOfferingContext('default', null, null),
+      );
+  final storeOffer = PaywallOffer(
+    offeringId: 'default',
+    packages: const [],
+    yearly: PlanOffer(
+      package: package(r'$rc_annual', PackageType.annual, 29.99, r'$29.99'),
+      priceString: r'$29.99',
+      price: 29.99,
+      perMonthString: r'$2.49',
+      trialDays: 7,
+    ),
+    monthly: PlanOffer(
+      package: package(r'$rc_monthly', PackageType.monthly, 4.99, r'$4.99'),
+      priceString: r'$4.99',
+      price: 4.99,
+    ),
+  );
+
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     AppLog.enableTestCapture();
+    RevenueCatService.debugOffer = storeOffer;
   });
-  tearDown(AppLog.disableTestCapture);
+  tearDown(() {
+    AppLog.disableTestCapture();
+    RevenueCatService.debugOffer = null;
+  });
 
   Future<CareRepository> pumpPaywall(
     WidgetTester tester, {
@@ -80,6 +112,7 @@ void main() {
     expect(find.text('Privacy'), findsOneWidget);
     expect(find.textContaining('Auto-renews'), findsOneWidget);
     expect(find.byTooltip('Close'), findsOneWidget);
+    expectLogged('billing.paywall.offer_shown', fields: {'offering': 'default'});
   }
 
   for (final reason in PaywallReason.values) {
@@ -115,8 +148,19 @@ void main() {
 
   testWidgets('real savings badge shown on yearly', (tester) async {
     await pumpPaywall(tester);
-    expect(find.text('Save 50%'), findsOneWidget);
-    expect(find.text('\$2.50/mo'), findsOneWidget);
+    expect(find.text('Save 49%'), findsOneWidget);
+    expect(find.text('\$2.49/mo'), findsOneWidget);
+  });
+
+  testWidgets('no RevenueCat offer: no made-up prices or trials', (
+    tester,
+  ) async {
+    RevenueCatService.debugOffer = null;
+    await pumpPaywall(tester);
+    expect(find.textContaining('free trial'), findsNothing);
+    expect(find.textContaining(r'$'), findsNothing);
+    expect(find.text('Try again'), findsOneWidget);
+    expectLogged('billing.paywall.offer_unavailable');
   });
 
   testWidgets('close dismisses an upgrade paywall', (tester) async {

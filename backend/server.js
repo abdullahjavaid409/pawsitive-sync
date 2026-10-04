@@ -32,7 +32,7 @@ import {
   setPlan,
   sitterForToken,
   sitterLogDose,
-  startTrial,
+  refreshProFromRevenueCat,
   trackAnalytics,
 } from "./db.js";
 
@@ -191,21 +191,25 @@ const server = createServer(async (req, res) => {
     });
   } catch (error) {
     const status = error instanceof SyntaxError ? 400 : error.status ?? 500;
+    // Every message here is shown to the user as-is: plain words only.
     const message =
       error instanceof InputError
         ? error.message
         : status === 400
-          ? "Invalid JSON"
+          ? "Something went wrong sending that. Try again."
           : status === 413
-            ? "Body too large"
-            : "Internal error";
+            ? "That's too much to send at once. Try again with less."
+            : "Something went wrong on our side. Try again in a moment.";
     send(res, status, { error: message });
     log("request.failed", {
       requestId,
       method: req.method,
       path: url.pathname,
       status,
-      reason: status === 500 ? String(error?.message ?? error).slice(0, 200) : message,
+      reason:
+        status === 500
+          ? String(error?.message ?? error).slice(0, 200)
+          : (error?.detail ?? error?.message ?? message),
       durationMs: Date.now() - started,
     });
   }
@@ -245,7 +249,7 @@ async function route(req, url, requestId) {
       day: url.searchParams.get("day"),
       hour: url.searchParams.get("hour"),
     });
-    if (!view) return { status: 404, body: { error: "Household not found." } };
+    if (!view) return { status: 404, body: { error: "This household no longer exists." } };
     return { status: 200, body: view };
   }
 
@@ -253,7 +257,7 @@ async function route(req, url, requestId) {
     const sitter = await authorizeSitter(req);
     if (!sitter) return { status: 401, body: { error: "This sitter link expired or is invalid." } };
     const result = await sitterLogDose(pool, sitter, await readJson(req));
-    if (result.missing) return { status: 404, body: { error: "Medication not found" } };
+    if (result.missing) return { status: 404, body: { error: "That medicine was removed. Pull down to refresh." } };
     if (result.conflict !== undefined) {
       log("dose.already_logged", { requestId, householdId: sitter.householdId, source: "sitter" });
       return { status: 409, body: { error: "Someone already logged this dose.", log: result.conflict } };
@@ -314,7 +318,7 @@ async function route(req, url, requestId) {
     return { status: 202, body: await trackAnalytics(pool, body.events) };
   }
 
-  if (!path.startsWith("/v1/")) return { status: 404, body: { error: "Not found" } };
+  if (!path.startsWith("/v1/")) return { status: 404, body: { error: "That page doesn't exist." } };
 
   const auth = await authorize(req);
   if (!auth) return { status: 401, body: { error: "Sign in again to reach this household." } };
@@ -334,7 +338,7 @@ async function route(req, url, requestId) {
   const petPath = path.match(/^\/v1\/pets\/([^/]+)$/);
   if (req.method === "PATCH" && petPath) {
     const pet = await updatePet(pool, auth, decodeURIComponent(petPath[1]), await readJson(req));
-    if (!pet) return { status: 404, body: { error: "Pet not found" } };
+    if (!pet) return { status: 404, body: { error: "That pet was removed. Pull down to refresh." } };
     log("pet.updated", { requestId, householdId: auth.householdId, petId: pet.id });
     return { status: 200, body: { pet } };
   }
@@ -348,7 +352,7 @@ async function route(req, url, requestId) {
   const medicationPath = path.match(/^\/v1\/medications\/([^/]+)$/);
   if (req.method === "DELETE" && medicationPath) {
     const removed = await archiveMedication(pool, auth, decodeURIComponent(medicationPath[1]));
-    if (!removed) return { status: 404, body: { error: "Medication not found" } };
+    if (!removed) return { status: 404, body: { error: "That medicine was removed. Pull down to refresh." } };
     log("medication.archived", { requestId, householdId: auth.householdId });
     return { status: 200, body: { ok: true } };
   }
@@ -356,14 +360,14 @@ async function route(req, url, requestId) {
   const refill = path.match(/^\/v1\/medications\/([^/]+)\/refill$/);
   if (req.method === "POST" && refill) {
     const medication = await refillMedication(pool, auth, decodeURIComponent(refill[1]));
-    if (!medication) return { status: 404, body: { error: "Medication not found" } };
+    if (!medication) return { status: 404, body: { error: "That medicine was removed. Pull down to refresh." } };
     log("medication.refilled", { requestId, householdId: auth.householdId, medicationId: medication.id });
     return { status: 200, body: { medication } };
   }
 
   if (req.method === "POST" && path === "/v1/logs") {
     const result = await logDose(pool, auth, await readJson(req));
-    if (result.missing) return { status: 404, body: { error: "Medication not found" } };
+    if (result.missing) return { status: 404, body: { error: "That medicine was removed. Pull down to refresh." } };
     if (result.conflict !== undefined) {
       log("dose.already_logged", { requestId, householdId: auth.householdId });
       return { status: 409, body: { error: "Someone already logged this dose.", log: result.conflict } };
@@ -406,7 +410,7 @@ async function route(req, url, requestId) {
   const careEventPath = path.match(/^\/v1\/care-events\/([^/]+)$/);
   if (req.method === "DELETE" && careEventPath) {
     const removed = await removeCareEvent(pool, auth, decodeURIComponent(careEventPath[1]));
-    if (!removed) return { status: 404, body: { error: "Care event not found" } };
+    if (!removed) return { status: 404, body: { error: "That reminder was already removed." } };
     log("care_event.removed", { requestId, householdId: auth.householdId });
     return { status: 200, body: { ok: true } };
   }
@@ -432,7 +436,7 @@ async function route(req, url, requestId) {
 
   if (req.method === "GET" && path === "/v1/export") {
     const data = await exportHouseholdData(pool, auth);
-    if (!data) return { status: 404, body: { error: "Household not found" } };
+    if (!data) return { status: 404, body: { error: "This household no longer exists." } };
     log("export.completed", { requestId, householdId: auth.householdId });
     return { status: 200, body: data };
   }
@@ -440,15 +444,15 @@ async function route(req, url, requestId) {
   if (req.method === "POST" && path === "/v1/billing/plan") {
     const body = await readJson(req);
     const plan = await setPlan(pool, auth, body.plan);
-    if (!plan) return { status: 400, body: { error: "Plan must be yearly or monthly" } };
+    if (!plan) return { status: 400, body: { error: "Pick yearly or monthly." } };
     return { status: 200, body: { plan } };
   }
 
   if (req.method === "POST" && path === "/v1/billing/trial") {
-    return { status: 200, body: await startTrial(pool, auth) };
+    return { status: 200, body: await refreshProFromRevenueCat(pool, auth, log) };
   }
 
-  return { status: 404, body: { error: "Not found" } };
+  return { status: 404, body: { error: "That page doesn't exist." } };
 }
 
 await connectWithRetry();

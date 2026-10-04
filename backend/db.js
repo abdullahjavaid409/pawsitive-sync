@@ -4,22 +4,20 @@ import pg from "pg";
 const { Pool } = pg;
 
 const schemaVersion = "6";
-const trialDays = 7;
 
 /** A missed RENEWAL webhook must not cut off a paying household right away. */
 const storeExpirySlackMs = 24 * 60 * 60 * 1000;
 
-/** Paid (store webhook) or inside the one free trial. */
+/**
+ * Pro only ever comes from RevenueCat (webhook or a server-side subscriber
+ * lookup). Free trials are App Store intro offers, so RevenueCat reports
+ * them as an active `pro` entitlement — the server never grants its own.
+ */
 function hasPro(household) {
-  if (!household) return false;
-  if (household.is_pro) {
-    // Expiry from the last webhook also ends Pro if EXPIRATION never arrives.
-    const expires = household.rc_expires_at;
-    if (expires == null || new Date(expires).getTime() + storeExpirySlackMs > Date.now()) {
-      return true;
-    }
-  }
-  return household.trial_ends_at != null && new Date(household.trial_ends_at) > new Date();
+  if (!household?.is_pro) return false;
+  // Expiry from the last RevenueCat update also ends Pro if EXPIRATION never arrives.
+  const expires = household.rc_expires_at;
+  return expires == null || new Date(expires).getTime() + storeExpirySlackMs > Date.now();
 }
 const parts = ["morning", "afternoon", "evening"];
 const species = ["cat", "dog", "rabbit", "other"];
@@ -171,22 +169,40 @@ export async function migrate(pool, log) {
   log("db.migrated", { version: schemaVersion, durationMs: Date.now() - started });
 }
 
+/**
+ * A 400 the app shows as-is, so `message` is plain words for a pet owner.
+ * `detail` is the developer reason (field, rule) and only goes to the logs.
+ */
 export class InputError extends Error {
-  constructor(message) {
+  constructor(message, detail = message) {
     super(message);
     this.status = 400;
+    this.detail = detail;
   }
 }
 
+/** A malformed request is the app's bug, not the user's — say so kindly. */
+const appProblem = "Something went wrong saving that. Update the app or try again.";
+
+const requiredWords = {
+  name: "Please enter a name.",
+  title: "Please enter a title.",
+  amount: "Please enter an amount.",
+  label: "Please enter a label.",
+};
+
 function text(value, field, { max = 80, required = true } = {}) {
   const result = typeof value === "string" ? value.trim().slice(0, max) : "";
-  if (required && !result) throw new InputError(`${field} is required`);
+  if (required && !result) {
+    const words = requiredWords[field.split(".").pop()] ?? appProblem;
+    throw new InputError(words, `${field} is required`);
+  }
   return result;
 }
 
 function id(value, field) {
   if (typeof value !== "string" || !/^[a-z0-9-]{1,40}$/.test(value)) {
-    throw new InputError(`${field} is not valid`);
+    throw new InputError(appProblem, `${field} is not valid`);
   }
   return value;
 }
@@ -194,12 +210,12 @@ function id(value, field) {
 function oneOf(value, allowed, field, fallback) {
   if (allowed.includes(value)) return value;
   if (fallback !== undefined) return fallback;
-  throw new InputError(`${field} is not valid`);
+  throw new InputError(appProblem, `${field} is not valid`);
 }
 
 function day(value, field) {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    throw new InputError(`${field} must be YYYY-MM-DD`);
+    throw new InputError("That date doesn't look right. Pick it again.", `${field} must be YYYY-MM-DD`);
   }
   return value;
 }
@@ -246,6 +262,8 @@ function readPet(input) {
     species: oneOf(input?.species, species, "pet.species", "other"),
     ageYears: count(input?.ageYears, 40),
     weightKg: weight(input?.weightKg),
+    breed: text(input?.breed, "pet.breed", { max: 60, required: false }),
+    sex: text(input?.sex, "pet.sex", { max: 20, required: false }),
     conditions: list(input?.conditions, 12)
       .map((item) => text(item, "condition", { max: 40, required: false }))
       .filter(Boolean),
@@ -254,7 +272,7 @@ function readPet(input) {
 
 function readMedication(input) {
   const chosen = [...new Set(list(input?.parts, 3))].filter((part) => parts.includes(part));
-  if (chosen.length === 0) throw new InputError("Pick at least one time of day");
+  if (chosen.length === 0) throw new InputError("Pick at least one time of day.");
   const supplyTotal = count(input?.supplyTotal, 1000);
   return {
     id: id(input?.id, "medication.id"),
@@ -285,13 +303,24 @@ function readLog(input) {
 
 async function insertPet(client, householdId, pet) {
   const result = await client.query(
-    `INSERT INTO pets (household_id, id, name, species, age_years, weight_kg, conditions)
-     VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)
+    `INSERT INTO pets (household_id, id, name, species, age_years, weight_kg, breed, sex, conditions)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)
      ON CONFLICT (household_id, id) DO UPDATE SET
        name = EXCLUDED.name, species = EXCLUDED.species, age_years = EXCLUDED.age_years,
-       weight_kg = EXCLUDED.weight_kg, conditions = EXCLUDED.conditions
+       weight_kg = EXCLUDED.weight_kg, breed = EXCLUDED.breed, sex = EXCLUDED.sex,
+       conditions = EXCLUDED.conditions
      RETURNING *`,
-    [householdId, pet.id, pet.name, pet.species, pet.ageYears, pet.weightKg, JSON.stringify(pet.conditions)],
+    [
+      householdId,
+      pet.id,
+      pet.name,
+      pet.species,
+      pet.ageYears,
+      pet.weightKg,
+      pet.breed,
+      pet.sex,
+      JSON.stringify(pet.conditions),
+    ],
   );
   return mapPet(result.rows[0]);
 }
@@ -301,7 +330,7 @@ async function insertMedication(client, householdId, medication) {
     householdId,
     medication.petId,
   ]);
-  if (pet.rowCount === 0) throw new InputError("That pet is not in this household");
+  if (pet.rowCount === 0) throw new InputError("That pet was removed from the household. Pull down to refresh.");
   const result = await client.query(
     `INSERT INTO medications (household_id, id, pet_id, name, amount, parts, supply_total, doses_left, start_day, end_day)
      VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10)
@@ -541,7 +570,7 @@ export async function loadHousehold(pool, { householdId, memberId }) {
 
 export async function addPet(pool, { householdId }, body) {
   const existing = await pool.query("SELECT count(*)::int AS n FROM pets WHERE household_id = $1", [householdId]);
-  if (existing.rows[0].n >= 10) throw new InputError("A household can have up to 10 pets");
+  if (existing.rows[0].n >= 10) throw new InputError("A household can have up to 10 pets.");
   return insertPet(pool, householdId, readPet(body));
 }
 
@@ -649,15 +678,50 @@ export async function setPlan(pool, { householdId }, plan) {
   return plan;
 }
 
-/** One free trial per household; asking again never extends it. */
-export async function startTrial(pool, { householdId }) {
-  const result = await pool.query(
-    `UPDATE households
-     SET trial_ends_at = COALESCE(trial_ends_at, now() + make_interval(days => $2))
-     WHERE id = $1 RETURNING plan, is_pro, trial_ends_at, rc_expires_at`,
-    [householdId, trialDays],
-  );
-  const row = result.rows[0];
+const revenueCatApi = "https://api.revenuecat.com/v1/subscribers/";
+
+/**
+ * POST /v1/billing/trial (path kept for shipped apps): the caller says it just
+ * bought or restored. Ask RevenueCat — never the client — whether this
+ * member's store account has `pro`, and share it with the household. Covers
+ * purchases made before sharing, which no webhook ties to the household.
+ */
+export async function refreshProFromRevenueCat(pool, { householdId, memberId }, logFn = () => {}) {
+  const secret = process.env.REVENUECAT_SECRET_KEY;
+  if (!secret) {
+    logFn("billing.rc_refresh_skipped", { householdId, reason: "no_secret_key" });
+  } else {
+    const appUserId = `${householdId}:${memberId}`;
+    try {
+      const response = await fetch(revenueCatApi + encodeURIComponent(appUserId), {
+        headers: { authorization: `Bearer ${secret}`, accept: "application/json" },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!response.ok) {
+        logFn("billing.rc_refresh_failed", { householdId, status: response.status });
+      } else {
+        const entitlement = (await response.json())?.subscriber?.entitlements?.[proEntitlement];
+        const expiresIso = entitlement?.grace_period_expires_date ?? entitlement?.expires_date ?? null;
+        const expiresAt = expiresIso ? new Date(expiresIso) : null;
+        const active = entitlement != null && (expiresAt == null || expiresAt.getTime() > Date.now());
+        if (active) {
+          await applyProState(pool, householdId, {
+            isPro: true,
+            expiresAt,
+            productId: typeof entitlement.product_identifier === "string" ? entitlement.product_identifier : null,
+            eventAt: new Date(),
+          });
+        }
+        // Not active: leave it. A partner may pay; EXPIRATION webhooks revoke.
+        logFn("billing.rc_refresh", { householdId, active });
+      }
+    } catch (error) {
+      logFn("billing.rc_refresh_failed", { householdId, error: String(error?.name ?? error) });
+    }
+  }
+  const row = (
+    await pool.query("SELECT plan, is_pro, rc_expires_at FROM households WHERE id = $1", [householdId])
+  ).rows[0];
   return { isPro: hasPro(row), plan: row?.plan ?? "yearly" };
 }
 
@@ -667,7 +731,7 @@ export async function addCareEvent(pool, { householdId }, body) {
     householdId,
     event.petId,
   ]);
-  if (pet.rowCount === 0) throw new InputError("That pet is not in this household");
+  if (pet.rowCount === 0) throw new InputError("That pet was removed from the household. Pull down to refresh.");
   const result = await pool.query(
     `INSERT INTO care_events (household_id, id, pet_id, title, kind, due_day, note)
      VALUES ($1,$2,$3,$4,$5,$6,$7)
@@ -693,7 +757,7 @@ export async function linkAppleAccount(pool, { householdId, memberId }, appleUse
     "SELECT 1 FROM members WHERE household_id = $1 AND id = $2 AND role = 'owner'",
     [householdId, memberId],
   );
-  if (owner.rowCount === 0) throw new InputError("Only the household owner can link Apple Sign-In");
+  if (owner.rowCount === 0) throw new InputError("Only the household owner can link Apple Sign-In.");
   await pool.query(
     `INSERT INTO apple_links (apple_user_id, household_id, member_id)
      VALUES ($1,$2,$3)
@@ -811,7 +875,7 @@ export async function applyBatchOperation(pool, auth, operation) {
       await removeCareEvent(pool, auth, id(payload?.id, "event.id"));
       return { status: "ok" };
     default:
-      throw new InputError(`Unknown operation type: ${type}`);
+      throw new InputError("Update the app to sync this change.", `Unknown operation type: ${type}`);
   }
 }
 
@@ -861,11 +925,11 @@ function formatTimeLabel(date = new Date()) {
 }
 
 export async function createSitterLink(pool, auth, body) {
-  const pro = await pool.query("SELECT is_pro, trial_ends_at, rc_expires_at FROM households WHERE id = $1", [
+  const pro = await pool.query("SELECT is_pro, rc_expires_at FROM households WHERE id = $1", [
     auth.householdId,
   ]);
   if (!hasPro(pro.rows[0])) {
-    throw new InputError("Browser sitter links need PawsitiveSync Pro.");
+    throw new ProRequiredError("Browser sitter links need Pawsitive Pro.");
   }
   const label = text(body?.label, "label", { max: 40, required: false }) || "Sitter";
   const linkId = newId("slink");

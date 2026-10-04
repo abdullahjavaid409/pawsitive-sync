@@ -26,15 +26,15 @@ void main() {
 
     test('pro trial unlocks adding more pets', () async {
       final care = CareRepository.sample();
-      await care.startTrial();
+      care.applyStoreEntitlement(true, BillingPlan.yearly);
       expect(care.isPro, isTrue);
       expect(care.canAddPet, isTrue);
-      expectLogged('billing.pro.unlocked', fields: {'source': 'trial'});
+      expectLogged('billing.store.entitlement_changed', fields: {'active': true});
     });
 
     test('pro tier respects household pet cap', () async {
       final care = CareRepository.sample();
-      await care.startTrial();
+      care.applyStoreEntitlement(true, BillingPlan.yearly);
       for (var i = 0; i < PetLimits.maxPetsPerHousehold - 2; i++) {
         final id = await care.addPet(name: 'Pet $i', species: Species.cat);
         expect(id, isNotNull);

@@ -17,9 +17,4 @@ void main() {
       startsWith('\$4.99/month.'),
     );
   });
-
-  test('fallback trial matches App Store Connect: yearly only', () {
-    expect(SubscriptionDisclosure.fallbackTrialDays(BillingPlan.yearly), 7);
-    expect(SubscriptionDisclosure.fallbackTrialDays(BillingPlan.monthly), isNull);
-  });
 }

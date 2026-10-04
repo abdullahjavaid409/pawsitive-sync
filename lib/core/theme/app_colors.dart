@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// Palette taken from the PawsitiveSync screen designs.
+/// Palette taken from the Pawsitive screen designs.
 abstract final class AppColors {
   static const background = Color(0xFFFBFBFA);
   static const ink = Color(0xFF2C3531);

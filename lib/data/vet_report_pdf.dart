@@ -25,7 +25,7 @@ Future<Uint8List> buildVetReportPdf({
         pw.Text(plainText, style: const pw.TextStyle(fontSize: 11, lineSpacing: 4)),
         pw.SizedBox(height: 24),
         pw.Text(
-          'Sent from PawsitiveSync',
+          'Sent from Pawsitive',
           style: pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
         ),
       ],

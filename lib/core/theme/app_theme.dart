@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:pawsitive_sync/core/theme/app_colors.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 
-/// Light and dark themes built from the shared PawsitiveSync palette.
+/// Light and dark themes built from the shared Pawsitive palette.
 abstract final class AppTheme {
   static ThemeData light() => _build(Brightness.light);
 

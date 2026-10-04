@@ -3,15 +3,17 @@ import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/data/household_api.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 
 typedef _Reply = (int status, Object body);
 
 class _FakeAdapter implements HttpClientAdapter {
-  _FakeAdapter(this.replies);
+  _FakeAdapter(this.replies, {this.offline = false});
 
   final List<_Reply> replies;
+  final bool offline;
   final requests = <RequestOptions>[];
 
   @override
@@ -21,6 +23,7 @@ class _FakeAdapter implements HttpClientAdapter {
     Future<void>? cancelFuture,
   ) async {
     requests.add(options);
+    if (offline) throw const SocketExceptionLike();
     final (status, body) = replies.removeAt(0);
     return ResponseBody.fromString(
       jsonEncode(body),
@@ -33,6 +36,11 @@ class _FakeAdapter implements HttpClientAdapter {
 
   @override
   void close({bool force = false}) {}
+}
+
+/// What a dropped socket looks like to Dio without importing dart:io.
+class SocketExceptionLike implements Exception {
+  const SocketExceptionLike();
 }
 
 HouseholdApi _api(_FakeAdapter adapter) {
@@ -53,6 +61,82 @@ const _record = DoseRecord(
 );
 
 void main() {
+  setUp(AppLog.enableTestCapture);
+  tearDown(AppLog.disableTestCapture);
+
+  test('every call carries a request id for the Railway logs', () async {
+    final adapter = _FakeAdapter([
+      (200, {'household': {'inviteCode': 'ABC234'}}),
+    ]);
+    await _api(adapter).fetchHousehold();
+    final rid = adapter.requests.single.headers['x-request-id'];
+    expect(rid, isA<String>());
+    expect((rid as String).length, 8);
+  });
+
+  test('a failure logs once with method, path, status, request id', () async {
+    final adapter = _FakeAdapter([
+      (403, {'error': 'Browser sitter links need Pawsitive Pro.'}),
+    ]);
+    await expectLater(
+      _api(adapter).createSitterLink(),
+      throwsA(
+        isA<HouseholdException>()
+            .having((e) => e.kind, 'kind', HouseholdErrorKind.invalid)
+            .having((e) => e.message, 'message', contains('Pro')),
+      ),
+    );
+    final failed = AppLog.testRecords.where((r) => r.name == 'api.failed');
+    expect(failed, hasLength(1));
+    expect(failed.single.fields, containsPair('method', 'POST'));
+    expect(failed.single.fields, containsPair('path', '/v1/sitter-links'));
+    expect(failed.single.fields, containsPair('status', 403));
+    expect(
+      failed.single.fields['rid'],
+      adapter.requests.single.headers['x-request-id'],
+    );
+  });
+
+  test('no connection reads as offline with a friendly message', () async {
+    final adapter = _FakeAdapter([], offline: true);
+    await expectLater(
+      _api(adapter).logDose(_record),
+      throwsA(
+        isA<HouseholdException>()
+            .having((e) => e.kind, 'kind', HouseholdErrorKind.offline)
+            .having((e) => e.message, 'message', contains('internet')),
+      ),
+    );
+  });
+
+  test('a server crash never shows technical text', () async {
+    final adapter = _FakeAdapter([
+      (500, {'error': 'TypeError: cannot read properties of undefined'}),
+    ]);
+    await expectLater(
+      _api(adapter).logDose(_record),
+      throwsA(
+        isA<HouseholdException>()
+            .having((e) => e.kind, 'kind', HouseholdErrorKind.server)
+            .having((e) => e.message, 'message', isNot(contains('TypeError'))),
+      ),
+    );
+  });
+
+  test('read retries are logged', () async {
+    final adapter = _FakeAdapter([
+      (503, {'error': 'busy'}),
+      (200, {'household': {'inviteCode': 'ABC234'}}),
+    ]);
+    await _api(adapter).fetchHousehold();
+    expect(AppLog.logged('api.retry'), isTrue);
+    expect(
+      adapter.requests[0].headers['x-request-id'],
+      adapter.requests[1].headers['x-request-id'],
+      reason: 'a retry is the same request in the server logs',
+    );
+  });
+
   test('updates a pet with PATCH', () async {
     final adapter = _FakeAdapter([
       (

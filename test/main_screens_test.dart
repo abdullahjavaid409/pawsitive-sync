@@ -80,7 +80,7 @@ void main() {
     tester,
   ) async {
     final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 14));
-    await care.startTrial();
+    care.applyStoreEntitlement(true, BillingPlan.yearly);
     for (final medicine in care.medicationsFor('juniper')) {
       await care.removeMedication(medicine.id);
     }

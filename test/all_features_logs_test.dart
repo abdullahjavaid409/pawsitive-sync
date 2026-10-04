@@ -48,7 +48,7 @@ void main() {
 
     test('add blocked at household cap logs household_limit', () async {
       final care = CareRepository.sample();
-      await care.startTrial();
+      care.applyStoreEntitlement(true, BillingPlan.yearly);
       for (var i = care.pets.length; i < PetLimits.maxPetsPerHousehold; i++) {
         await care.addPet(name: 'Pet $i', species: Species.cat);
       }
@@ -331,15 +331,15 @@ void main() {
       expect(care.canAddPet, isFalse);
     });
 
-    test('startTrial unlocks all gates and logs billing.pro.unlocked', () async {
+    test('RevenueCat entitlement unlocks all gates', () async {
       final care = await freshCare();
-      await care.startTrial();
+      care.applyStoreEntitlement(true, BillingPlan.yearly);
       expect(care.isPro, isTrue);
       expect(care.canInviteHousehold, isTrue);
       expect(care.canShareVetReport, isTrue);
       expect(care.canShowLowSupplyAlerts, isTrue);
       expect(care.canAddPet, isTrue);
-      expectLogged('billing.pro.unlocked', fields: {'source': 'trial'});
+      expectLogged('billing.store.entitlement_changed', fields: {'active': true});
     });
 
     test('trial started before sharing survives going online', () async {
@@ -353,7 +353,7 @@ void main() {
         clock: () => DateTime(2026, 10, 3, 14),
       );
       await care.addPet(name: 'Milo', species: Species.cat);
-      await care.startTrial();
+      care.applyStoreEntitlement(true, BillingPlan.yearly);
       expect(await care.connect(), isNull);
       expect(care.isPro, isTrue);
       expectLogged('billing.pro.carried_online');
@@ -423,7 +423,9 @@ void main() {
       expect(care.isPro, isTrue, reason: 'server still says household is Pro');
     });
 
-    test('subscriber stays Pro after a restart even if store is down', () async {
+    // RevenueCat's SDK caches the subscription for offline launches; the app
+    // never keeps its own copy, so a solo phone can't be Pro without it.
+    test('solo Pro is never restored from local storage', () async {
       final care = CareRepository(
         store: HouseholdStore(),
         clock: () => DateTime(2026, 10, 3, 14),
@@ -433,7 +435,7 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 50));
       final reloaded = CareRepository(store: HouseholdStore());
       await reloaded.restore();
-      expect(reloaded.isPro, isTrue);
+      expect(reloaded.isPro, isFalse);
       expect(reloaded.pets.single.name, 'Milo');
     });
 
@@ -472,7 +474,7 @@ void main() {
 
     test('reset revokes Pro and logs household.reset', () async {
       final care = await freshCare();
-      await care.startTrial();
+      care.applyStoreEntitlement(true, BillingPlan.yearly);
       await care.reset();
       expect(care.isPro, isFalse);
       expect(care.canInviteHousehold, isFalse);
@@ -549,7 +551,7 @@ void main() {
         clock: () => DateTime(2026, 10, 3, 14),
       );
       await care.addPet(name: 'Milo', species: Species.cat);
-      await care.startTrial();
+      care.applyStoreEntitlement(true, BillingPlan.yearly);
       expect(await care.ensureSitterWebLink(), isNull);
       expectLogged('sitter.link_skipped', fields: {'reason': 'not_connected'});
     });
@@ -573,7 +575,7 @@ void main() {
         clock: () => DateTime(2026, 10, 3, 14),
       );
       await care.addPet(name: 'Milo', species: Species.cat);
-      await care.startTrial();
+      care.applyStoreEntitlement(true, BillingPlan.yearly);
       expect(await care.connect(), isNull);
       AppLog.testRecords.clear();
 
@@ -594,7 +596,7 @@ void main() {
         clock: () => DateTime(2026, 10, 3, 14),
       );
       await connected.addPet(name: 'Milo', species: Species.cat);
-      await connected.startTrial();
+      connected.applyStoreEntitlement(true, BillingPlan.yearly);
       await connected.connect();
       AppLog.testRecords.clear();
 
@@ -608,14 +610,14 @@ void main() {
       final adapter = FakeHouseholdAdapter([
         (201, connectHouseholdBody()),
         (200, {'ok': true}), // push device register
-        (403, {'error': 'Browser sitter links need PawsitiveSync Pro.'}),
+        (403, {'error': 'Browser sitter links need Pawsitive Pro.'}),
       ]);
       final care = CareRepository(
         api: fakeHouseholdApi(adapter),
         clock: () => DateTime(2026, 10, 3, 14),
       );
       await care.addPet(name: 'Milo', species: Species.cat);
-      await care.startTrial();
+      care.applyStoreEntitlement(true, BillingPlan.yearly);
       await care.connect();
       AppLog.testRecords.clear();
 
@@ -652,7 +654,7 @@ void main() {
         clock: () => DateTime(2026, 10, 3, 14),
       );
       await care.addPet(name: 'Miso', species: Species.cat);
-      await care.startTrial();
+      care.applyStoreEntitlement(true, BillingPlan.yearly);
       await care.connect();
       AppLog.testRecords.clear();
 
@@ -688,7 +690,7 @@ void main() {
         clock: () => DateTime(2026, 10, 3, 14),
       );
       await care.addPet(name: 'Miso', species: Species.cat);
-      await care.startTrial();
+      care.applyStoreEntitlement(true, BillingPlan.yearly);
       await care.connect();
       AppLog.testRecords.clear();
 

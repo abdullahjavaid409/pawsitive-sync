@@ -65,7 +65,7 @@ class _LockScreenState extends State<LockScreen> {
           const SizedBox(height: 30),
           Material(color: scheme.surfaceContainerLowest, borderRadius: BorderRadius.circular(28), child: Padding(
             padding: const EdgeInsets.all(22), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              Row(children: [StrokeIcon(StrokeIconKind.paw, size: 19, color: context.paws.brandDark), const SizedBox(width: 8), Expanded(child: Text('PawsitiveSync', style: text.titleSmall)),
+              Row(children: [StrokeIcon(StrokeIconKind.paw, size: 19, color: context.paws.brandDark), const SizedBox(width: 8), Expanded(child: Text('Pawsitive', style: text.titleSmall)),
                 Text(given ? 'Logged' : uncertain ? 'Check first' : isDue ? 'Due' : 'Today', style: text.bodySmall)]),
               const SizedBox(height: 22),
               Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
