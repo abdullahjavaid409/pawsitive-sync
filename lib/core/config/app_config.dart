@@ -11,6 +11,11 @@ abstract final class AppConfig {
       : (kReleaseMode ? _productionApi : '');
 
   /// RevenueCat iOS public key. Empty = Pro trial works locally; store purchases need a key.
+  /// Automated QA only (`--dart-define=QA_LOCAL_PRO=true`): the paywall
+  /// unlocks Pro without a store so test runs can cover Pro flows. Never set
+  /// for builds people use — normal debug and release go through the store.
+  static const qaLocalPro = bool.fromEnvironment('QA_LOCAL_PRO');
+
   static const revenueCatIosKey = String.fromEnvironment('REVENUECAT_IOS_KEY');
 
   /// RevenueCat Android public key. Empty = same as iOS — local trial only.

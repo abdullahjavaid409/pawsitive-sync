@@ -272,7 +272,7 @@ void main() {
       await qa.tap(find.text('Not now'));
       await qa.tap(find.text('Start 7-day free trial · Yearly'));
       await qa.see('Pro');
-      qa.event('billing.trial.local_fallback');
+      qa.event('billing.trial.qa_local');
       expect(_care(t).isPro, isTrue);
     });
 

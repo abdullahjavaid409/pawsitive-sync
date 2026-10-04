@@ -275,27 +275,16 @@ void main() {
     });
   }
 
-  testWidgets('settings debug section loads and clears demo data', (
-    tester,
-  ) async {
+  testWidgets('settings has no demo-data or debug controls', (tester) async {
     final care = CareRepository(clock: () => DateTime(2026, 10, 3, 14));
     final router = await _pump(tester, care);
     router.go(AppRoutes.settings);
     await tester.pumpAndSettle();
-
-    expect(care.pets, isEmpty);
-    await _reveal(tester, find.text('Load demo data'));
-    await tester.tap(find.text('Load demo data'));
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -2000));
     await tester.pumpAndSettle();
-    expect(care.pets, isNotEmpty);
-    expect(AppLog.logged('debug.demo_data.loaded'), isTrue);
-
-    await _reveal(tester, find.text('Clear demo data'));
-    await tester.tap(find.text('Clear demo data'));
-    await tester.pumpAndSettle();
+    expect(find.textContaining('demo', findRichText: true), findsNothing);
+    expect(find.textContaining('DEBUG'), findsNothing);
     expect(care.pets, isEmpty);
-    expect(AppLog.logged('debug.demo_data.cleared'), isTrue);
-    expect(AppLog.logged('household.reset'), isTrue);
   });
 }
 

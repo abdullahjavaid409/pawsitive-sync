@@ -90,6 +90,8 @@ class CareRepository extends ChangeNotifier {
     if (sample) loadSampleData();
   }
 
+  /// Demo household for widget tests only — never reachable from the app.
+  @visibleForTesting
   factory CareRepository.sample({
     HouseholdApi? api,
     DateTime Function()? clock,
@@ -1573,6 +1575,7 @@ class CareRepository extends ChangeNotifier {
   }
 
   /// Demo household used by widget tests.
+  @visibleForTesting
   void loadSampleData() {
     final today = dayKey(now);
     _apply(

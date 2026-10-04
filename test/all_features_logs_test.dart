@@ -393,6 +393,50 @@ void main() {
       expect(care.isPro, isTrue);
     });
 
+    test('live store update: purchase lands late, then expires (solo)', () async {
+      final care = CareRepository(clock: () => DateTime(2026, 10, 3, 14));
+      await care.addPet(name: 'Milo', species: Species.cat);
+      expect(care.isPro, isFalse);
+      care.applyStoreEntitlement(true, BillingPlan.yearly);
+      expect(care.isPro, isTrue);
+      expectLogged(
+        'billing.store.entitlement_changed',
+        fields: {'active': true},
+      );
+      care.applyStoreEntitlement(false, null);
+      expect(care.isPro, isFalse, reason: 'own subscription ended');
+      expect(care.canAddPet, isFalse);
+    });
+
+    test('store expiry keeps household Pro a partner pays for', () async {
+      final care = CareRepository(
+        api: fakeHouseholdApi(FakeHouseholdAdapter([
+          (201, connectHouseholdBody(isPro: true)),
+          (200, {'ok': true}),
+        ])),
+        clock: () => DateTime(2026, 10, 3, 14),
+      );
+      await care.addPet(name: 'Milo', species: Species.cat);
+      await care.connect();
+      care.applyStoreEntitlement(true, BillingPlan.monthly);
+      care.applyStoreEntitlement(false, null);
+      expect(care.isPro, isTrue, reason: 'server still says household is Pro');
+    });
+
+    test('subscriber stays Pro after a restart even if store is down', () async {
+      final care = CareRepository(
+        store: HouseholdStore(),
+        clock: () => DateTime(2026, 10, 3, 14),
+      );
+      await care.addPet(name: 'Milo', species: Species.cat);
+      care.applyStoreEntitlement(true, BillingPlan.yearly);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      final reloaded = CareRepository(store: HouseholdStore());
+      await reloaded.restore();
+      expect(reloaded.isPro, isTrue);
+      expect(reloaded.pets.single.name, 'Milo');
+    });
+
     test('store account id is per household, never the shared "you"', () async {
       final care = CareRepository(
         api: fakeHouseholdApi(FakeHouseholdAdapter([

@@ -14,7 +14,7 @@ xcrun simctl status_bar "$SIM" override --time "9:41" --dataNetwork wifi \
   --batteryState charged --batteryLevel 100
 
 flutter test integration_test/store_screenshots_test.dart -d "$SIM" \
-  --dart-define=API_BASE_URL=http://127.0.0.1:3100 2>&1 |
+  --dart-define=API_BASE_URL=http://127.0.0.1:3100 --dart-define=QA_LOCAL_PRO=true 2>&1 |
 while IFS= read -r line; do
   echo "$line"
   if [[ "$line" =~ \[shot\]\ ([a-z_0-9]+) ]]; then

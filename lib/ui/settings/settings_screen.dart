@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/legal/app_links.dart';
@@ -94,23 +93,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
         ),
       );
     }
-  }
-
-  void _loadDemoData(CareRepository care) {
-    AppLog.event('debug.demo_data.loaded');
-    care.loadSampleData();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Demo data loaded — 2 pets, meds, today\'s doses.')),
-    );
-  }
-
-  Future<void> _clearDemoData(CareRepository care) async {
-    AppLog.event('debug.demo_data.cleared');
-    await care.reset();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Cleared. Back to empty.')),
-    );
   }
 
   Future<void> _deleteAccount() async {
@@ -339,33 +321,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
               'Required by Apple and Google: delete removes all app data from this device.',
               style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
             ),
-            if (kDebugMode) ...[
-              const SizedBox(height: 24),
-              Text('DEBUG · SCREENSHOTS ONLY', style: text.labelSmall),
-              const SizedBox(height: 8),
-              SurfaceCard(
-                child: Column(
-                  children: [
-                    ListTile(
-                      title: const Text('Load demo data'),
-                      subtitle: const Text(
-                        '2 pets, 4 meds, and today\'s doses — for App Store screenshots.',
-                      ),
-                      onTap: () => _loadDemoData(care),
-                    ),
-                    Divider(height: 1, color: scheme.outlineVariant),
-                    ListTile(
-                      title: Text(
-                        'Clear demo data',
-                        style: TextStyle(color: scheme.error),
-                      ),
-                      subtitle: const Text('Wipes everything on this phone back to empty.'),
-                      onTap: () => _clearDemoData(care),
-                    ),
-                  ],
-                ),
-              ),
-            ],
             const SizedBox(height: 24),
             Center(
               child: Text(
