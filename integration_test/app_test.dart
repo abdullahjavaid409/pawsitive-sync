@@ -106,6 +106,18 @@ void main() {
       qa.noEvent('medication.add.completed');
     });
 
+    await qa.step('Pro gate: evening dose time opens paywall', () async {
+      await qa.see('Free includes the morning dose', partial: true);
+      await qa.tap(find.text('Evening'));
+      await qa.see('Morning and evening, both covered');
+      qa.event('billing.paywall.opened', {'reason': 'more_dose_times'});
+      qa.event('medication.add.blocked', {'reason': 'free_tier_times'});
+      await qa.tap(find.byTooltip('Close'));
+      // Back on the form, still morning only, nothing typed lost.
+      await qa.see('Apoquel');
+      qa.noEvent('medication.add.completed');
+    });
+
     await qa.step(
       'Add medicine with supply tracking (offline write)',
       () async {
@@ -123,9 +135,17 @@ void main() {
       },
     );
 
-    await qa.step('Log a dose from Today', () async {
+    await qa.step('Not sure if given marks a dose for a check', () async {
       await qa.tap(find.text('Log dose'));
       await qa.see('Log apoquel');
+      await qa.tap(find.text('Not sure if given'));
+      await qa.see('Needs a check');
+      await qa.see('Luna · You are not sure — check first');
+      qa.event('dose.uncertain.completed');
+    });
+
+    await qa.step('Review the unsure dose and log it', () async {
+      await qa.tap(find.text('Review dose'));
       await qa.tap(find.text('Log dose').last);
       await qa.see('All cared for.');
       qa.event('dose.log.completed');
@@ -149,38 +169,16 @@ void main() {
       expect(qa.count('dose.log.completed'), 1);
     });
 
-    await qa.step('Not sure if given marks a dose for a check', () async {
-      await qa.tap(find.text('Add'));
-      await qa.type(
-        find.widgetWithText(TextField, 'e.g. Apoquel'),
-        'Gabapentin',
-      );
-      await qa.tap(find.text('Save medicine'));
-      await qa.gone('Gabapentin is on Luna’s Today list.', seconds: 8);
-      await qa.tap(find.text('Log dose'));
-      await qa.tap(find.text('Not sure if given'));
-      await qa.see('Needs a check');
-      await qa.see('Luna · You are not sure — check first');
-      qa.event('dose.uncertain.completed');
-    });
-
-    await qa.step('Skip today removes the dose from Today', () async {
-      await qa.tap(find.text('Review dose'));
-      await qa.tap(find.text('Skip today'));
-      await qa.see('All cared for.');
-      qa.event('dose.skip.completed');
-    });
-
-    await qa.step('Pro gate: third medicine opens paywall', () async {
+    await qa.step('Pro gate: second medicine opens paywall', () async {
       final care = _care(t);
       final petId = care.pets.single.id;
-      expect(care.activeMedicationCount(petId), 2);
+      expect(care.activeMedicationCount(petId), 1);
       expect(care.canAddMedication(petId), isFalse);
       await qa.tap(find.text('Add'));
       await qa.see('Every medicine, one schedule');
       qa.event('billing.paywall.opened', {'reason': 'more_meds'});
       await qa.tap(find.byTooltip('Close'));
-      expect(care.medications, hasLength(2));
+      expect(care.medications, hasLength(1));
       // Logging what's already scheduled stays free at the cap.
       expect(care.doses.where((d) => d.petId == petId), isNotEmpty);
     });
@@ -265,7 +263,7 @@ void main() {
       final care = _care(t);
       final report = care.reportFor(care.pets.single.id, 30);
       expect(report.lines.fold<int>(0, (sum, l) => sum + l.given), 1);
-      expect(report.skipped, 1);
+      expect(report.skipped, 0);
     });
 
     await qa.step('Pro gate: 90-day history opens paywall', () async {
@@ -277,22 +275,22 @@ void main() {
       expect(_care(t).historyFromDay, isNotNull);
     });
 
-    await qa.step('Stop medicine and its SnackBar dismisses', () async {
-      await qa.tapLabel('Pets');
-      await qa.tap(find.text('Gabapentin'));
-      await qa.tap(find.text('Stop medicine'));
-      await qa.tap(find.text('Stop medicine').last);
-      await qa.see('Gabapentin was stopped.');
-      qa.event('medication.remove.completed');
-      await qa.gone('Gabapentin was stopped.', seconds: 8);
-    });
-
     await qa.step('Offline data survives a cold reload', () async {
       final reloaded = CareRepository(store: HouseholdStore());
       await reloaded.restore();
       expect(reloaded.pets.single.name, 'Luna Belle');
       expect(reloaded.medications.map((m) => m.name), ['Apoquel']);
       expect(reloaded.medications.single.dosesLeft, 3);
+    });
+
+    await qa.step('Stop medicine and its SnackBar dismisses', () async {
+      await qa.tapLabel('Pets');
+      await qa.tap(find.text('Apoquel'));
+      await qa.tap(find.text('Stop medicine'));
+      await qa.tap(find.text('Stop medicine').last);
+      await qa.see('Apoquel was stopped.');
+      qa.event('medication.remove.completed');
+      await qa.gone('Apoquel was stopped.', seconds: 8);
     });
 
     await qa.step('Edge: a stopped medicine frees a slot under the cap', () async {
