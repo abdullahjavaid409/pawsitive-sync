@@ -744,9 +744,17 @@ void main() {
       expect(link, contains('t=abc%2Bdef%2Ftoken'));
     });
 
-    test('householdJoinLink encodes invite code', () {
-      final link = AppLinks.householdJoinLink('ABC 123');
-      expect(link, contains('code=ABC%20123'));
+    test('no invite link until the App Store ID is set (never a dead URL)', () {
+      expect(AppLinks.householdJoinLink('ABC123'), isNull);
+    });
+
+    test('legal links point at live pages, support is a real inbox', () {
+      expect(AppLinks.privacy, 'https://sites.google.com/view/pawasitive/home');
+      expect(AppLinks.terms, contains('apple.com/legal'));
+      expect(AppLinks.support, 'mailto:workplace0331@gmail.com');
+      for (final link in [AppLinks.privacy, AppLinks.terms, AppLinks.support]) {
+        expect(link, isNot(contains('pawsitivesync.app')));
+      }
     });
   });
 

@@ -78,9 +78,11 @@ class _InviteScreenState extends State<InviteScreen> {
       return 'Help me with $who’s medicine today — log doses here (no app needed):\n\n$web';
     }
     final link = AppLinks.householdJoinLink(care.inviteCode);
+    final install = link == null
+        ? 'Install PawsitiveSync from the App Store'
+        : 'Get PawsitiveSync: $link';
     return 'Help me with $who’s medicine on PawsitiveSync, so no dose is missed or given twice.\n\n'
-        'Tap to join: $link\n\n'
-        'Or open the app, tap “I have an invite code”, and enter: ${care.inviteCode}';
+        '$install, tap “I have an invite code”, and enter: ${care.inviteCode}';
   }
 
   Future<void> _share(BuildContext buttonContext, CareRepository care) async {
@@ -104,6 +106,7 @@ class _InviteScreenState extends State<InviteScreen> {
     final tokens = context.paws;
     final text = Theme.of(context).textTheme;
     final code = care.inviteCode;
+    final joinLink = AppLinks.householdJoinLink(code);
     final ready = care.isConnected && code.isNotEmpty;
 
     return Scaffold(
@@ -282,6 +285,7 @@ class _InviteScreenState extends State<InviteScreen> {
                           ],
                         ),
                       ),
+                      if (joinLink != null) ...[
                       const SizedBox(height: 24),
                       Text('App invite (partner / family)', style: text.titleMedium),
                       const SizedBox(height: 8),
@@ -298,7 +302,7 @@ class _InviteScreenState extends State<InviteScreen> {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             SelectableText(
-                              AppLinks.householdJoinLink(code),
+                              joinLink,
                               style: text.bodyMedium?.copyWith(
                                 color: tokens.brandDark,
                               ),
@@ -306,9 +310,8 @@ class _InviteScreenState extends State<InviteScreen> {
                             const SizedBox(height: 12),
                             OutlinedButton.icon(
                               onPressed: () async {
-                                final link = AppLinks.householdJoinLink(code);
                                 await Clipboard.setData(
-                                  ClipboardData(text: link),
+                                  ClipboardData(text: joinLink),
                                 );
                                 if (!mounted) return;
                                 AppLog.event('invite.link_copied');
@@ -327,6 +330,7 @@ class _InviteScreenState extends State<InviteScreen> {
                           ],
                         ),
                       ),
+                      ],
                     ],
                     const SizedBox(height: 24),
                     Text('How they join', style: text.titleMedium),

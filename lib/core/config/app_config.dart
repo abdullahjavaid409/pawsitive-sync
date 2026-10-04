@@ -16,6 +16,10 @@ abstract final class AppConfig {
   /// for builds people use — normal debug and release go through the store.
   static const qaLocalPro = bool.fromEnvironment('QA_LOCAL_PRO');
 
+  /// Numeric App Store ID (App Store Connect → App Information → Apple ID).
+  /// Empty until set: invites share the code only, never a dead link.
+  static const appStoreId = String.fromEnvironment('APP_STORE_ID');
+
   static const revenueCatIosKey = String.fromEnvironment('REVENUECAT_IOS_KEY');
 
   /// RevenueCat Android public key. Empty = same as iOS — local trial only.

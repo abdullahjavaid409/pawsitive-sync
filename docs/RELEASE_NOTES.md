@@ -106,6 +106,6 @@ Pro: every pet, household invites, vet export, refill warnings.
 
 - Subscriptions: Pro via RevenueCat; restore purchases in Settings and Paywall  
 - Account deletion: Settings → Delete account on this phone  
-- Privacy: https://pawsitivesync.app/privacy  
-- Terms: https://pawsitivesync.app/terms  
+- Privacy: https://sites.google.com/view/pawasitive/home  
+- Terms: https://www.apple.com/legal/internet-services/itunes/dev/stdeula/  
 - No medical advice; medication tracking tool for pet caregivers  
