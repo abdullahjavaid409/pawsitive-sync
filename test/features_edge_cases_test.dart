@@ -44,10 +44,42 @@ void main() {
     });
   });
 
+  group('Free tier limits', () {
+    test('medicine cap per pet; Pro has no cap', () async {
+      DateTime clock() => DateTime(2026, 10, 10, 14);
+      final care = CareRepository(clock: clock);
+      final petId = await care.addPet(name: 'Milo', species: Species.cat);
+      for (var i = 0; i < PetLimits.maxMedsPerPetFree; i++) {
+        expect(
+          await care.addMedication(
+            petId: petId!,
+            name: 'Med $i',
+            amount: '',
+            parts: [DayPart.morning],
+          ),
+          isTrue,
+        );
+      }
+      expect(care.canAddMedication(petId!), isFalse);
+      care.debugStorePro = true;
+      expect(care.canAddMedication(petId), isTrue);
+    });
+
+    test('Free history and reports cover the last 30 days; Pro sees all', () {
+      final care = CareRepository.sample(
+        clock: () => DateTime(2026, 10, 10, 14),
+      );
+      expect(care.historyFromDay, '2026-09-11');
+      care.debugStorePro = true;
+      expect(care.historyFromDay, isNull);
+    });
+  });
+
   group('Medication course end', () {
     test('medication with endDay is inactive after course ends', () async {
       DateTime clock() => DateTime(2026, 10, 10, 14);
-      final care = CareRepository.sample(clock: clock);
+      // Pro: the sample's Miso already has Free's medicine count.
+      final care = CareRepository.sample(clock: clock)..debugStorePro = true;
       final endDay = dayKey(clock().add(const Duration(days: 7)));
       await care.addMedication(
         petId: 'miso',

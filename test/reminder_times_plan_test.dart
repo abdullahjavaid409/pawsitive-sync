@@ -86,6 +86,7 @@ void main() {
     List<DoseRecord> logs = const [],
     ReminderSettings settings = const ReminderSettings(weeklySummary: false),
     Set<String> resolved = const {},
+    bool isPro = false,
   }) => ReminderPlanner.plan(
     ReminderPlanInput(
       now: now,
@@ -96,6 +97,7 @@ void main() {
       memberNames: const {'you': 'You', 'dan': 'Dan'},
       settings: settings,
       resolvedKeys: resolved,
+      isPro: isPro,
     ),
   );
 
@@ -307,6 +309,7 @@ void main() {
         ],
         logs: logs,
         settings: const ReminderSettings(),
+        isPro: true,
       ).singleWhere((n) => n.kind == ReminderKind.weekly);
       expect(weekly.body, startsWith('Every dose given this week — 7 of 7.'));
     });

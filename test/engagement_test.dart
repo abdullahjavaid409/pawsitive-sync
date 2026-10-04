@@ -285,7 +285,11 @@ void main() {
       ]) {
         expect(find.text(label), findsOneWidget, reason: label);
       }
-      expect(find.text('See Pro'), findsOneWidget, reason: 'refill stays Pro');
+      expect(
+        find.text('See Pro'),
+        findsNWidgets(2),
+        reason: 'weekly summary and refill are Pro',
+      );
       await tester.tap(find.text('Follow-up if not logged'));
       await tester.pumpAndSettle();
       expect(engagement.settings.followUp, isFalse);

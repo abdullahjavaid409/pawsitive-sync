@@ -171,6 +171,20 @@ void main() {
       qa.event('dose.skip.completed');
     });
 
+    await qa.step('Pro gate: third medicine opens paywall', () async {
+      final care = _care(t);
+      final petId = care.pets.single.id;
+      expect(care.activeMedicationCount(petId), 2);
+      expect(care.canAddMedication(petId), isFalse);
+      await qa.tap(find.text('Add'));
+      await qa.see('Every medicine, one schedule');
+      qa.event('billing.paywall.opened', {'reason': 'more_meds'});
+      await qa.tap(find.byTooltip('Close'));
+      expect(care.medications, hasLength(2));
+      // Logging what's already scheduled stays free at the cap.
+      expect(care.doses.where((d) => d.petId == petId), isNotEmpty);
+    });
+
     await qa.step('Care event add and remove', () async {
       await qa.tap(find.text('Add event'));
       await qa.tap(find.text('Save event'));
@@ -254,6 +268,15 @@ void main() {
       expect(report.skipped, 1);
     });
 
+    await qa.step('Pro gate: 90-day history opens paywall', () async {
+      await qa.tap(find.text('90 days'));
+      await qa.see('Their whole story, not just a month');
+      qa.event('report.range_locked', {'days': 90});
+      qa.event('billing.paywall.opened', {'reason': 'history'});
+      await qa.tap(find.byTooltip('Close'));
+      expect(_care(t).historyFromDay, isNotNull);
+    });
+
     await qa.step('Stop medicine and its SnackBar dismisses', () async {
       await qa.tapLabel('Pets');
       await qa.tap(find.text('Gabapentin'));
@@ -272,11 +295,24 @@ void main() {
       expect(reloaded.medications.single.dosesLeft, 3);
     });
 
+    await qa.step('Edge: a stopped medicine frees a slot under the cap', () async {
+      final care = _care(t);
+      expect(care.canAddMedication(care.pets.single.id), isTrue);
+    });
+
     await qa.step('Settings: restore purchases without a store', () async {
       await qa.tapLabel('Today');
       await qa.tap(find.byTooltip('Settings'));
       await qa.tap(find.text('Restore purchases'));
       qa.event('billing.restore.requested');
+    });
+
+    await qa.step('Pro gate: weekly summary opens paywall', () async {
+      await qa.see('Weekly summary');
+      await qa.tap(find.text('See Pro').first);
+      await qa.see('Know the week went right');
+      qa.event('billing.paywall.opened', {'reason': 'weekly_summary'});
+      await qa.tap(find.byTooltip('Close'));
     });
 
     await qa.step('Settings: delete account wipes the phone', () async {
@@ -442,14 +478,21 @@ void main() {
         seconds: 15,
         what: 'partner sees refilled supply',
       );
-      // Refill opens from the medication page; back out until the tabs show.
+      // Refill opens from the medication page; back out until the tabs show
+      // (bottom tabs on phones, a side rail on tablets).
       final petsTab = find.byWidgetPredicate(
         (w) =>
             w is Semantics &&
             w.properties.button == true &&
             w.properties.label == 'Pets',
       );
-      for (var i = 0; i < 3 && petsTab.evaluate().isEmpty; i++) {
+      bool tabsShown() =>
+          petsTab.evaluate().isNotEmpty ||
+          find.byType(NavigationRail).evaluate().isNotEmpty &&
+              find.text('Back').evaluate().isEmpty;
+      for (var i = 0;
+          i < 3 && !tabsShown() && find.text('Back').evaluate().isNotEmpty;
+          i++) {
         await qa.tap(find.text('Back').last);
       }
     });

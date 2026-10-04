@@ -100,16 +100,33 @@ class NotificationSettings extends StatelessWidget {
                   onChanged: on ? (v) => save(s.copyWith(followUp: v)) : null,
                 ),
                 divider(),
-                SwitchListTile(
-                  title: const Text('Weekly summary'),
-                  subtitle: const Text(
-                    'Sunday evening: how many doses were given this week.',
+                if (care.canUseWeeklySummary)
+                  SwitchListTile(
+                    title: const Text('Weekly summary'),
+                    subtitle: const Text(
+                      'Sunday evening: how many doses were given this week.',
+                    ),
+                    value: on && s.weeklySummary,
+                    onChanged: on
+                        ? (v) => save(s.copyWith(weeklySummary: v))
+                        : null,
+                  )
+                else
+                  ListTile(
+                    title: const Text('Weekly summary'),
+                    subtitle: const Text(
+                      'Pro · a Sunday recap of the week’s doses.',
+                    ),
+                    trailing: TextButton(
+                      onPressed: () => context.push(
+                        AppRoutes.paywallWith(
+                          reason: 'weekly_summary',
+                          from: 'settings_weekly',
+                        ),
+                      ),
+                      child: const Text('See Pro'),
+                    ),
                   ),
-                  value: on && s.weeklySummary,
-                  onChanged: on
-                      ? (v) => save(s.copyWith(weeklySummary: v))
-                      : null,
-                ),
                 divider(),
                 if (care.isPro)
                   SwitchListTile(

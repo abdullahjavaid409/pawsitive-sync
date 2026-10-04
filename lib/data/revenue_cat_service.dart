@@ -265,6 +265,12 @@ abstract final class RevenueCatService {
   static Future<void> logOut() async {
     if (!_initialized) return;
     try {
+      // Never identified (Free, never shared): the SDK rejects logOut for an
+      // anonymous user, so there's nothing to do — not an error.
+      if (await Purchases.isAnonymous.timeout(_networkTimeout)) {
+        AppLog.event('billing.rc.logout', {'skipped': 'anonymous'});
+        return;
+      }
       await Purchases.logOut().timeout(_networkTimeout);
       AppLog.event('billing.rc.logout');
     } catch (error, stack) {

@@ -433,7 +433,9 @@ void main() {
   group('Persistence', () {
     test('a burst of offline dose logs is saved in one write', () async {
       final store = _CountingStore();
-      final care = CareRepository(store: store, clock: _clock);
+      // Pro: ten medicines on one pet is over Free's cap.
+      final care = CareRepository(store: store, clock: _clock)
+        ..debugStorePro = true;
       final petId = await care.addPet(name: 'Milo', species: Species.cat);
       for (var i = 0; i < 10; i++) {
         await care.addMedication(

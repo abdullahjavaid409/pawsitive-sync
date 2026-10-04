@@ -398,6 +398,7 @@ void main() {
         now: nyNow(2026, 10, 4, 17),
         logs: weekLogs(skip: 1),
         settings: const ReminderSettings(),
+        isPro: true,
       );
       final weekly = result.singleWhere((n) => n.kind == ReminderKind.weekly);
       expect(weekly.when, tz.TZDateTime(ny, 2026, 10, 4, 18));
@@ -411,40 +412,64 @@ void main() {
         now: nyNow(2026, 10, 4, 17),
         logs: weekLogs(),
         settings: const ReminderSettings(),
+        isPro: true,
       ).singleWhere((n) => n.kind == ReminderKind.weekly);
       expect(weekly.body, startsWith('Every dose given this week — 13 of 13.'));
     });
 
-    test('scheduled days ahead says "so far"; nothing logged sends nothing', () {
-      final early = plan(
-        now: nyNow(2026, 9, 30, 21),
+    test(
+      'scheduled days ahead says "so far"; nothing logged sends nothing',
+      () {
+        final early = plan(
+          now: nyNow(2026, 9, 30, 21),
+          logs: weekLogs(),
+          settings: const ReminderSettings(),
+          isPro: true,
+        ).singleWhere((n) => n.kind == ReminderKind.weekly);
+        expect(early.body, contains('so far'));
+        final none = plan(
+          now: nyNow(2026, 10, 4, 17),
+          settings: const ReminderSettings(),
+          isPro: true,
+        ).where((n) => n.kind == ReminderKind.weekly);
+        expect(
+          none,
+          isEmpty,
+          reason: 'no guilt summary when nothing was logged',
+        );
+      },
+    );
+
+    test('Pro only: Free gets dose reminders, never the weekly recap', () {
+      final free = plan(
+        now: nyNow(2026, 10, 4, 17),
         logs: weekLogs(),
         settings: const ReminderSettings(),
-      ).singleWhere((n) => n.kind == ReminderKind.weekly);
-      expect(early.body, contains('so far'));
-      final none = plan(
-        now: nyNow(2026, 10, 4, 17),
-        settings: const ReminderSettings(),
-      ).where((n) => n.kind == ReminderKind.weekly);
-      expect(none, isEmpty, reason: 'no guilt summary when nothing was logged');
+      );
+      expect(free.where((n) => n.kind == ReminderKind.weekly), isEmpty);
+      expect(free.where((n) => n.kind == ReminderKind.dose), isNotEmpty);
     });
 
     test('opt-out and multi-pet copy', () {
       expect(
-        plan(now: nyNow(2026, 10, 4, 17), logs: weekLogs())
-            .where((n) => n.kind == ReminderKind.weekly),
+        plan(
+          now: nyNow(2026, 10, 4, 17),
+          logs: weekLogs(),
+        ).where((n) => n.kind == ReminderKind.weekly),
         isEmpty,
       );
-      final (title, body) = ReminderCopy.weekly(
-        [('Miso', 13, 14), ('Bean', 7, 7)],
-        partial: false,
-      );
+      final (title, body) = ReminderCopy.weekly([
+        ('Miso', 13, 14),
+        ('Bean', 7, 7),
+      ], partial: false);
       expect(title, 'This week’s care');
       expect(body, 'Miso 13 of 14 · Bean 7 of 7 doses given.');
-      final many = ReminderCopy.weekly(
-        [('A', 1, 2), ('B', 2, 2), ('C', 3, 3), ('D', 4, 4)],
-        partial: false,
-      );
+      final many = ReminderCopy.weekly([
+        ('A', 1, 2),
+        ('B', 2, 2),
+        ('C', 3, 3),
+        ('D', 4, 4),
+      ], partial: false);
       expect(many.$2, 'Your pets got 10 of 11 doses this week.');
     });
 
@@ -453,7 +478,11 @@ void main() {
         now: nyNow(2026, 10, 4, 12),
         logs: weekLogs(),
         pets: const [_miso, _bean],
-        settings: const ReminderSettings(quietStartMinute: 17 * 60, quietEndMinute: 19 * 60),
+        settings: const ReminderSettings(
+          quietStartMinute: 17 * 60,
+          quietEndMinute: 19 * 60,
+        ),
+        isPro: true,
       ).singleWhere((n) => n.kind == ReminderKind.weekly);
       expect(weekly.when, tz.TZDateTime(ny, 2026, 10, 4, 19));
     });

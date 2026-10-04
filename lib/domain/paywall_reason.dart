@@ -12,6 +12,21 @@ enum PaywallReason {
 
   /// A free solo user marked a dose "not sure if given".
   uncertain,
+
+  /// A free pet already has its maximum number of medicines.
+  moreMeds,
+
+  /// A free user asked for history older than the free window.
+  history,
+
+  /// Weekly summary notification (Pro).
+  weeklySummary,
+
+  /// The recurring idle upgrade prompt on Today.
+  weekly,
+
+  /// The daily idle upgrade prompt in a free user's first week.
+  firstWeek,
 }
 
 extension PaywallReasonQuery on PaywallReason {
@@ -24,6 +39,11 @@ extension PaywallReasonQuery on PaywallReason {
     PaywallReason.settings => 'settings',
     PaywallReason.refill => 'refill',
     PaywallReason.uncertain => 'uncertain',
+    PaywallReason.moreMeds => 'more_meds',
+    PaywallReason.history => 'history',
+    PaywallReason.weeklySummary => 'weekly_summary',
+    PaywallReason.weekly => 'weekly',
+    PaywallReason.firstWeek => 'first_week',
   };
 
   static PaywallReason? fromQuery(String? raw) {
@@ -36,6 +56,11 @@ extension PaywallReasonQuery on PaywallReason {
       'settings' => PaywallReason.settings,
       'refill' => PaywallReason.refill,
       'uncertain' => PaywallReason.uncertain,
+      'more_meds' => PaywallReason.moreMeds,
+      'history' => PaywallReason.history,
+      'weekly_summary' => PaywallReason.weeklySummary,
+      'weekly' => PaywallReason.weekly,
+      'first_week' => PaywallReason.firstWeek,
       _ => null,
     };
   }
@@ -43,36 +68,57 @@ extension PaywallReasonQuery on PaywallReason {
   /// Pain-first headline + optional subline for this moment.
   (String headline, String? subline) get copy => switch (this) {
     PaywallReason.secondPet => (
-      'Track every pet in your household',
-      'Free covers one pet. Pro adds up to 10 with the same dose safety.',
+      'Every pet deserves the same care',
+      'Free covers one pet. Pro keeps every pet’s doses in one list, so nobody gets missed.',
     ),
     PaywallReason.invite => (
-      'Did your partner or sitter already dose?',
-      'Pro syncs one list so nobody double-doses.',
+      'Did your partner already give it?',
+      'No more “did you?” texts. Pro shows everyone who gave each dose, and when.',
     ),
     PaywallReason.vetExport => (
-      'Export a vet-ready dose log',
-      'View history free anytime. Pro shares a week-by-week report.',
+      'Walk into the vet with answers',
+      'Pro turns your log into a clear report the vet can read in seconds.',
     ),
     PaywallReason.milestone => (
-      'Care with someone else?',
-      'You have a solid routine — Pro adds household sync and every pet.',
+      'You’ve built a real routine',
+      'Now share it, so their care never depends on one person’s memory.',
     ),
     PaywallReason.settings => (
-      'Unlock the whole household',
-      'Every pet, invites, refill alerts, and vet export.',
+      'Give them your best care',
+      'Every pet, every medicine, shared care, refill alerts, and vet reports.',
     ),
     PaywallReason.refill => (
-      'Never run out by surprise',
-      'Pro sends a heads-up before a medicine runs low — for every pet.',
+      'Never run out on a Sunday night',
+      'Pro warns you before the bottle is empty, while there’s still time to refill.',
     ),
     PaywallReason.uncertain => (
       'Not sure if it was given?',
-      'With Pro, everyone in the household sees who gave each dose, and when.',
+      'That doubt is the worst part. With Pro, everyone sees who gave each dose.',
+    ),
+    PaywallReason.moreMeds => (
+      'Every medicine, one schedule',
+      'Free covers 2 medicines per pet. Pro tracks every one, so no dose is left to memory.',
+    ),
+    PaywallReason.history => (
+      'Their whole story, not just a month',
+      'Free shows 30 days. Pro keeps the full record, ready when the vet asks “since when?”',
+    ),
+    PaywallReason.weeklySummary => (
+      'Know the week went right',
+      'Every Sunday, Pro tells you how many doses were given, so you can relax.',
+    ),
+    PaywallReason.weekly => (
+      'Peace of mind for everyone who cares for them',
+      'Every pet and medicine, shared care, full history, and refill alerts.',
+    ),
+    PaywallReason.firstWeek => (
+      'Your first week, done right',
+      'Lock in the habit now: every pet, every medicine, everyone who helps.',
     ),
     PaywallReason.onboarding => (
-      'Never wonder if someone already gave the dose',
-      'Free covers one pet with full dose tracking. Pro unlocks shared care.',
+      'Never wonder “did they already get it?”',
+      'Two people, one pill, no record: that’s how double doses happen. Pro puts everyone on one list.',
     ),
   };
+
 }

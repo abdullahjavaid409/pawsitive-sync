@@ -164,7 +164,7 @@ void main() {
 
     test('engagement settings are read every time (weekly summary opt-out)', () async {
       // Sunday 2 PM: this morning's doses count toward tonight's summary.
-      final care = _care();
+      final care = _care()..debugStorePro = true;
       await DoseReminders.reschedule(care);
       expect(fake.ofKind(ReminderKind.weekly), hasLength(1));
       await ReminderSettingsStore.write(const ReminderSettings(weeklySummary: false));

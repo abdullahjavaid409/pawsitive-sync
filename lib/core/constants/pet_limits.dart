@@ -5,6 +5,14 @@ abstract final class PetLimits {
   /// Free tier: one pet. Pro unlocks up to [maxPetsPerHousehold].
   static const maxPetsFree = 1;
   static const maxPetsPerHousehold = 10;
+
+  /// Free tier: active medicines per pet. Pro has no cap. Logging the
+  /// doses of medicines already on the schedule is never limited.
+  static const maxMedsPerPetFree = 2;
+
+  /// Free tier: days of dose history shown. Older logs stay stored (and
+  /// still back the double-dose check); Pro shows them again.
+  static const freeHistoryDays = 30;
   static const maxAgeYears = 30;
   static const maxConditions = 12;
 

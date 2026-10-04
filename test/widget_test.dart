@@ -235,7 +235,8 @@ void main() {
   });
 
   test('a new medicine shows on Today and in the vet report', () async {
-    final care = CareRepository.sample();
+    // Pro: the sample's Miso already has Free's medicine count.
+    final care = CareRepository.sample()..debugStorePro = true;
     final before = care.doses.length;
     final saved = await care.addMedication(
       petId: 'miso',

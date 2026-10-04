@@ -48,23 +48,28 @@ class _PaywallScreenState extends State<PaywallScreen> {
     ),
   ];
 
-  /// Pain → solution. Pro gates only — multi-pet, household, export, supply.
+  /// Pain → solution. Pro gates only — multi-pet/meds, history, household,
+  /// export, supply, weekly summary.
   static const _proFeatures = [
     (
-      'We have more than one pet on meds',
-      'Track up to 10 pets — cats, dogs, rabbits, and more — in one household.',
+      'Every pet, every medicine',
+      'Up to 10 pets with no medicine limit, plus their full dose history.',
     ),
     (
-      'Did my partner or sitter already dose?',
-      'Invite with a code. Everyone sees the same list and who logged each dose.',
+      'No more “did you give it?” texts',
+      'Invite your partner or sitter. Everyone sees who gave each dose, and when.',
     ),
     (
-      'The vet asked for a clear log',
-      'Export a week-by-week report to share at checkups or send ahead to the clinic.',
+      'Answers ready for the vet',
+      'Export a clear week-by-week report to share at checkups.',
     ),
     (
-      'We almost ran out without noticing',
-      'Running-low alerts before the bottle is empty so refills do not slip by.',
+      'Never run out by surprise',
+      'Running-low alerts before the bottle is empty, while there’s time to refill.',
+    ),
+    (
+      'A Sunday check-in',
+      'A weekly summary of every dose given, so you know the week went right.',
     ),
   ];
 
@@ -356,7 +361,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
                     ],
                     const SizedBox(height: 8),
                     Text(
-                      'Pick a plan — yearly saves the most.',
+                      'Yearly saves the most. Cancel anytime in the App Store.',
                       style: text.bodyMedium?.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),
@@ -389,38 +394,10 @@ class _PaywallScreenState extends State<PaywallScreen> {
                             ),
                     ),
                     const SizedBox(height: 24),
-                    Text('Always free', style: text.titleMedium),
-                    const SizedBox(height: 4),
-                    Text(
-                      'One pet · dose logging · double-dose safety · reminders',
-                      style: text.bodyMedium?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    _FeatureCard(
-                      hairline: tokens.hairline,
-                      children: [
-                        for (final (index, feature) in _freeFeatures.indexed)
-                          Padding(
-                            padding: EdgeInsets.only(
-                              bottom: index == _freeFeatures.length - 1
-                                  ? 0
-                                  : 16,
-                            ),
-                            child: _FeatureRow(
-                              title: feature.$1,
-                              detail: feature.$2,
-                              accent: scheme.onSurfaceVariant,
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
                     Text('Pro unlocks', style: text.titleMedium),
                     const SizedBox(height: 4),
                     Text(
-                      'When care is shared or you have multiple pets',
+                      'For homes with more than one pet, or more than one caregiver',
                       style: text.bodyMedium?.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),
@@ -441,6 +418,34 @@ class _PaywallScreenState extends State<PaywallScreen> {
                               title: feature.$1,
                               detail: feature.$2,
                               accent: scheme.primary,
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 24),
+                    Text('Always free', style: text.titleMedium),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Dose safety is never behind a paywall.',
+                      style: text.bodyMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    _FeatureCard(
+                      hairline: tokens.hairline,
+                      children: [
+                        for (final (index, feature) in _freeFeatures.indexed)
+                          Padding(
+                            padding: EdgeInsets.only(
+                              bottom: index == _freeFeatures.length - 1
+                                  ? 0
+                                  : 16,
+                            ),
+                            child: _FeatureRow(
+                              title: feature.$1,
+                              detail: feature.$2,
+                              accent: scheme.onSurfaceVariant,
                             ),
                           ),
                       ],

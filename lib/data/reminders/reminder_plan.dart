@@ -727,7 +727,8 @@ abstract final class ReminderPlanner {
     tz.TZDateTime now,
   ) {
     final s = input.settings;
-    if (!s.weeklySummary) return null;
+    // Pro-only: Free keeps every dose reminder, not the weekly recap.
+    if (!input.isPro || !s.weeklySummary) return null;
     var date = DateTime(now.year, now.month, now.day);
     late tz.TZDateTime at;
     for (var i = 0; i < 8; i++) {

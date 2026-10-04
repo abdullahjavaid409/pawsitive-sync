@@ -43,7 +43,9 @@ void main() {
   testWidgets('add medicine: pick 7:15 AM for the morning dose, saved and shown', (
     tester,
   ) async {
-    final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 6));
+    // Pro: the sample's Miso already has Free's medicine count.
+    final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 6))
+      ..debugStorePro = true;
     final router = await _pump(tester, care);
     router.go('${AppRoutes.schedule}?pet=miso');
     await tester.pumpAndSettle();
@@ -69,7 +71,9 @@ void main() {
   });
 
   testWidgets('dismissing the picker keeps the default', (tester) async {
-    final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 6));
+    // Pro: the sample's Miso already has Free's medicine count.
+    final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 6))
+      ..debugStorePro = true;
     final router = await _pump(tester, care);
     router.go('${AppRoutes.schedule}?pet=miso');
     await tester.pumpAndSettle();

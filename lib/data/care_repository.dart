@@ -552,6 +552,39 @@ class CareRepository extends ChangeNotifier {
     return isPro || _pets.length < PetLimits.maxPetsFree;
   }
 
+  /// Medicines still on [petId]'s schedule (not stopped, not past their
+  /// last day) — what the Free cap counts.
+  int activeMedicationCount(String petId) {
+    final today = dayKey(now);
+    return _medications
+        .where(
+          (m) =>
+              m.petId == petId &&
+              !m.isArchived &&
+              (m.endDay.isEmpty || m.endDay.compareTo(today) >= 0),
+        )
+        .length;
+  }
+
+  /// Free tier allows [PetLimits.maxMedsPerPetFree] active medicines per
+  /// pet; Pro has no cap.
+  bool canAddMedication(String petId) =>
+      isPro || activeMedicationCount(petId) < PetLimits.maxMedsPerPetFree;
+
+  /// Pro-only: weekly summary notification.
+  bool get canUseWeeklySummary => isPro;
+
+  /// First day of history Free may see (YYYY-MM-DD), or null for Pro.
+  String? get historyFromDay => isPro
+      ? null
+      : dayKey(
+          DateTime(
+            now.year,
+            now.month,
+            now.day,
+          ).subtract(const Duration(days: PetLimits.freeHistoryDays - 1)),
+        );
+
   String get memberId => _memberId;
 
   // Read-only views, not copies: these are read many times per build and
@@ -799,9 +832,12 @@ class CareRepository extends ChangeNotifier {
   }
 
   List<DoseLog> historyFor(String medicationId) {
+    final from = historyFromDay;
     return [
       for (final log in _logs)
-        if (log.medicationId == medicationId && log.outcome == LogOutcome.given)
+        if (log.medicationId == medicationId &&
+            log.outcome == LogOutcome.given &&
+            (from == null || log.day.compareTo(from) >= 0))
           DoseLog(
             when: '${_dayLabel(log.day)} · ${log.timeLabel}',
             who: _who(log.memberId),
@@ -813,6 +849,10 @@ class CareRepository extends ChangeNotifier {
   /// [days] days, from real logs only. Includes medicines removed since, so
   /// the vet sees the whole period.
   PetReport reportFor(String petId, int days) {
+    // Free sees at most [PetLimits.freeHistoryDays]; the UI locks longer ranges.
+    if (!isPro && days > PetLimits.freeHistoryDays) {
+      days = PetLimits.freeHistoryDays;
+    }
     final time = now;
     final today = DateTime(time.year, time.month, time.day);
     final from = today.subtract(Duration(days: days - 1));
@@ -2279,6 +2319,17 @@ class CareRepository extends ChangeNotifier {
       AppLog.event('medication.add_rejected', {
         'reason': 'missing_pet',
         'petId': petId,
+      });
+      return Future.value(false);
+    }
+    if (!canAddMedication(petId)) {
+      lastError =
+          'Free includes ${PetLimits.maxMedsPerPetFree} medicines per pet. '
+          'Upgrade to Pro for every medicine.';
+      AppLog.event('medication.add.blocked', {
+        'reason': 'free_tier',
+        'petId': petId,
+        'count': activeMedicationCount(petId),
       });
       return Future.value(false);
     }

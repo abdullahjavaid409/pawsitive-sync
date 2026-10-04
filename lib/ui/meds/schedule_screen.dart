@@ -68,6 +68,17 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     _petId = widget.petId;
     _name.addListener(_refresh);
     _amount.addListener(_refresh);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final care = context.read<CareRepository>();
+      final petId = _petId ?? care.primaryPet?.id;
+      if (petId != null && !care.canAddMedication(petId)) {
+        // billing.paywall.opened reason=more_meds from=schedule_open.
+        context.pushReplacement(
+          AppRoutes.paywallWith(reason: 'more_meds', from: 'schedule_open'),
+        );
+      }
+    });
   }
 
   void _refresh() => setState(() => _error = null);
@@ -93,6 +104,19 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
   Future<void> _save(CareRepository care, Pet pet) async {
     if (_busy) return;
+    // Another pet picked on this screen may already be at the Free cap.
+    // The form stays filled, so saving after upgrading needs no retyping.
+    if (!care.canAddMedication(pet.id)) {
+      AppLog.event('medication.add.blocked', {
+        'reason': 'free_tier',
+        'petId': pet.id,
+        'from': 'schedule_save',
+      });
+      await context.push(
+        AppRoutes.paywallWith(reason: 'more_meds', from: 'schedule_save'),
+      );
+      return;
+    }
     setState(() => _attemptedSave = true);
     final validFields = _form.currentState!.validate();
     if (!validFields || _parts.isEmpty) {

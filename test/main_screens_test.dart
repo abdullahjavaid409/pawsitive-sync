@@ -39,7 +39,9 @@ void main() {
   testWidgets('a due dose inside a group opens confirmation without logging', (
     tester,
   ) async {
-    final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 14));
+    // Pro: the sample's Miso already has Free's medicine count.
+    final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 14))
+      ..debugStorePro = true;
     await care.addMedication(
       petId: 'miso',
       name: 'Gabapentin',
@@ -139,7 +141,8 @@ void main() {
   testWidgets(
     'medicine validation explains missing details and optional supply can be removed',
     (tester) async {
-      final care = CareRepository.sample();
+      // Pro: Free at its medicine cap opens the paywall instead (own test).
+      final care = CareRepository.sample()..debugStorePro = true;
       final initialCount = care.medications.length;
       final router = await _pump(tester, care);
       router.go(AppRoutes.schedule);

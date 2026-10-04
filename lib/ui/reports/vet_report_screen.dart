@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pawsitive_sync/core/constants/pet_limits.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
@@ -60,7 +61,7 @@ class _VetReportScreenState extends State<VetReportScreen> {
                 child: ListTile(
                   title: Text('Vet asked for a log?', style: text.titleSmall),
                   subtitle: const Text(
-                    'Pro exports week-by-week reports. You can still view dose history here for free.',
+                    'Pro exports week-by-week reports and shows 90 days. Free shows the last 30 days.',
                   ),
                   trailing: TextButton(
                     onPressed: () {
@@ -115,9 +116,24 @@ class _VetReportScreenState extends State<VetReportScreen> {
                       Expanded(
                         child: _RangeChip(
                           label: '$days days',
+                          locked:
+                              !care.isPro && days > PetLimits.freeHistoryDays,
                           selected: _days == days,
                           onPressed: () {
                             if (_days == days) return;
+                            if (!care.isPro &&
+                                days > PetLimits.freeHistoryDays) {
+                              AppLog.event('report.range_locked', {
+                                'days': days,
+                              });
+                              context.push(
+                                AppRoutes.paywallWith(
+                                  reason: 'history',
+                                  from: 'report_range',
+                                ),
+                              );
+                              return;
+                            }
                             AppLog.event('report.range', {'days': days});
                             setState(() => _days = days);
                           },
@@ -515,9 +531,11 @@ class _RangeChip extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onPressed,
+    this.locked = false,
   });
   final String label;
   final bool selected;
+  final bool locked;
   final VoidCallback onPressed;
   @override
   Widget build(BuildContext context) {
@@ -533,11 +551,20 @@ class _RangeChip extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 13),
-            child: Text(
-              label,
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                color: selected ? scheme.onSurface : scheme.onSurfaceVariant,
+            // Scales down rather than overflow at large text on small phones.
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: WithProLock(
+                locked: locked,
+                child: Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: selected
+                        ? scheme.onSurface
+                        : scheme.onSurfaceVariant,
+                  ),
+                ),
               ),
             ),
           ),

@@ -42,6 +42,72 @@ void main() {
       expect(await ProPrompts.tryAuto('b', now: DateTime(2026, 1, 1)), isFalse);
     });
 
+    test('first week: once a day (not install day), then once a week', () async {
+      final t = DateTime(2026, 10, 4, 9);
+      // First idle visit only records the install time.
+      expect(await ProPrompts.takeIdle(now: t), isNull);
+      // Install day had the onboarding paywall: nothing more that day.
+      expect(await ProPrompts.takeIdle(now: DateTime(2026, 10, 4, 21)), isNull);
+      for (var day = 5; day <= 10; day++) {
+        expect(
+          await ProPrompts.takeIdle(now: DateTime(2026, 10, day, 8)),
+          ProPrompts.firstWeek,
+          reason: 'day $day',
+        );
+        // Once a day, however many visits.
+        expect(
+          await ProPrompts.takeIdle(now: DateTime(2026, 10, day, 20)),
+          isNull,
+        );
+      }
+      expectLogged('billing.prompt.shown', fields: {'trigger': 'first_week'});
+      // Week over: weekly, counted from the last prompt.
+      final week = t.add(ProPrompts.weeklyEvery);
+      expect(await ProPrompts.takeIdle(now: week), isNull);
+      final next = DateTime(2026, 10, 17, 8);
+      expect(await ProPrompts.takeIdle(now: next), ProPrompts.weekly);
+      expect(
+        await ProPrompts.takeIdle(now: next.add(const Duration(days: 6))),
+        isNull,
+      );
+      expect(
+        await ProPrompts.takeIdle(now: next.add(ProPrompts.weeklyEvery)),
+        ProPrompts.weekly,
+      );
+      // A clock set back is "too soon".
+      expect(await ProPrompts.takeIdle(now: t), isNull);
+    });
+
+    test('a queued moment blocked by cooldown still lets the daily one show',
+        () async {
+      final t = DateTime(2026, 10, 4, 9);
+      expect(await ProPrompts.takeIdle(now: t), isNull);
+      expect(
+        await ProPrompts.takeIdle(now: DateTime(2026, 10, 5, 9)),
+        ProPrompts.firstWeek,
+      );
+      await ProPrompts.queue(ProPrompts.uncertain);
+      expect(
+        await ProPrompts.takeIdle(now: DateTime(2026, 10, 6, 9)),
+        ProPrompts.firstWeek,
+      );
+    });
+
+    test('a queued moment goes before the weekly prompt', () async {
+      final t = DateTime(2026, 10, 4, 9);
+      expect(await ProPrompts.takeIdle(now: t), isNull);
+      await ProPrompts.queue(ProPrompts.uncertain);
+      expect(
+        await ProPrompts.takeIdle(now: t.add(const Duration(days: 8))),
+        ProPrompts.uncertain,
+      );
+      // Shares the 3-day cooldown with the moment just shown.
+      expect(
+        await ProPrompts.takeIdle(now: t.add(const Duration(days: 9))),
+        isNull,
+      );
+    });
+
     test('low-supply card dismissal lasts one low episode', () async {
       await ProPrompts.dismissLow('apoquel');
       expect(await ProPrompts.lowDismissed({'apoquel'}), {'apoquel'});
@@ -105,38 +171,78 @@ void main() {
       await t.pumpAndSettle();
       await t.tap(find.byTooltip('Add pet'));
       await t.pumpAndSettle();
-      expect(find.text('Track every pet in your household'), findsOneWidget);
+      expect(find.text('Every pet deserves the same care'), findsOneWidget);
       expectLogged('billing.paywall.opened', fields: {'reason': 'second_pet'});
     });
 
-    testWidgets('free + running low: a dismissible card that opens the refill paywall', (t) async {
-      final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 14));
-      await care.addMedication(
-        petId: 'miso',
-        name: 'Apoquel',
-        amount: '',
-        parts: [DayPart.evening],
-        supplyTotal: 3,
+    testWidgets('Free at the medicine cap: add medicine opens the paywall', (
+      t,
+    ) async {
+      final care = CareRepository.sample(
+        clock: () => DateTime(2026, 10, 3, 14),
       );
+      expect(care.canAddMedication('miso'), isFalse);
+      final before = care.medications.length;
       final router = await _pump(t, care);
-      final card = find.textContaining('Apoquel is running low');
-      await _reveal(t, card);
-      expect(find.text('Pro sends a heads-up before it runs out.'), findsOneWidget);
-      expectLogged('billing.low_supply_teaser.shown');
-      await t.tap(find.text('See Pro'));
+      router.go('${AppRoutes.schedule}?pet=miso');
       await t.pumpAndSettle();
-      expect(find.text('Never run out by surprise'), findsOneWidget);
-      expectLogged('billing.paywall.opened', fields: {'reason': 'refill'});
-      router.go(AppRoutes.today);
-      await t.pumpAndSettle();
-      await _reveal(t, card);
-      await t.tap(find.byTooltip('Hide'));
-      await t.pumpAndSettle();
-      expect(card, findsNothing);
-      expectLogged('billing.low_supply_teaser.dismissed');
+      expect(find.text('Every medicine, one schedule'), findsOneWidget);
+      expectLogged('billing.paywall.opened', fields: {'reason': 'more_meds'});
+      // The repository refuses too, whatever screen calls it.
+      final saved = await care.addMedication(
+        petId: 'miso',
+        name: 'Thyroid',
+        amount: '',
+        parts: [DayPart.morning],
+      );
+      expect(saved, isFalse);
+      expect(care.medications.length, before);
+      expectLogged('medication.add.blocked', fields: {'reason': 'free_tier'});
+      // Logging the doses already on the schedule stays free.
+      expect(care.doses.where((d) => d.petId == 'miso'), isNotEmpty);
     });
 
-    testWidgets('Pro sees the real low-supply banner, never the teaser', (t) async {
+    testWidgets(
+      'free + running low: a dismissible card that opens the refill paywall',
+      (t) async {
+        // Added while Pro, then lapsed: Free over the medicine cap keeps
+        // every medicine and its doses — only adding more is gated.
+        final care = CareRepository.sample(
+          clock: () => DateTime(2026, 10, 3, 14),
+        )..debugStorePro = true;
+        await care.addMedication(
+          petId: 'miso',
+          name: 'Apoquel',
+          amount: '',
+          parts: [DayPart.evening],
+          supplyTotal: 3,
+        );
+        care.debugStorePro = false;
+        final router = await _pump(t, care);
+        final card = find.textContaining('Apoquel is running low');
+        await _reveal(t, card);
+        expect(
+          find.text('Pro sends a heads-up before it runs out.'),
+          findsOneWidget,
+        );
+        expectLogged('billing.low_supply_teaser.shown');
+        await t.tap(find.text('See Pro'));
+        await t.pumpAndSettle();
+        expect(find.text('Never run out on a Sunday night'), findsOneWidget);
+        expectLogged('billing.paywall.opened', fields: {'reason': 'refill'});
+        router.go(AppRoutes.today);
+        await t.pumpAndSettle();
+        await _reveal(t, card);
+        await t.tap(find.byTooltip('Hide'));
+        await t.pumpAndSettle();
+        expect(card, findsNothing);
+        expectLogged('billing.low_supply_teaser.dismissed');
+      },
+    );
+
+    testWidgets('Pro sees the real low-supply banner, never the teaser', (
+      t,
+    ) async {
       final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 14))
         ..debugStorePro = true;
       await care.addMedication(
