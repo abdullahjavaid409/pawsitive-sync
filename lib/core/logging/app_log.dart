@@ -74,6 +74,26 @@ abstract final class AppLog {
     }
   }
 
+  static final _jwt = RegExp(r'eyJ[A-Za-z0-9_\-]{8,}(?:\.[A-Za-z0-9_\-]*)*');
+  static final _rcAnon = RegExp(r'\$RCAnonymousID:[A-Za-z0-9]+');
+  static final _bearer = RegExp(r'Bearer\s+\S+', caseSensitive: false);
+  static final _email = RegExp(r'[\w.+-]+@[\w-]+\.[\w.]+');
+  static final _tokenParam = RegExp(r'([?#&]t=)[^&\s]+');
+
+  /// Strips anything that looks like a secret or personal id from free text
+  /// (SDK messages, exception text): JWS/JWT blobs, RevenueCat anonymous ids,
+  /// bearer tokens, emails and `t=` link tokens. Caps the result at [max].
+  static String redact(String text, {int max = 160}) {
+    var out = text
+        .replaceAll(_jwt, '<jwt>')
+        .replaceAll(_rcAnon, '<rc-anon-id>')
+        .replaceAll(_bearer, 'Bearer <redacted>')
+        .replaceAll(_email, '<email>')
+        .replaceAllMapped(_tokenParam, (m) => '${m[1]}<redacted>');
+    if (out.length > max) out = '${out.substring(0, max)}…';
+    return out;
+  }
+
   /// Marks one async case on the DevTools performance timeline.
   static Future<T> trace<T>(String name, Future<T> Function() body) {
     final task = developer.TimelineTask(filterKey: 'pawsitive')..start(name);
@@ -91,8 +111,8 @@ abstract final class AppLog {
   }) {
     if (!kDebugMode) return;
     final channel = 'pawsitive.${name.split('.').first}';
-    final tail = error == null ? '' : ' — ERROR $error';
-    debugPrint('[$channel] ${_line(name, fields)}$tail');
+    final tail = error == null ? '' : ' — ERROR ${redact('$error', max: 300)}';
+    debugPrint('[$channel] ${redact(_line(name, fields), max: 600)}$tail');
   }
 
   static String _line(String name, Map<String, Object?> fields) {

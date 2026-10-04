@@ -17,6 +17,7 @@ import {
   exportHouseholdData,
   getSitterView,
   handleRevenueCatWebhook,
+  verifyRevenueCatWebhookByLookup,
   joinHousehold,
   leaveHousehold,
   linkAppleAccount,
@@ -414,6 +415,15 @@ async function route(req, url, requestId) {
     // checked before reading the body, so strangers can't make us parse 64 KB.
     const headerValue = req.headers.authorization;
     const check = revenueCatWebhookAuthorized(headerValue);
+    // No header at all: still useful as a "something changed" ping, but only
+    // through a RevenueCat API lookup — the body is never trusted. A wrong
+    // header is always rejected.
+    if (!check.ok && check.reason !== "bad_secret" && process.env.REVENUECAT_SECRET_KEY) {
+      const body = await readJson(req, webhookBody);
+      const result = await verifyRevenueCatWebhookByLookup(pool, body, scopedLog(requestId));
+      if (result.status === "retry") return { status: 503, body: { error: "Try again shortly." } };
+      return { status: 200, body: result };
+    }
     if (!check.ok) {
       log(check.reason === "secret_not_configured" ? "billing.webhook_secret_missing" : "billing.webhook_unauthorized", {
         requestId,

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -6,6 +7,7 @@ import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/app_router.dart';
 import 'package:pawsitive_sync/core/theme/app_theme.dart';
 import 'package:pawsitive_sync/core/widgets/dismiss_keyboard.dart';
+import 'package:pawsitive_sync/data/analytics_service.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/data/apple_widgets.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
@@ -23,9 +25,18 @@ class _PawsitiveAppState extends State<PawsitiveApp> with WidgetsBindingObserver
   GoRouter? _router;
   CareRepository? _widgetCare;
 
+  bool _widgetsQueued = false;
+
+  /// The repository notifies on every change (including sync start/finish);
+  /// coalesce a burst into one widget snapshot per event-loop turn.
   void _refreshWidgets() {
-    final care = _widgetCare;
-    if (care != null) AppleWidgets.refresh(care);
+    if (_widgetsQueued) return;
+    _widgetsQueued = true;
+    scheduleMicrotask(() {
+      _widgetsQueued = false;
+      final care = _widgetCare;
+      if (care != null) unawaited(AppleWidgets.refresh(care));
+    });
   }
 
   @override
@@ -56,12 +67,18 @@ class _PawsitiveAppState extends State<PawsitiveApp> with WidgetsBindingObserver
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    final care = context.read<CareRepository>();
     if (state == AppLifecycleState.resumed) {
       AppLog.event('app.resumed');
-      final care = context.read<CareRepository>();
-      care.syncBillingFromStore();
-      if (care.isConnected) care.syncIfStale();
+      unawaited(care.syncBillingFromStore());
+      if (care.isConnected) unawaited(care.syncIfStale());
       _refreshWidgets();
+    } else if (state == AppLifecycleState.paused) {
+      // Finish the pending local save and send buffered funnel counts in one
+      // call before iOS may suspend or kill the app.
+      AppLog.event('app.paused');
+      unawaited(care.flushPersist());
+      unawaited(AnalyticsService.flush());
     }
   }
 

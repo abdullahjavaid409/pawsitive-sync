@@ -43,7 +43,11 @@ class SyncOutbox {
         for (final item in list)
           if (item is Map<String, dynamic>) SyncBatchOp.fromJson(item),
       ];
-    } catch (_) {
+    } catch (error, stack) {
+      // Corrupt queue: logged so a lost offline change is never silent.
+      AppLog.error('sync.outbox.read_failed', error, stack, {
+        'bytes': raw.length,
+      });
       return [];
     }
   }
@@ -60,9 +64,13 @@ class SyncOutbox {
     AppLog.event('sync.outbox.enqueued', {'type': op.type, 'id': op.id});
   }
 
-  Future<void> remove(String id) async {
+  Future<void> remove(String id) => removeAll({id});
+
+  /// Drops every applied op in one read + one write.
+  Future<void> removeAll(Set<String> ids) async {
+    if (ids.isEmpty) return;
     final items = await read()
-      ..removeWhere((op) => op.id == id);
+      ..removeWhere((op) => ids.contains(op.id));
     await write(items);
   }
 

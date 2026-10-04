@@ -48,9 +48,7 @@ class SyncEngine {
         }
       }
     }
-    for (final id in applied) {
-      await _outbox.remove(id);
-    }
+    await _outbox.removeAll(applied.toSet());
     AppLog.event('sync.batch.completed', {
       'applied': applied.length,
       'remaining': pending.length - applied.length,

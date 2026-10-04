@@ -1,21 +1,44 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/layout/adaptive.dart';
+import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 
+const _appTabs = [
+  (StrokeIconKind.calendar, 'Today'),
+  (StrokeIconKind.paw, 'Pets'),
+  (StrokeIconKind.people, 'Household'),
+  (StrokeIconKind.file, 'Reports'),
+];
+
 /// Keeps each tab stack alive behind one bottom bar or side rail.
-class AppShell extends StatelessWidget {
+class AppShell extends StatefulWidget {
   const AppShell({super.key, required this.navigationShell});
 
   final StatefulNavigationShell navigationShell;
 
-  static const _tabs = [
-    (StrokeIconKind.calendar, 'Today'),
-    (StrokeIconKind.paw, 'Pets'),
-    (StrokeIconKind.people, 'Household'),
-    (StrokeIconKind.file, 'Reports'),
-  ];
+  @override
+  State<AppShell> createState() => _AppShellState();
+}
+
+class _AppShellState extends State<AppShell> {
+  StatefulNavigationShell get navigationShell => widget.navigationShell;
+
+  /// Tab switches happen inside branch navigators, which the root
+  /// [AppRouteObserver] never sees — log them here (taps and context.go).
+  @override
+  void didUpdateWidget(covariant AppShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final from = oldWidget.navigationShell.currentIndex;
+    final to = widget.navigationShell.currentIndex;
+    if (from != to) {
+      AppLog.event('nav.tab', {
+        'to': _appTabs[to].$2.toLowerCase(),
+        'from': _appTabs[from].$2.toLowerCase(),
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -71,12 +94,12 @@ class _CompactShell extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                for (var i = 0; i < AppShell._tabs.length; i++)
+                for (var i = 0; i < _appTabs.length; i++)
                   Expanded(
                     child: Semantics(
                       button: true,
                       selected: i == navigationShell.currentIndex,
-                      label: AppShell._tabs[i].$2,
+                      label: _appTabs[i].$2,
                       excludeSemantics: true,
                       child: InkWell(
                         onTap: () => onTap(i),
@@ -97,16 +120,16 @@ class _CompactShell extends StatelessWidget {
                                   borderRadius: BorderRadius.circular(12),
                                 ),
                                 child: StrokeIcon(
-                                  AppShell._tabs[i].$1,
+                                  _appTabs[i].$1,
                                   size: 22,
                                   color: i == navigationShell.currentIndex
-                                       ? tokens.states.selectedContent
-                                       : scheme.onSurfaceVariant,
+                                      ? tokens.states.selectedContent
+                                      : scheme.onSurfaceVariant,
                                 ),
                               ),
                               const SizedBox(height: 5),
                               Text(
-                                AppShell._tabs[i].$2,
+                                _appTabs[i].$2,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: Theme.of(context).textTheme.bodySmall
@@ -163,12 +186,12 @@ class _WideShell extends StatelessWidget {
               labelType: extended
                   ? NavigationRailLabelType.none
                   : NavigationRailLabelType.all,
-               backgroundColor: tokens.surfaces.background,
-               indicatorColor: tokens.states.selected,
-               minWidth: 72,
-               minExtendedWidth: 200,
+              backgroundColor: tokens.surfaces.background,
+              indicatorColor: tokens.states.selected,
+              minWidth: 72,
+              minExtendedWidth: 200,
               destinations: [
-                for (final tab in AppShell._tabs)
+                for (final tab in _appTabs)
                   NavigationRailDestination(
                     icon: StrokeIcon(tab.$1, color: scheme.onSurfaceVariant),
                     selectedIcon: StrokeIcon(

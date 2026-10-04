@@ -56,8 +56,10 @@ abstract final class PushService {
         pushEnabled: enabled,
       );
       AppLog.event('push.registered', {'platform': _platform});
-    } catch (_) {
-      AppLog.event('push.register_failed');
+    } catch (error, stack) {
+      AppLog.error('push.register_failed', error, stack, {
+        'platform': _platform,
+      });
     }
   }
 
@@ -117,8 +119,10 @@ abstract final class PushService {
         ),
       );
       AppLog.event('push.partner_logged', {'logId': logId});
-    } catch (_) {
-      AppLog.event('push.partner_logged_failed', {'logId': logId});
+    } catch (error, stack) {
+      AppLog.error('push.partner_logged_failed', error, stack, {
+        'logId': logId,
+      });
     }
   }
 }

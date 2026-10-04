@@ -285,7 +285,7 @@ void main() {
         {
           'token': 'sitter-token-abc',
           'expiresAt': '2026-11-03T00:00:00.000Z',
-          'url': '/sitter?t=sitter-token-abc',
+          'url': '/sitter#t=sitter-token-abc',
         },
       ),
     ]);

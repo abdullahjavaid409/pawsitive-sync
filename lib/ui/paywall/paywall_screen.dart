@@ -79,7 +79,10 @@ class _PaywallScreenState extends State<PaywallScreen> {
 
   /// RevenueCat placement id — one per upgrade moment, so Targeting can serve
   /// each moment its own offering (price or copy test) without a release.
-  String get _placement => (_moment ?? PaywallReason.onboarding).queryValue;
+  /// No reason: first-run setup is `onboarding`; anything after (e.g. the
+  /// Today Pro badge) is a generic `upgrade`.
+  String get _placement =>
+      _moment?.queryValue ?? (_isUpgradeFlow ? 'upgrade' : 'onboarding');
 
   bool get _isUpgradeFlow {
     final model = context.read<OnboardingViewModel>();
@@ -91,8 +94,10 @@ class _PaywallScreenState extends State<PaywallScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       AppLog.event('billing.paywall.opened', {
         'reason': widget.reason ?? 'default',
+        'placement': _placement,
       });
       _bootstrap();
     });

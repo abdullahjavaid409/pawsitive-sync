@@ -556,7 +556,7 @@ void main() {
       expectLogged('sitter.link_skipped', fields: {'reason': 'not_connected'});
     });
 
-    test('creates link and logs sitter.link_ready', () async {
+    test('creates link and logs sitter.link_created', () async {
       final adapter = FakeHouseholdAdapter([
         (201, connectHouseholdBody()),
         (200, {'ok': true}), // push device register
@@ -565,7 +565,7 @@ void main() {
           {
             'token': 'sitter-secret-token',
             'expiresAt': '2026-11-03T00:00:00.000Z',
-            'url': '/sitter?t=sitter-secret-token',
+            'url': '/sitter#t=sitter-secret-token',
           },
         ),
       ]);
@@ -581,7 +581,7 @@ void main() {
 
       final link = await care.ensureSitterWebLink();
       expect(link, contains('sitter-secret-token'));
-      expectLogged('sitter.link_ready');
+      expectLogged('sitter.link_created');
     });
 
     test('cached token logs sitter.link_cached', () async {
@@ -603,7 +603,7 @@ void main() {
       final link = await connected.ensureSitterWebLink();
       expect(link, contains('cached-sitter-token'));
       expectLogged('sitter.link_cached');
-      expectNotLogged('sitter.link_ready');
+      expectNotLogged('sitter.link_created');
     });
 
     test('API failure logs sitter.link_failed', () async {
@@ -743,7 +743,8 @@ void main() {
   group('App links', () {
     test('sitterWebLink encodes token safely', () {
       final link = AppLinks.sitterWebLink('abc+def/token');
-      expect(link, contains('t=abc%2Bdef%2Ftoken'));
+      expect(link, endsWith('/sitter#t=abc%2Bdef%2Ftoken'));
+      expect(link, isNot(contains('?t=')), reason: 'token must stay out of server logs');
     });
 
     test('no invite link until the App Store ID is set (never a dead URL)', () {

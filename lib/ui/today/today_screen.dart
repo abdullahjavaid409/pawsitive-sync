@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/format/day_label.dart';
@@ -5,6 +7,7 @@ import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/layout/app_art_size.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
+import 'package:pawsitive_sync/core/widgets/care_tab_builder.dart';
 import 'package:pawsitive_sync/core/widgets/care_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/moment_art.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
@@ -27,9 +30,11 @@ class TodayScreen extends StatefulWidget {
 class _TodayScreenState extends State<TodayScreen> {
   String? _petId;
 
+  // Tab screen: rebuilds on data changes only while visible.
   @override
-  Widget build(BuildContext context) {
-    final care = context.watch<CareRepository>();
+  Widget build(BuildContext context) => CareTabBuilder(builder: _build);
+
+  Widget _build(BuildContext context, CareRepository care) {
     final text = Theme.of(context).textTheme;
     // A removed pet falls back immediately, including the selector and summary.
     final selectedId = care.tryPetById(_petId ?? '')?.id;
@@ -43,6 +48,13 @@ class _TodayScreenState extends State<TodayScreen> {
         .where((d) => d.status == DoseStatus.upcoming)
         .toList();
     final next = due.firstOrNull ?? upcoming.firstOrNull;
+    final byPart = {
+      for (final part in DayPart.values)
+        part: [
+          for (final d in doses)
+            if (d.part == part) d,
+        ],
+    };
     final low = care.medications
         .where((m) => m.isLow && (selectedId == null || m.petId == selectedId))
         .firstOrNull;
@@ -66,9 +78,12 @@ class _TodayScreenState extends State<TodayScreen> {
       body: SafeArea(
         bottom: false,
         child: RefreshIndicator(
-          onRefresh: care.isConnected
-              ? () => care.sync(force: true)
-              : () async {},
+          onRefresh: () {
+            AppLog.event('today.pull_refresh', {
+              'connected': care.isConnected,
+            });
+            return care.isConnected ? care.sync(force: true) : Future.value();
+          },
           child: ListView(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: carePagePaddingOf(context),
@@ -195,19 +210,17 @@ class _TodayScreenState extends State<TodayScreen> {
                 ),
                 const SizedBox(height: 4),
                 for (final part in DayPart.values)
-                  if (doses.any((d) => d.part == part)) ...[
+                  if (byPart[part]!.isNotEmpty) ...[
                     _PartLabel(part),
                     SurfaceCard(
                       radius: 20,
                       child: Column(
                         children: [
-                          for (final (index, dose)
-                              in doses.where((d) => d.part == part).indexed)
+                          for (final (index, dose) in byPart[part]!.indexed)
                             _DoseTile(
                               dose: dose,
-                              showDivider:
-                                  index <
-                                  doses.where((d) => d.part == part).length - 1,
+                              showDivider: index < byPart[part]!.length - 1,
+                              // Navigation is logged by AppRouteObserver.
                               onPressed: () =>
                                   dose.status == DoseStatus.upcoming
                                   ? context.push(
@@ -1005,6 +1018,7 @@ class _HouseholdSync extends StatefulWidget {
 class _HouseholdSyncState extends State<_HouseholdSync> {
   var _started = false;
   var _showSynced = false;
+  Timer? _hideSynced;
 
   @override
   void didUpdateWidget(covariant _HouseholdSync oldWidget) {
@@ -1014,11 +1028,19 @@ class _HouseholdSyncState extends State<_HouseholdSync> {
         oldWidget.syncing &&
         !widget.syncing &&
         widget.error == null) {
-      setState(() => _showSynced = true);
-      Future<void>.delayed(const Duration(milliseconds: 1600), () {
+      // build() follows didUpdateWidget, so no setState needed here.
+      _showSynced = true;
+      _hideSynced?.cancel();
+      _hideSynced = Timer(const Duration(milliseconds: 1600), () {
         if (mounted) setState(() => _showSynced = false);
       });
     }
+  }
+
+  @override
+  void dispose() {
+    _hideSynced?.cancel();
+    super.dispose();
   }
 
   @override
@@ -1264,10 +1286,11 @@ class _CareEventTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final care = context.watch<CareRepository>();
+    // The parent list rebuilds on data changes; the tile only needs the clock.
+    final now = context.read<CareRepository>().now;
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
-    final due = _careDueLabel(event.dueDay, care.now);
+    final due = _careDueLabel(event.dueDay, now);
     final petName = pet?.name ?? 'Pet removed';
 
     return Column(

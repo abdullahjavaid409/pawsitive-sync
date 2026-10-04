@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -17,7 +18,8 @@ class CareEventsStore {
         for (final item in list)
           if (item is Map<String, dynamic>) CareEvent.fromJson(item),
       ];
-    } on Object {
+    } on Object catch (error, stack) {
+      AppLog.error('store.events_corrupt', error, stack);
       await prefs.remove(_key);
       return const [];
     }

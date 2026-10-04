@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/widgets.dart';
 import 'package:pawsitive_sync/app.dart';
 import 'package:pawsitive_sync/core/config/app_config.dart';
@@ -17,33 +19,31 @@ void main() async {
 }
 
 /// Loads stored state and wires providers. Integration tests boot through here.
+///
+/// Only local disk reads are awaited before the first frame. Plugin setup and
+/// every network call (RevenueCat, household sync) run in [_warmUp] after,
+/// so a slow or missing connection never holds the launch screen.
 Future<Widget> bootstrap() async {
-  await DoseReminders.prepare();
-  await RevenueCatService.initialize();
+  final launch = Stopwatch()..start();
   final api = AppConfig.hasApi
       ? HouseholdApi(Uri.parse(AppConfig.apiBaseUrl.trim()))
       : null;
   final care = CareRepository(api: api, store: HouseholdStore());
-  await care.restore();
+  final (_, onboarding) = await (
+    care.restore(),
+    OnboardingViewModel.load(),
+  ).wait;
   RevenueCatService.onEntitlementChanged = care.applyStoreEntitlement;
-  await RevenueCatService.identifyMember(care.billingUserId);
-  await care.syncBillingFromStore();
-  final onboarding = await OnboardingViewModel.load();
   if (onboarding.isComplete && care.pets.isEmpty && !care.isConnected) {
     care.applyOnboarding(onboarding);
-  }
-  if (care.isConnected) await care.syncIfStale();
-  if (onboarding.isComplete && onboarding.remindersOn) {
-    DoseReminders.scheduleNext(care);
   }
   AppLog.event('app.started', {
     ...AppConfig.summary,
     'connected': care.isConnected,
     'onboardingComplete': onboarding.isComplete,
-    'billingRcReady': RevenueCatService.isReady,
-    'isPro': care.isPro,
-    'plan': care.plan.name,
+    'ms': launch.elapsedMilliseconds,
   });
+  unawaited(_warmUp(care, onboarding));
   return MultiProvider(
     providers: [
       ChangeNotifierProvider.value(value: care),
@@ -51,4 +51,35 @@ Future<Widget> bootstrap() async {
     ],
     child: const PawsitiveApp(),
   );
+}
+
+/// Post-launch work. Each step logs its own outcome and never throws.
+Future<void> _warmUp(
+  CareRepository care,
+  OnboardingViewModel onboarding,
+) async {
+  final watch = Stopwatch()..start();
+  try {
+    await Future.wait([
+      DoseReminders.prepare(),
+      () async {
+        await RevenueCatService.initialize();
+        // Identifies the store account, then reads the entitlement.
+        await care.syncBillingFromStore();
+      }(),
+      if (care.isConnected) care.syncIfStale(),
+    ]);
+    // After the sync, so the reminder targets the dose still open.
+    if (onboarding.isComplete && onboarding.remindersOn) {
+      await DoseReminders.scheduleNext(care);
+    }
+    AppLog.event('app.warmed', {
+      'ms': watch.elapsedMilliseconds,
+      'billingRcReady': RevenueCatService.isReady,
+      'isPro': care.isPro,
+      'plan': care.plan.name,
+    });
+  } catch (error, stack) {
+    AppLog.error('app.warm_up_failed', error, stack);
+  }
 }

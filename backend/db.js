@@ -1279,6 +1279,50 @@ async function applyProState(pool, householdId, { isPro, expiresAt, productId, e
   return result.rowCount > 0;
 }
 
+/**
+ * A webhook without the shared secret is only a hint that something changed:
+ * nothing in its body is trusted. For each household customer it names, ask
+ * RevenueCat's API (REVENUECAT_SECRET_KEY) for the real `pro` state and store
+ * that. A forged call can only make us re-read the truth. Returns `retry`
+ * when RevenueCat can't be reached, so the webhook is delivered again.
+ */
+export async function verifyRevenueCatWebhookByLookup(pool, body, logFn) {
+  const event = body?.event;
+  const type = typeof event?.type === "string" ? event.type.slice(0, 40) : "";
+  if (type === "TEST") {
+    logFn("billing.webhook_test", { environment: event?.environment ?? "", verified: "lookup" });
+    return { status: "ok", test: true };
+  }
+  const ids = customerIds(event, "app_user_id", "original_app_user_id", "aliases", "transferred_from", "transferred_to");
+  const targets = new Map();
+  for (const id of ids) {
+    const split = id.indexOf(":");
+    if (split <= 0 || targets.size >= 5) continue;
+    const row = await pool.query("SELECT household_id FROM members WHERE household_id = $1 AND id = $2", [
+      id.slice(0, split),
+      id.slice(split + 1),
+    ]);
+    if (row.rows[0] && !targets.has(row.rows[0].household_id)) targets.set(row.rows[0].household_id, id);
+  }
+  if (targets.size === 0) return ignored(logFn, "member_not_found", type);
+
+  for (const [householdId, customerId] of targets) {
+    const pro = await fetchProEntitlement(customerId);
+    if (!pro.ok) {
+      logFn("billing.webhook_lookup_failed", { householdId, type, reason: pro.reason });
+      return { status: "retry" };
+    }
+    await applyProState(pool, householdId, {
+      isPro: pro.active,
+      expiresAt: pro.expiresAt ?? (pro.active ? null : new Date()),
+      productId: pro.productId,
+      eventAt: new Date(),
+    });
+    logFn("billing.webhook", { householdId, type, isPro: pro.active, verified: "lookup" });
+  }
+  return { status: "ok" };
+}
+
 /** Ignored webhooks still answer 200 (RevenueCat would retry otherwise) but are logged. */
 function ignored(logFn, reason, type) {
   logFn("billing.webhook_ignored", { reason, type: type || null });

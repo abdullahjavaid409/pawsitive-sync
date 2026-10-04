@@ -139,6 +139,11 @@ abstract final class RevenueCatService {
     // Billing stays off for this session; dose logging is unaffected.
     try {
       await AppLog.trace('billing.rc.init', () async {
+        // The SDK's own debug output prints subscriber attributes and full
+        // StoreKit 2 signed transactions (JWS). Keep warnings and errors only,
+        // routed through AppLog with secrets redacted.
+        await Purchases.setLogLevel(LogLevel.warn);
+        await Purchases.setLogHandler(_onSdkLog);
         final config = PurchasesConfiguration(apiKey);
         await Purchases.configure(config);
         Purchases.addCustomerInfoUpdateListener(_onCustomerInfo);
@@ -150,6 +155,19 @@ abstract final class RevenueCatService {
     } catch (error, stack) {
       AppLog.error('billing.rc.init_failed', error, stack);
     }
+  }
+
+  /// Forwards RevenueCat SDK warnings/errors as one redacted line each.
+  @visibleForTesting
+  static void onSdkLogForTest(LogLevel level, String message) =>
+      _onSdkLog(level, message);
+
+  static void _onSdkLog(LogLevel level, String message) {
+    if (level != LogLevel.warn && level != LogLevel.error) return;
+    AppLog.event('billing.rc.sdk', {
+      'level': level.name,
+      'message': AppLog.redact(message),
+    });
   }
 
   static void _onCustomerInfo(CustomerInfo info) {
@@ -173,7 +191,12 @@ abstract final class RevenueCatService {
   /// strangers. Send those phones back to their own anonymous id.
   static const _legacySharedId = 'you';
 
+  /// Tests only: observes identify calls (order vs. API calls).
+  @visibleForTesting
+  static void Function(String memberId)? debugOnIdentify;
+
   static Future<void> identifyMember(String memberId) async {
+    debugOnIdentify?.call(memberId);
     if (!_initialized) return;
     if (memberId.isEmpty || memberId == _legacySharedId) {
       try {
@@ -585,7 +608,7 @@ abstract final class RevenueCatService {
     final code = _codeOf(error);
     AppLog.event('billing.rc.purchase_error', {
       'code': code.name,
-      'message': error.message ?? '',
+      'message': AppLog.redact(error.message ?? ''),
     });
     return switch (code) {
       PurchasesErrorCode.purchaseCancelledError => const PurchaseResult(

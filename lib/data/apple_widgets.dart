@@ -14,23 +14,35 @@ class AppleWidgets {
 
   static Map<String, Object?> snapshot(CareRepository care) {
     final now = care.now;
+    final days = [
+      for (var offset = 0; offset < 8; offset++)
+        DateTime(now.year, now.month, now.day + offset),
+    ];
+    // One pass over history for all 8 days (was one full scan per day).
+    final byDay = <String, Map<String, DoseRecord>>{
+      for (final day in days) dayKey(day): {},
+    };
+    for (final record in care.logs) {
+      // Same overwrite order as before (later entries in the list win).
+      byDay[record.day]?['${record.medicationId}:${record.part.name}'] =
+          record;
+    }
     return {
       'version': 1,
       'updatedAt': now.millisecondsSinceEpoch / 1000,
       'hasPets': care.pets.isNotEmpty,
       'days': [
-        for (var offset = 0; offset < 8; offset++)
-          _day(care, DateTime(now.year, now.month, now.day + offset)),
+        for (final day in days) _day(care, day, byDay[dayKey(day)]!),
       ],
     };
   }
 
-  static Map<String, Object?> _day(CareRepository care, DateTime day) {
+  static Map<String, Object?> _day(
+    CareRepository care,
+    DateTime day,
+    Map<String, DoseRecord> records,
+  ) {
     final key = dayKey(day);
-    final records = {
-      for (final record in care.logs.where((log) => log.day == key))
-        '${record.medicationId}:${record.part.name}': record,
-    };
     return {
       'startsAt': day.millisecondsSinceEpoch / 1000,
       'doses': [
@@ -69,17 +81,35 @@ class AppleWidgets {
     };
   }
 
+  static bool _bridgeMissingLogged = false;
+
+  /// Pushes the snapshot only when it changed since the last push.
   static Future<void> refresh(CareRepository care) async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return;
-    final payload = jsonEncode(snapshot(care));
-    if (_lastPayload == payload) return;
+    final data = snapshot(care);
+    // updatedAt changes on every call; compare the content only, or every
+    // repository notify would re-push (and re-log) an identical widget.
+    final content = jsonEncode({...data}..remove('updatedAt'));
+    if (_lastPayload == content) return;
+    final payload = jsonEncode(data);
     try {
       await _channel.invokeMethod<void>('update', payload);
-      _lastPayload = payload;
+      _lastPayload = content;
+      final days = data['days']! as List;
+      AppLog.event('widgets.refreshed', {
+        'doses': days.isEmpty ? 0 : ((days.first as Map)['doses'] as List).length,
+        'bytes': payload.length,
+      });
     } on MissingPluginException {
       // Widget bridge is present only in the native iOS runner.
-    } on PlatformException catch (error) {
-      AppLog.event('widgets.update_failed', {'code': error.code});
+      if (!_bridgeMissingLogged) {
+        _bridgeMissingLogged = true;
+        AppLog.event('widgets.unavailable', {'reason': 'no_bridge'});
+      }
+    } on PlatformException catch (error, stack) {
+      AppLog.error('widgets.update_failed', error, stack, {'code': error.code});
+    } catch (error, stack) {
+      AppLog.error('widgets.update_failed', error, stack);
     }
   }
 }

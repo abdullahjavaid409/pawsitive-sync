@@ -74,10 +74,18 @@ enum HouseholdErrorKind {
 }
 
 class HouseholdException implements Exception {
-  const HouseholdException(this.message, {required this.kind, this.existing});
+  const HouseholdException(
+    this.message, {
+    required this.kind,
+    this.existing,
+    this.status,
+  });
 
   final String message;
   final HouseholdErrorKind kind;
+
+  /// HTTP status when the server answered (e.g. 403 = needs household Pro).
+  final int? status;
 
   /// For [HouseholdErrorKind.conflict]: the dose someone already logged.
   final DoseRecord? existing;
@@ -335,18 +343,22 @@ class HouseholdApi {
       401 => HouseholdException(
         serverMessage ?? 'This phone is no longer in the household.',
         kind: HouseholdErrorKind.unauthorized,
+        status: status,
       ),
       403 => HouseholdException(
         serverMessage ?? 'That needs Pawsitive Pro.',
         kind: HouseholdErrorKind.invalid,
+        status: status,
       ),
       404 => HouseholdException(
         serverMessage ?? 'That was not found.',
         kind: HouseholdErrorKind.notFound,
+        status: status,
       ),
       409 => HouseholdException(
         serverMessage ?? 'Someone already logged this dose.',
         kind: HouseholdErrorKind.conflict,
+        status: status,
         existing: data is Map<String, dynamic> && data['log'] is Map
             ? _log(_map(data['log']))
             : null,
@@ -354,10 +366,12 @@ class HouseholdApi {
       400 || 413 => HouseholdException(
         serverMessage ?? 'Something in that form was not right.',
         kind: HouseholdErrorKind.invalid,
+        status: status,
       ),
       429 => HouseholdException(
         serverMessage ?? 'Too many tries. Wait a minute and try again.',
         kind: HouseholdErrorKind.invalid,
+        status: status,
       ),
       _ => const HouseholdException(
         'The household server had a problem. Try again in a moment.',

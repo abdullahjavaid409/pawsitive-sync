@@ -9,25 +9,43 @@ import 'package:timezone/timezone.dart' as tz;
 class DoseReminders {
   static final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
-  static var _ready = false;
+  static Future<void>? _ready;
 
-  static Future<void> prepare() async {
-    if (_ready) return;
-    tzdata.initializeTimeZones();
-    const android = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const ios = DarwinInitializationSettings(
-      requestAlertPermission: false,
-      requestBadgePermission: false,
-      requestSoundPermission: false,
-    );
-    await _plugin.initialize(
-      const InitializationSettings(android: android, iOS: ios),
-    );
-    _ready = true;
+  /// Loads time zones and the notification plugin once. Concurrent callers
+  /// share the same setup; a failure is logged and retried on the next call.
+  static Future<void> prepare() => _ready ??= _prepare();
+
+  static Future<void> _prepare() async {
+    try {
+      tzdata.initializeTimeZones();
+      const android = AndroidInitializationSettings('@mipmap/ic_launcher');
+      const ios = DarwinInitializationSettings(
+        requestAlertPermission: false,
+        requestBadgePermission: false,
+        requestSoundPermission: false,
+      );
+      await _plugin.initialize(
+        const InitializationSettings(android: android, iOS: ios),
+      );
+      AppLog.event('reminders.ready');
+    } catch (error, stack) {
+      _ready = null;
+      AppLog.error('reminders.prepare_failed', error, stack);
+      rethrow;
+    }
   }
 
   /// Shows the system permission dialog. Returns false when the person says no.
   static Future<bool> ask() async {
+    try {
+      return await _ask();
+    } catch (error, stack) {
+      AppLog.error('reminders.permission_failed', error, stack);
+      return false;
+    }
+  }
+
+  static Future<bool> _ask() async {
     await prepare();
     final android = _plugin
         .resolvePlatformSpecificImplementation<
@@ -51,20 +69,37 @@ class DoseReminders {
       AppLog.event('reminders.permission', {'allowed': granted ?? false});
       return granted ?? false;
     }
+    AppLog.event('reminders.permission', {
+      'allowed': false,
+      'reason': 'unsupported_platform',
+    });
     return false;
   }
 
   static Future<void> cancel() async {
-    await prepare();
-    await _plugin.cancelAll();
+    try {
+      await prepare();
+      await _plugin.cancelAll();
+      AppLog.event('reminders.cancelled');
+    } catch (error, stack) {
+      AppLog.error('reminders.cancel_failed', error, stack);
+    }
   }
 
   /// Schedules the next due dose only. Nothing is scheduled when permission was refused.
   static Future<void> scheduleNext(CareRepository care) async {
-    await prepare();
-    await _plugin.cancelAll();
+    try {
+      await prepare();
+      await _plugin.cancelAll();
+    } catch (error, stack) {
+      AppLog.error('reminders.schedule_failed', error, stack);
+      return;
+    }
     final dose = care.nextDue;
-    if (dose == null) return;
+    if (dose == null) {
+      AppLog.event('reminders.none_due');
+      return;
+    }
     Pet? pet;
     for (final item in care.pets) {
       if (item.id == dose.petId) pet = item;
@@ -97,8 +132,10 @@ class DoseReminders {
         androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
       );
       AppLog.event('reminders.scheduled', {'doseId': dose.id});
-    } catch (_) {
-      AppLog.event('reminders.schedule_failed', {'doseId': dose.id});
+    } catch (error, stack) {
+      AppLog.error('reminders.schedule_failed', error, stack, {
+        'doseId': dose.id,
+      });
     }
   }
 
@@ -111,7 +148,10 @@ class DoseReminders {
     try {
       await prepare();
       final dose = target ?? care.nextDue;
-      if (dose == null || dose.status != DoseStatus.due) return false;
+      if (dose == null || dose.status != DoseStatus.due) {
+        AppLog.event('lock.snooze_skipped', {'reason': 'nothing_due'});
+        return false;
+      }
       Pet? pet;
       for (final item in care.pets) {
         if (item.id == dose.petId) pet = item;
@@ -144,8 +184,8 @@ class DoseReminders {
       );
       AppLog.event('lock.snoozed', {'minutes': minutes, 'doseId': dose.id});
       return true;
-    } catch (_) {
-      AppLog.event('lock.snooze_failed');
+    } catch (error, stack) {
+      AppLog.error('lock.snooze_failed', error, stack);
       return false;
     }
   }

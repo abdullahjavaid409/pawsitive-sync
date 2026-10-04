@@ -9,6 +9,7 @@ abstract final class AnalyticsService {
   static const _enabled = AppConfig.analyticsEnabled;
 
   static final _buffer = <String>[];
+  static const _maxBuffered = 200;
   static final _dio = Dio(
     BaseOptions(
       baseUrl: AppConfig.apiBaseUrl.replaceFirst(RegExp(r'/$'), ''),
@@ -49,9 +50,16 @@ abstract final class AnalyticsService {
         },
       );
       AppLog.event('analytics.flushed', {'count': events.length});
-    } catch (_) {
+    } catch (error, stack) {
+      // Keep the counts for the next flush, capped so a long offline stretch
+      // can't grow the buffer without bound.
       _buffer.insertAll(0, events);
-      AppLog.event('analytics.flush_failed', {'count': events.length});
+      if (_buffer.length > _maxBuffered) {
+        _buffer.removeRange(0, _buffer.length - _maxBuffered);
+      }
+      AppLog.error('analytics.flush_failed', error, stack, {
+        'count': events.length,
+      });
     }
   }
 }

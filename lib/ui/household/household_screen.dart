@@ -5,6 +5,7 @@ import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
+import 'package:pawsitive_sync/core/widgets/care_tab_builder.dart';
 import 'package:pawsitive_sync/core/widgets/care_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
@@ -16,9 +17,11 @@ import 'package:provider/provider.dart';
 class HouseholdScreen extends StatelessWidget {
   const HouseholdScreen({super.key});
 
+  // Tab screen: rebuilds on data changes only while visible.
   @override
-  Widget build(BuildContext context) {
-    final care = context.watch<CareRepository>();
+  Widget build(BuildContext context) => CareTabBuilder(builder: _build);
+
+  Widget _build(BuildContext context, CareRepository care) {
     final scheme = Theme.of(context).colorScheme;
     final tokens = context.paws;
     final text = Theme.of(context).textTheme;

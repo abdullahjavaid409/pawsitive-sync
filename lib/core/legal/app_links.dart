@@ -22,8 +22,10 @@ abstract final class AppLinks {
       : 'https://apps.apple.com/app/id${AppConfig.appStoreId}';
 
   /// Browser-only sitter page — log doses without installing the app.
+  /// The token rides in the fragment (`#t=`), which browsers never send to
+  /// the server, so it stays out of proxy and access logs.
   static String sitterWebLink(String token) {
     final base = AppConfig.apiBaseUrl.replaceAll(RegExp(r'/+$'), '');
-    return '$base/sitter?t=${Uri.encodeComponent(token)}';
+    return '$base/sitter#t=${Uri.encodeComponent(token)}';
   }
 }
