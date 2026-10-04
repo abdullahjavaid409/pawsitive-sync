@@ -43,6 +43,10 @@ class SyncEngine {
             roleMessage ??= result.message;
           }
         }
+      } else if (result.status == 'retry') {
+        // The server failed on its side (not a bad op): it stays queued and
+        // goes again with the next sync, so nothing saved offline is lost.
+        AppLog.event('sync.batch.op_retry', {'id': result.id});
       } else if (result.status == 'conflict') {
         applied.add(result.id);
         final log = result.log;

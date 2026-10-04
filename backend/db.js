@@ -929,6 +929,10 @@ export async function loadHousehold(pool, { householdId, memberId }, { logDay } 
   if (hasPro(row.members) && row.medications.some((m) => m.needs_pro)) {
     await pool.query("UPDATE medications SET needs_pro = false WHERE household_id = $1 AND needs_pro", [householdId]);
     for (const medication of row.medications) medication.needs_pro = false;
+  } else if (row.medications.some((m) => m.needs_pro)) {
+    // Free: a stopped or finished medicine frees its slot for a marked one.
+    // Server day (UTC); a few hours either way only delays the release.
+    await releaseFreeMarks(pool, householdId, row.medications, new Date().toISOString().slice(0, 10));
   }
   const role = row.members.find((member) => member.id === memberId)?.role ?? "sitter";
   const isOwner = role === "owner";
@@ -989,17 +993,58 @@ function morningInFreeWindow(time) {
   return time == null || (time >= freeMorningFirst && time <= freeMorningLast);
 }
 
-/** Why a new medicine is over Free's limits, or null when it fits. */
+/** True when the schedule alone (parts + morning time) fits Free. */
+function scheduleFitsFree(parts, times) {
+  return parts.length === 1 && parts[0] === "morning" && morningInFreeWindow(times?.morning);
+}
+
+/**
+ * Why a new medicine is over Free's limits, or null when it fits. Only
+ * unmarked medicines hold the pet's slot: marked ones are already "extra",
+ * so they never block each other (see releaseFreeMarks).
+ */
 async function freeLimitBreach(pool, householdId, medication) {
-  if (medication.parts.length !== 1 || medication.parts[0] !== "morning") return "times";
-  if (!morningInFreeWindow(medication.times?.morning)) return "time_window";
+  if (!scheduleFitsFree(medication.parts, medication.times)) {
+    return medication.parts.length === 1 && medication.parts[0] === "morning" ? "time_window" : "times";
+  }
   const others = await pool.query(
     `SELECT count(*)::int AS n FROM medications
-     WHERE household_id = $1 AND pet_id = $2 AND id <> $3 AND archived = false
+     WHERE household_id = $1 AND pet_id = $2 AND id <> $3 AND archived = false AND needs_pro = false
        AND (end_day = '' OR end_day >= $4)`,
     [householdId, medication.petId, medication.id, medication.startDay],
   );
   return others.rows[0].n >= freeMedsPerPet ? "meds" : null;
+}
+
+/**
+ * Marked medicines that fit Free again — the pet's other medicine was
+ * stopped or its course ended, or the time moved back into the morning —
+ * lose the mark, oldest first, one per free slot. `rows` are the
+ * household's active medicine rows; they're updated in place.
+ */
+async function releaseFreeMarks(pool, householdId, rows, today) {
+  const active = (row) => row.end_day === "" || row.end_day >= today;
+  const holding = new Map();
+  for (const row of rows) {
+    if (!row.needs_pro && active(row)) holding.set(row.pet_id, (holding.get(row.pet_id) ?? 0) + 1);
+  }
+  const released = [];
+  const marked = rows
+    .filter((row) => row.needs_pro && active(row))
+    // created_at is a Date (pg row) or ISO text (json_agg); compare as time.
+    .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  for (const row of marked) {
+    if (!scheduleFitsFree(row.parts, row.times)) continue;
+    if ((holding.get(row.pet_id) ?? 0) >= freeMedsPerPet) continue;
+    holding.set(row.pet_id, (holding.get(row.pet_id) ?? 0) + 1);
+    released.push(row.id);
+    row.needs_pro = false;
+  }
+  if (released.length === 0) return;
+  await pool.query("UPDATE medications SET needs_pro = false WHERE household_id = $1 AND id = ANY($2)", [
+    householdId,
+    released,
+  ]);
 }
 
 /**
@@ -1011,8 +1056,21 @@ async function freeLimitBreach(pool, householdId, medication) {
  */
 export async function addMedication(pool, { householdId }, body) {
   const input = readMedication(body);
+  const pro = await householdHasPro(pool, householdId);
+  // Settle earlier marks first (a slot may have opened since the last
+  // snapshot), so an older marked medicine gets the slot before this one —
+  // never both. This medicine (a re-send) is left out of that pass.
+  if (!pro) {
+    const rows = (
+      await pool.query(
+        "SELECT * FROM medications WHERE household_id = $1 AND archived = false AND id <> $2 ORDER BY created_at",
+        [householdId, input.id],
+      )
+    ).rows;
+    if (rows.some((row) => row.needs_pro)) await releaseFreeMarks(pool, householdId, rows, input.startDay);
+  }
   const medication = await insertMedication(pool, householdId, input);
-  if (await householdHasPro(pool, householdId)) return medication;
+  if (pro) return medication;
   const breach = await freeLimitBreach(pool, householdId, input);
   if (!breach) return medication;
   await pool.query("UPDATE medications SET needs_pro = true WHERE household_id = $1 AND id = $2", [
@@ -1051,6 +1109,18 @@ export async function updateMedication(pool, { householdId }, medicationId, body
      WHERE household_id = $1 AND id = $2 AND archived = false RETURNING *`,
     [householdId, medId, times == null ? null : JSON.stringify(times), breach],
   );
+  // A marked medicine whose time moved back into the morning may fit Free
+  // again right away (if its pet's slot is free).
+  if (result.rows[0]?.needs_pro && !breach) {
+    const rows = (
+      await pool.query("SELECT * FROM medications WHERE household_id = $1 AND archived = false ORDER BY created_at", [
+        householdId,
+      ])
+    ).rows;
+    await releaseFreeMarks(pool, householdId, rows, new Date().toISOString().slice(0, 10));
+    const self = rows.find((row) => row.id === medId);
+    if (self) result.rows[0].needs_pro = self.needs_pro;
+  }
   return result.rows[0] ? mapMedication(result.rows[0]) : null;
 }
 
@@ -1152,6 +1222,27 @@ export async function setPlan(pool, { householdId }, plan) {
  * household is Pro while any member is. Covers purchases made before
  * sharing, which no webhook ties to the household.
  */
+/**
+ * RevenueCat's REST lookup says "no pro": revoke only a member who has it,
+ * and only when their Pro state is older than [lookupRevokeAfterMs] — REST
+ * can lag a purchase the webhook just reported. Nothing is stamped when
+ * nothing changes, so a lagging (or forged, header-less) lookup can never
+ * make the real signed purchase webhook look stale. True when revoked.
+ */
+async function revokeProFromLookup(pool, householdId, memberId) {
+  const now = new Date();
+  const revoked = await pool.query(
+    `UPDATE members SET rc_is_pro = false, rc_expires_at = $3, rc_event_at = $3
+     WHERE household_id = $1 AND id = $2 AND rc_is_pro
+       AND (rc_event_at IS NULL OR rc_event_at < $4)
+     RETURNING id`,
+    [householdId, memberId, now, new Date(now.getTime() - lookupRevokeAfterMs)],
+  );
+  if (revoked.rowCount === 0) return false;
+  await refreshLegacyPro(pool, householdId);
+  return true;
+}
+
 export async function refreshProFromRevenueCat(pool, { householdId, memberId }, logFn = () => {}) {
   const pro = await fetchProEntitlement(`${householdId}:${memberId}`);
   if (!pro.ok) {
@@ -1164,22 +1255,8 @@ export async function refreshProFromRevenueCat(pool, { householdId, memberId }, 
         productId: pro.productId,
         eventAt: new Date(),
       });
-    } else {
-      // RevenueCat is the truth: an ended subscription is revoked here too
-      // (not only by EXPIRATION). State written in the last few minutes is
-      // kept — REST can lag a webhook that just reported a purchase.
-      const now = new Date();
-      const revoked = await pool.query(
-        `UPDATE members SET rc_is_pro = false, rc_expires_at = $3, rc_event_at = $3
-         WHERE household_id = $1 AND id = $2 AND rc_is_pro
-           AND (rc_event_at IS NULL OR rc_event_at < $4)
-         RETURNING id`,
-        [householdId, memberId, now, new Date(now.getTime() - lookupRevokeAfterMs)],
-      );
-      if (revoked.rowCount > 0) {
-        await refreshLegacyPro(pool, householdId);
-        logFn("billing.rc_refresh_revoked", { householdId });
-      }
+    } else if (await revokeProFromLookup(pool, householdId, memberId)) {
+      logFn("billing.rc_refresh_revoked", { householdId });
     }
     logFn("billing.rc_refresh", { householdId, active: pro.active });
   }
@@ -1400,6 +1477,7 @@ export async function applyBatch(pool, auth, body) {
   const operations = list(body?.operations, 100);
   const results = [];
   const logged = [];
+  const failures = [];
   for (const operation of operations) {
     const opId = text(operation?.id, "operation.id", { max: 48, required: false }) || newId("op");
     try {
@@ -1410,16 +1488,24 @@ export async function applyBatch(pool, auth, body) {
       results.push({ id: opId, ...result });
     } catch (error) {
       const exposed = error instanceof InputError || error?.expose === true;
+      if (!exposed) {
+        // Ours, not the phone's (database blip, bug): "retry" keeps the op in
+        // the phone's outbox — "error" would drop it, losing an offline dose
+        // or medicine. Apps that don't know "retry" keep it too.
+        failures.push({ id: opId, type: String(operation?.type ?? "").slice(0, 32), error: String(error?.message ?? error).slice(0, 200) });
+        results.push({ id: opId, status: "retry", message: "Try again shortly." });
+        continue;
+      }
       results.push({
         id: opId,
         status: "error",
-        message: exposed ? error.message : "Operation failed",
+        message: error.message,
         // Additive: newer apps tell a role change apart from a bad request.
-        ...(exposed && error.publicCode ? { code: error.publicCode } : {}),
+        ...(error.publicCode ? { code: error.publicCode } : {}),
       });
     }
   }
-  return { results, household: await loadHousehold(pool, auth), logged };
+  return { results, household: await loadHousehold(pool, auth), logged, failures };
 }
 
 const partOpensAt = { morning: 0, afternoon: 12, evening: 17 };
@@ -1594,7 +1680,9 @@ function clockMinute(value) {
 export async function getSitterView(pool, sitterAuth, query) {
   const viewDay = day(query?.day, "day");
   const hour = Math.min(Math.max(Number(query?.hour) || 0, 0), 23);
-  // Optional (newer pages send it): makes a 7:30 custom time due at 7:30.
+  // Optional (newer pages send it): minute precision, so a custom time
+  // earlier than its part's opening (an evening dose at 3:30 PM) is due at
+  // 3:30, not 4:00. A later custom time never delays "due" (same as the app).
   const nowMinute = hour * 60 + Math.min(Math.max(Number(query?.minute) || 0, 0), 59);
   // Only this day's logs: the sitter never needs the 100-day history.
   const snapshot = await loadHousehold(pool, sitterAuth, { logDay: viewDay });
@@ -1907,12 +1995,17 @@ export async function verifyRevenueCatWebhookByLookup(pool, body, logFn) {
       logFn("billing.webhook_lookup_failed", { householdId, type, reason: pro.reason });
       return { status: "retry" };
     }
-    await applyProState(pool, householdId, memberId, {
-      isPro: pro.active,
-      expiresAt: pro.expiresAt ?? (pro.active ? null : new Date()),
-      productId: pro.productId,
-      eventAt: new Date(),
-    });
+    if (pro.active) {
+      await applyProState(pool, householdId, memberId, {
+        isPro: true,
+        expiresAt: pro.expiresAt ?? null,
+        productId: pro.productId,
+        eventAt: new Date(),
+      });
+    } else {
+      // Same guards as the app's refresh: see revokeProFromLookup.
+      await revokeProFromLookup(pool, householdId, memberId);
+    }
     logFn("billing.webhook", { householdId, type, isPro: pro.active, verified: "lookup" });
   }
   return { status: "ok" };

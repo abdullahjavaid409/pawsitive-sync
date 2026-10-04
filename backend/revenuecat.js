@@ -2,7 +2,8 @@
  * RevenueCat REST lookups. Pro only ever comes from RevenueCat: this file asks
  * it directly; the webhook handler in db.js hears about changes.
  */
-const api = "https://api.revenuecat.com/v2/projects/";
+/** Tests point this at a local fake; production always uses RevenueCat. */
+const api = `${process.env.REVENUECAT_API_BASE || "https://api.revenuecat.com"}/v2/projects/`;
 export const proEntitlement = "pro";
 
 /** RevenueCat ids (not secrets). Override per environment if the project changes. */

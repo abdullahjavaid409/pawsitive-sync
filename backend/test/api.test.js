@@ -758,3 +758,79 @@ describe("Free limits on the server: marked, never refused", () => {
     assert.equal(onPro.body.medication.needsPro, undefined);
   });
 });
+
+describe("needs-Pro marks clear once the medicine fits Free again", () => {
+  const med = (id, petId, extra = {}) => ({ id, petId, name: id, parts: ["morning"], startDay: today, ...extra });
+  const snap = async (token) => (await call("GET", "/v1/household", { token })).body.medications;
+  const markOf = async (token, id) => (await snap(token)).find((m) => m.id === id)?.needsPro === true;
+
+  async function freshPet(house, id) {
+    assert.equal((await call("POST", "/v1/pets", { token: house.owner.token, body: { id, name: id, species: "cat" } })).status, 201);
+  }
+
+  test("stopping the pet's other medicine releases the oldest marked one only", async () => {
+    const house = await household();
+    await freshPet(house, "rel-pet");
+    const t = house.owner.token;
+    await call("POST", "/v1/medications", { token: t, body: med("rel-a", "rel-pet") });
+    await call("POST", "/v1/medications", { token: t, body: med("rel-b", "rel-pet") });
+    await call("POST", "/v1/medications", { token: t, body: med("rel-c", "rel-pet") });
+    assert.equal(await markOf(t, "rel-b"), true);
+    assert.equal(await markOf(t, "rel-c"), true);
+    assert.equal((await call("DELETE", "/v1/medications/rel-a", { token: t })).status, 200);
+    // One slot opened: B (older) takes it, C keeps waiting for Pro.
+    assert.equal(await markOf(t, "rel-b"), false);
+    assert.equal(await markOf(t, "rel-c"), true);
+    // A partner's phone sees the same.
+    assert.equal(await markOf(house.caregiver.token, "rel-b"), false);
+  });
+
+  test("a marked evening medicine stays marked even with a free slot", async () => {
+    const house = await household();
+    await freshPet(house, "eve-pet");
+    const t = house.owner.token;
+    await call("POST", "/v1/medications", { token: t, body: med("eve", "eve-pet", { parts: ["evening"] }) });
+    assert.equal(await markOf(t, "eve"), true);
+  });
+
+  test("moving a marked morning time back into the morning clears it at once", async () => {
+    const house = await household();
+    await freshPet(house, "time-pet");
+    const t = house.owner.token;
+    await call("POST", "/v1/medications", { token: t, body: med("tm", "time-pet", { times: { morning: "21:00" } }) });
+    assert.equal(await markOf(t, "tm"), true);
+    const fixed = await call("PATCH", "/v1/medications/tm", { token: t, body: { times: { morning: "07:30" } } });
+    assert.equal(fixed.body.medication.needsPro, undefined);
+    assert.equal(await markOf(t, "tm"), false);
+  });
+
+  test("a finished course frees the slot too", async () => {
+    const house = await household();
+    await freshPet(house, "end-pet");
+    const t = house.owner.token;
+    // Ends today: still holds the slot, so the next one is marked.
+    await call("POST", "/v1/medications", { token: t, body: med("course", "end-pet", { endDay: today }) });
+    await call("POST", "/v1/medications", { token: t, body: med("next", "end-pet") });
+    assert.equal(await markOf(t, "next"), true);
+    // Course over (yesterday): the marked one is released on the next snapshot.
+    await pool.query("UPDATE medications SET end_day = '2000-01-01' WHERE id = 'course' AND household_id = $1", [house.id]);
+    assert.equal(await markOf(t, "next"), false);
+  });
+});
+
+test("an older marked medicine gets a freed slot before a new one (no double free slot)", async () => {
+  const house = await household();
+  const t = house.owner.token;
+  assert.equal((await call("POST", "/v1/pets", { token: t, body: { id: "race-pet", name: "R", species: "cat" } })).status, 201);
+  const add = (id, extra = {}) =>
+    call("POST", "/v1/medications", { token: t, body: { id, petId: "race-pet", name: id, parts: ["morning"], startDay: today, ...extra } });
+  await add("race-a");
+  await add("race-b"); // marked: A holds the slot
+  // A moves to 9 PM (now marked too): the slot opens, but no snapshot yet.
+  await call("PATCH", "/v1/medications/race-a", { token: t, body: { times: { morning: "21:00" } } });
+  const c = await add("race-c");
+  assert.equal(c.body.medication.needsPro, true, "B was waiting first");
+  const meds = (await call("GET", "/v1/household", { token: t })).body.medications.filter((m) => m.petId === "race-pet");
+  const free = meds.filter((m) => !m.needsPro).map((m) => m.id);
+  assert.deepEqual(free, ["race-b"]);
+});

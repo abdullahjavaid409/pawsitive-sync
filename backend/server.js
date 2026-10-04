@@ -626,13 +626,17 @@ async function route(req, url, requestId) {
   if (req.method === "POST" && path === "/v1/sync/batch") {
     // Per-op roles are checked inside applyBatch; a forbidden op fails alone.
     const body = await readJson(req, importBody);
-    const { logged, ...batch } = await applyBatch(pool, auth, body);
+    const { logged, failures, ...batch } = await applyBatch(pool, auth, body);
     const failed = batch.results.filter((item) => item.status === "error").length;
+    for (const failure of failures) {
+      log("sync.batch_op_retry", { requestId, householdId: auth.householdId, ...failure });
+    }
     log("sync.batch", {
       requestId,
       householdId: auth.householdId,
       count: batch.results.length,
       failed,
+      retry: failures.length,
       dosesLogged: logged.length,
     });
     if (logged.length > 0) {
