@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:dio/dio.dart';
 import 'package:pawsitive_sync/core/config/app_config.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
@@ -32,7 +30,7 @@ abstract final class AnalyticsService {
     if (!_enabled || !AppConfig.hasApi || !_funnelEvents.contains(name)) return;
     _buffer.add(name);
     if (_buffer.length >= 8) {
-      unawaited(flush());
+      AppLog.unawaitedLogged(flush(), 'analytics.flush_failed');
     }
   }
 

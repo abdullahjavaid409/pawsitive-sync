@@ -94,6 +94,18 @@ abstract final class AppLog {
     return out;
   }
 
+  /// Fire-and-forget [future]; a failure is logged as [name] instead of
+  /// escaping as an unhandled async error.
+  static void unawaitedLogged(
+    Future<void> future,
+    String name, [
+    Map<String, Object?> fields = const {},
+  ]) {
+    future.catchError((Object error, StackTrace stack) {
+      AppLog.error(name, error, stack, fields);
+    });
+  }
+
   /// Marks one async case on the DevTools performance timeline.
   static Future<T> trace<T>(String name, Future<T> Function() body) {
     final task = developer.TimelineTask(filterKey: 'pawsitive')..start(name);

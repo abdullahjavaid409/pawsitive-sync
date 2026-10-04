@@ -1,6 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import pg from "pg";
 import { fetchProEntitlement, proEntitlement } from "./revenuecat.js";
+import { checkPhotoSize, deletePhoto, keyBelongsTo, newPhotoKey, photoExists, photosConfigured, presignUpload, presignView } from "./photos.js";
 
 const { Pool } = pg;
 
@@ -208,6 +209,9 @@ async function migrateLocked(pool) {
   `);
   await pool.query(`
     ALTER TABLE households ADD COLUMN IF NOT EXISTS rc_event_at timestamptz;
+  `);
+  await pool.query(`
+    ALTER TABLE pets ADD COLUMN IF NOT EXISTS photo_key text;
   `);
   // Household snapshot reads the newest 100 days of logs; without this it
   // sorts every log the household ever wrote.
@@ -554,6 +558,9 @@ function mapMember(row, memberId) {
 function mapPet(row) {
   return {
     id: row.id,
+    // Short-lived bucket URL (a day); the app caches by photoKey.
+    photoKey: row.photo_key ?? null,
+    photoUrl: presignView(row.photo_key),
     name: row.name,
     species: row.species,
     ageYears: row.age_years,
@@ -1118,7 +1125,7 @@ export async function getSitterView(pool, sitterAuth, query) {
   return {
     day: viewDay,
     label: sitterAuth.label,
-    pets: snapshot.pets.map((pet) => ({ id: pet.id, name: pet.name, species: pet.species })),
+    pets: snapshot.pets.map((pet) => ({ id: pet.id, name: pet.name, species: pet.species, photoUrl: pet.photoUrl })),
     doses,
   };
 }
@@ -1405,4 +1412,83 @@ export async function handleRevenueCatWebhook(pool, body, logFn) {
     environment: event.environment ?? "",
   });
   return { status: "ok", isPro };
+}
+
+/** Photos are optional infrastructure: without the bucket the app keeps photos on the phone. */
+function requirePhotos() {
+  if (!photosConfigured()) throw new InputError("Photo sharing isn't available right now.", "photos bucket not configured");
+}
+
+async function petExists(pool, householdId, petId) {
+  const row = await pool.query("SELECT photo_key FROM pets WHERE household_id = $1 AND id = $2", [householdId, petId]);
+  return row.rows[0] ?? null;
+}
+
+/** Step 1: a 5-minute URL the phone PUTs the JPEG to directly. */
+export async function startPetPhotoUpload(pool, { householdId }, petId, body) {
+  requirePhotos();
+  const pet = await petExists(pool, householdId, id(petId, "petId"));
+  if (!pet) return null;
+  const bytes = Number(body?.bytes);
+  if (!checkPhotoSize(bytes)) {
+    throw new InputError("That photo is too large. Try another one.", `photo bytes ${body?.bytes}`);
+  }
+  const photoKey = newPhotoKey(householdId, petId);
+  return { photoKey, upload: presignUpload(photoKey, bytes) };
+}
+
+/** Step 2: attach the uploaded object to the pet and delete the old one. */
+export async function attachPetPhoto(pool, { householdId }, petId, body, logFn = () => {}) {
+  requirePhotos();
+  const pet = await petExists(pool, householdId, id(petId, "petId"));
+  if (!pet) return null;
+  const photoKey = body?.photoKey;
+  if (!keyBelongsTo(photoKey, householdId, petId)) throw new InputError(appProblem, "photoKey not for this pet");
+  if (!(await photoExists(photoKey))) {
+    throw new InputError("The photo didn't finish uploading. Try again.", "photo object missing");
+  }
+  await pool.query("UPDATE pets SET photo_key = $3 WHERE household_id = $1 AND id = $2", [householdId, petId, photoKey]);
+  if (pet.photo_key && pet.photo_key !== photoKey) await deletePhoto(pet.photo_key, logFn);
+  return { photoKey, photoUrl: presignView(photoKey) };
+}
+
+export async function removePetPhoto(pool, { householdId }, petId, logFn = () => {}) {
+  const pet = await petExists(pool, householdId, id(petId, "petId"));
+  if (!pet) return null;
+  await pool.query("UPDATE pets SET photo_key = NULL WHERE household_id = $1 AND id = $2", [householdId, petId]);
+  await deletePhoto(pet.photo_key, logFn);
+  return { removed: Boolean(pet.photo_key) };
+}
+
+/**
+ * DELETE /v1/account — App Store 5.1.1(v) account deletion.
+ * Owner: the whole household goes (every table cascades from households), then
+ * its pet photos are removed from the bucket. Other members' phones get 401
+ * "This household no longer exists." on their next sync and keep their copy.
+ * Caregiver / sitter: only their member record, push tokens and sitter access
+ * go; past dose logs stay so the household's history remains accurate (they
+ * show as a former member).
+ */
+export async function deleteAccount(pool, { householdId, memberId }, logFn = () => {}) {
+  const member = await pool.query("SELECT role FROM members WHERE household_id = $1 AND id = $2", [householdId, memberId]);
+  const role = member.rows[0]?.role;
+  if (!role) return { deleted: false };
+
+  if (role === "owner") {
+    const photos = await pool.query("SELECT photo_key FROM pets WHERE household_id = $1 AND photo_key IS NOT NULL", [
+      householdId,
+    ]);
+    await pool.query("DELETE FROM households WHERE id = $1", [householdId]);
+    for (const row of photos.rows) await deletePhoto(row.photo_key, logFn);
+    logFn("account.deleted", { householdId, role, scope: "household", photos: photos.rowCount });
+    return { deleted: true, scope: "household" };
+  }
+
+  await transaction(pool, async (client) => {
+    await client.query("DELETE FROM device_tokens WHERE household_id = $1 AND member_id = $2", [householdId, memberId]);
+    await client.query("DELETE FROM sitter_links WHERE household_id = $1 AND member_id = $2", [householdId, memberId]);
+    await client.query("DELETE FROM members WHERE household_id = $1 AND id = $2", [householdId, memberId]);
+  });
+  logFn("account.deleted", { householdId, role, scope: "member" });
+  return { deleted: true, scope: "member" };
 }

@@ -17,6 +17,10 @@ import {
   exportHouseholdData,
   getSitterView,
   handleRevenueCatWebhook,
+  deleteAccount,
+  startPetPhotoUpload,
+  attachPetPhoto,
+  removePetPhoto,
   verifyRevenueCatWebhookByLookup,
   joinHousehold,
   leaveHousehold,
@@ -39,10 +43,11 @@ import {
 } from "./db.js";
 import { verifyAppleIdentityToken } from "./apple.js";
 
-const sitterPage = readFileSync(
-  join(dirname(fileURLToPath(import.meta.url)), "web", "sitter.html"),
-  "utf8",
-);
+const webDir = join(dirname(fileURLToPath(import.meta.url)), "web");
+/** Absolute origin for link-preview images (crawlers need full URLs). */
+const publicBase = (process.env.PUBLIC_BASE_URL || "https://pawsitive-api-production.up.railway.app").replace(/\/+$/, "");
+const sitterPage = readFileSync(join(webDir, "sitter.html"), "utf8").replaceAll("__PUBLIC_BASE__", publicBase);
+const sitterPreviewImage = readFileSync(join(webDir, "og-sitter.png"));
 
 /**
  * The sitter page holds a bearer token, so it gets a strict CSP: only its own
@@ -298,7 +303,17 @@ const server = createServer(async (req, res) => {
     }
 
     const result = await route(req, url, requestId);
-    if (result.html) {
+    if (result.png) {
+      res.writeHead(result.status, {
+        ...baseHeaders,
+        "content-type": "image/png",
+        "content-length": result.png.length,
+        "cache-control": "public, max-age=86400",
+        // Preview images are meant to be shown by other apps and sites.
+        "cross-origin-resource-policy": "cross-origin",
+      });
+      res.end(result.png);
+    } else if (result.html) {
       sendHtml(res, result.status, result.html);
     } else {
       send(res, result.status, result.body);
@@ -343,6 +358,10 @@ async function route(req, url, requestId) {
 
   if (req.method === "GET" && (path === "/sitter" || path === "/join")) {
     return { status: 200, html: sitterPage };
+  }
+
+  if (req.method === "GET" && path === "/og-sitter.png") {
+    return { status: 200, png: sitterPreviewImage };
   }
 
   if (req.method === "GET" && path === "/v1/sitter/view") {
@@ -463,6 +482,30 @@ async function route(req, url, requestId) {
     return { status: 201, body: { pet } };
   }
 
+  const petPhotoPath = path.match(/^\/v1\/pets\/([^/]+)\/photo(\/upload)?$/);
+  if (petPhotoPath) {
+    const petId = decodeURIComponent(petPhotoPath[1]);
+    const missing = { status: 404, body: { error: "That pet was removed. Pull down to refresh." } };
+    if (req.method === "POST" && petPhotoPath[2]) {
+      const started = await startPetPhotoUpload(pool, auth, petId, await readJson(req));
+      if (!started) return missing;
+      log("pet.photo_upload_started", { requestId, householdId: auth.householdId, petId });
+      return { status: 200, body: started };
+    }
+    if (req.method === "PUT" && !petPhotoPath[2]) {
+      const attached = await attachPetPhoto(pool, auth, petId, await readJson(req), scopedLog(requestId));
+      if (!attached) return missing;
+      log("pet.photo_set", { requestId, householdId: auth.householdId, petId });
+      return { status: 200, body: attached };
+    }
+    if (req.method === "DELETE" && !petPhotoPath[2]) {
+      const removed = await removePetPhoto(pool, auth, petId, scopedLog(requestId));
+      if (!removed) return missing;
+      log("pet.photo_removed", { requestId, householdId: auth.householdId, petId });
+      return { status: 200, body: removed };
+    }
+  }
+
   const petPath = path.match(/^\/v1\/pets\/([^/]+)$/);
   if (req.method === "PATCH" && petPath) {
     const pet = await updatePet(pool, auth, decodeURIComponent(petPath[1]), await readJson(req));
@@ -570,6 +613,12 @@ async function route(req, url, requestId) {
     const registered = await registerDevice(pool, auth, await readJson(req));
     log("device.registered", { requestId, householdId: auth.householdId });
     return { status: 200, body: registered };
+  }
+
+  if (req.method === "DELETE" && path === "/v1/account") {
+    const result = await deleteAccount(pool, auth, scopedLog(requestId));
+    if (!result.deleted) return { status: 401, body: { error: "This phone is no longer in the household." } };
+    return { status: 200, body: result };
   }
 
   if (req.method === "POST" && path === "/v1/members/leave") {

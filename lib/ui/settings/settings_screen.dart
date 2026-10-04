@@ -29,14 +29,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
+    // ReminderChoice.read logs and swallows its own failures.
     ReminderChoice.read().then((on) {
       if (mounted) setState(() => _remindersOn = on);
     });
   }
 
   Future<void> _open(Uri uri) async {
-    AppLog.event('settings.link', {'uri': uri.toString()});
-    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    // Scheme + host only: the support link is a mailto with an address.
+    final fields = {'scheme': uri.scheme, 'host': uri.host};
+    AppLog.event('settings.link', fields);
+    var ok = false;
+    try {
+      ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (error, stack) {
+      AppLog.error('settings.link_failed', error, stack, fields);
+    }
+    if (!ok) AppLog.event('settings.link_unavailable', fields);
     if (!ok && mounted) {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('Could not open ${uri.path}.')));

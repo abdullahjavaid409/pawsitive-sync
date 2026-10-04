@@ -325,7 +325,7 @@ void main() {
   });
 
   group('Sitter browser link', () {
-    test('403 from a Free household shows the server reason', () async {
+    test('403 from a Free household retries once, then explains', () async {
       final care = await connectedCare({
         'POST /v1/sitter-links': (_) =>
             (403, {'error': 'Browser sitter links need Pawsitive Pro.'}),
@@ -335,8 +335,13 @@ void main() {
 
       expect(await care.ensureSitterWebLink(force: true), isNull);
 
-      expect(care.lastError, 'Browser sitter links need Pawsitive Pro.');
-      expectLogged('sitter.link_failed', fields: {'kind': 'invalid'});
+      // Shares this phone's Pro once and retries once before giving up.
+      expectLogged('sitter.link_retry');
+      expect(care.lastError, contains('still being set up'));
+      expectLogged(
+        'sitter.link_failed',
+        fields: {'kind': 'invalid', 'status': 403},
+      );
     });
   });
 }

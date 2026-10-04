@@ -27,7 +27,6 @@ class _InviteScreenState extends State<InviteScreen> {
   bool _connecting = false;
   bool _loadingWebLink = false;
   String? _error;
-  String? _webLink;
   String? _webLinkError;
 
   @override
@@ -62,31 +61,107 @@ class _InviteScreenState extends State<InviteScreen> {
     }
   }
 
-  /// Requested once when the screen opens (Pro + connected) and again only
-  /// from the explicit "Try again" button. Never from build or listeners.
+  /// On open: the cached link only (no server call). A new link is created
+  /// only from the explicit "Create browser link" sheet.
   Future<void> _loadWebLink() async {
-    if (!mounted || _loadingWebLink) return;
+    if (!mounted) return;
+    await context.read<CareRepository>().loadSitterLink();
+  }
+
+  Future<void> _createWebLink() async {
+    if (_loadingWebLink) return;
     final care = context.read<CareRepository>();
-    // Free: the row is locked and the API is never called.
-    if (!care.canInviteHousehold || !care.isConnected) return;
-    setState(() => _loadingWebLink = true);
-    final link = await care.ensureSitterWebLink();
+    AppLog.event('sitter.create_opened');
+    final label = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => _SitterLabelSheet(initial: care.defaultSitterLabel()),
+    );
+    if (!mounted) return;
+    if (label == null) {
+      AppLog.event('sitter.create_cancelled');
+      return;
+    }
+    setState(() {
+      _loadingWebLink = true;
+      _webLinkError = null;
+      _webLinkCopied = false;
+    });
+    final url = await care.ensureSitterWebLink(label: label, force: true);
     if (!mounted) return;
     setState(() {
       _loadingWebLink = false;
-      _webLink = link;
-      _webLinkError = link == null ? care.lastError : null;
+      _webLinkError = url == null ? care.lastError : null;
     });
   }
 
-  String _message(CareRepository care) {
+  static const _months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+
+  static String _shortDate(DateTime day) {
+    final local = day.toLocal();
+    return '${_months[local.month - 1]} ${local.day}';
+  }
+
+  static String _petNames(CareRepository care) {
     final pets = care.pets.map((pet) => pet.name).toList();
-    final who = pets.isEmpty
+    return pets.isEmpty
         ? 'our pet'
         : pets.length == 1
         ? pets.first
         : '${pets.sublist(0, pets.length - 1).join(', ')} and ${pets.last}';
-    final web = _webLink;
+  }
+
+  String _sitterShareText(CareRepository care, SitterLink link) {
+    final expires = link.expiresAt;
+    final until = expires == null ? '' : ' until ${_shortDate(expires)}';
+    return 'Here\'s your link to see and log ${_petNames(care)}\'s doses$until: ${link.url}';
+  }
+
+  Future<void> _copySitterLink(SitterLink link) async {
+    await Clipboard.setData(ClipboardData(text: link.url));
+    if (!mounted) return;
+    AppLog.event('sitter.link_copied');
+    setState(() => _webLinkCopied = true);
+  }
+
+  Future<void> _shareSitterLink(
+    BuildContext buttonContext,
+    CareRepository care,
+    SitterLink link,
+  ) async {
+    AppLog.event('sitter.link_shared');
+    final box = buttonContext.findRenderObject() as RenderBox?;
+    try {
+      await SharePlus.instance.share(
+        ShareParams(
+          text: _sitterShareText(care, link),
+          sharePositionOrigin: box == null
+              ? null
+              : box.localToGlobal(Offset.zero) & box.size,
+        ),
+      );
+    } catch (error, stack) {
+      AppLog.error('sitter.link_share_failed', error, stack);
+    }
+  }
+
+  String _message(CareRepository care) {
+    final who = _petNames(care);
+    final web = care.sitterLink?.url;
     if (web != null && web.isNotEmpty) {
       return 'Help me with $who’s medicine today — log doses here (no app needed):\n\n$web';
     }
@@ -259,56 +334,20 @@ class _InviteScreenState extends State<InviteScreen> {
                           },
                         )
                       else
-                        SurfaceCard(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              if (_loadingWebLink)
-                                const Center(child: CircularProgressIndicator())
-                              else if (_webLink != null)
-                                SelectableText(
-                                  _webLink!,
-                                  style: text.bodyMedium?.copyWith(
-                                    color: tokens.brandDark,
-                                  ),
-                                )
-                              else
-                                Text(
-                                  _webLinkError ?? 'Could not create a browser link. Try again.',
-                                  style: text.bodyMedium?.copyWith(
-                                    color: scheme.error,
-                                  ),
-                                ),
-                              const SizedBox(height: 12),
-                              OutlinedButton.icon(
-                                onPressed: _webLink == null && !_loadingWebLink
-                                    ? _loadWebLink
-                                    : _webLink == null
-                                    ? null
-                                    : () async {
-                                        await Clipboard.setData(
-                                          ClipboardData(text: _webLink!),
-                                        );
-                                        if (!mounted) return;
-                                        AppLog.event('invite.web_link_copied');
-                                        setState(() => _webLinkCopied = true);
-                                      },
-                                icon: Icon(
-                                  _webLinkCopied
-                                      ? Icons.check_rounded
-                                      : Icons.link_rounded,
-                                  size: 18,
-                                ),
-                                label: Text(
-                                  _webLink == null && !_loadingWebLink
-                                      ? 'Try again'
-                                      : _webLinkCopied
-                                      ? 'Link copied'
-                                      : 'Copy browser link',
-                                ),
-                              ),
-                            ],
+                        _SitterLinkCard(
+                          link: care.sitterLink,
+                          loading: _loadingWebLink,
+                          error: _webLinkError,
+                          copied: _webLinkCopied,
+                          expiryLabel: care.sitterLink?.expiresAt == null
+                              ? null
+                              : 'Works until ${_shortDate(care.sitterLink!.expiresAt!)}',
+                          onCreate: _createWebLink,
+                          onCopy: () => _copySitterLink(care.sitterLink!),
+                          onShare: (buttonContext) => _shareSitterLink(
+                            buttonContext,
+                            care,
+                            care.sitterLink!,
                           ),
                         ),
                       if (joinLink != null) ...[
@@ -406,6 +445,165 @@ class _InviteScreenState extends State<InviteScreen> {
   }
 }
 
+/// Pro: the named browser link, or a button to create one.
+class _SitterLinkCard extends StatelessWidget {
+  const _SitterLinkCard({
+    required this.link,
+    required this.loading,
+    required this.error,
+    required this.copied,
+    required this.expiryLabel,
+    required this.onCreate,
+    required this.onCopy,
+    required this.onShare,
+  });
+
+  final SitterLink? link;
+  final bool loading;
+  final String? error;
+  final bool copied;
+  final String? expiryLabel;
+  final VoidCallback onCreate;
+  final VoidCallback onCopy;
+  final void Function(BuildContext buttonContext) onShare;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final current = link;
+    return SurfaceCard(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (loading)
+            const Center(child: CircularProgressIndicator())
+          else if (current != null) ...[
+            Text(
+              current.label.isEmpty ? 'Sitter link' : current.label,
+              style: text.titleSmall,
+            ),
+            if (expiryLabel != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                expiryLabel!,
+                style: text.bodyMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: onCopy,
+                    icon: Icon(
+                      copied ? Icons.check_rounded : Icons.link_rounded,
+                      size: 18,
+                    ),
+                    label: Text(copied ? 'Link copied' : 'Copy'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Builder(
+                    builder: (buttonContext) => OutlinedButton.icon(
+                      onPressed: () => onShare(buttonContext),
+                      icon: const Icon(Icons.ios_share_rounded, size: 18),
+                      label: const Text('Share'),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ] else ...[
+            if (error != null) ...[
+              Text(
+                error!,
+                style: text.bodyMedium?.copyWith(color: scheme.error),
+              ),
+              const SizedBox(height: 12),
+            ],
+            OutlinedButton.icon(
+              onPressed: onCreate,
+              icon: const Icon(Icons.link_rounded, size: 18),
+              label: const Text('Create browser link'),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// "Who is this link for?" — names the link so the owner can tell several
+/// sitters apart. Returns the text on Create, null on dismiss.
+class _SitterLabelSheet extends StatefulWidget {
+  const _SitterLabelSheet({required this.initial});
+
+  final String initial;
+
+  @override
+  State<_SitterLabelSheet> createState() => _SitterLabelSheetState();
+}
+
+class _SitterLabelSheetState extends State<_SitterLabelSheet> {
+  late final TextEditingController _label = TextEditingController(
+    text: widget.initial,
+  );
+
+  @override
+  void dispose() {
+    _label.dispose();
+    super.dispose();
+  }
+
+  void _create() {
+    FocusScope.of(context).unfocus();
+    Navigator.of(context).pop(_label.text);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        20,
+        0,
+        20,
+        20 + MediaQuery.viewInsetsOf(context).bottom,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          TextField(
+            controller: _label,
+            autofocus: true,
+            maxLength: CareRepository.sitterLabelMax,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => _create(),
+            onTapOutside: (_) => FocusScope.of(context).unfocus(),
+            decoration: const InputDecoration(
+              labelText: 'Who is this link for?',
+              hintText: 'e.g. Sara — weekend sitter',
+            ),
+          ),
+          const SizedBox(height: 12),
+          FilledButton(
+            onPressed: _create,
+            style: FilledButton.styleFrom(
+              minimumSize: const Size.fromHeight(52),
+            ),
+            child: const Text('Create'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Free tier: the sitter browser link is a Pro feature. Shown locked, and
 /// the link is never requested from the server.
 class _LockedSitterLink extends StatelessWidget {
@@ -426,7 +624,7 @@ class _LockedSitterLink extends StatelessWidget {
         padding: EdgeInsets.zero,
         child: InkWell(
           onTap: onTap,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(PawsRadii.cardValue),
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Row(

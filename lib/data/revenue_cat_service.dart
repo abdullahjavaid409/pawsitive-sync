@@ -211,6 +211,12 @@ abstract final class RevenueCatService {
     // Offline or slow network: keep the cached identity and retry on the next
     // resume. Throwing here would block app launch.
     try {
+      // Already this user from a previous launch: logIn again only makes the
+      // SDK warn "appUserID … is the same as the one already cached".
+      if (await Purchases.appUserID.timeout(_networkTimeout) == memberId) {
+        _memberId = memberId;
+        return;
+      }
       await AppLog.trace('billing.rc.identify', () async {
         await Purchases.logIn(memberId).timeout(_networkTimeout);
         _memberId = memberId;

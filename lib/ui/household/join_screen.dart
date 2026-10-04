@@ -75,7 +75,8 @@ class _JoinScreenState extends State<JoinScreen> {
     final error = await care.join(code: _code.text, name: _name.text);
     if (!mounted) return;
     if (error != null) {
-      AppLog.event('join.ui_failed', {'error': error});
+      // household.join_* already logged the reason; no free text here.
+      AppLog.event('join.ui_failed');
       setState(() {
         _busy = false;
         _error = error;

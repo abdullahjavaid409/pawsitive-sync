@@ -22,6 +22,8 @@ class HouseholdScreen extends StatelessWidget {
   Widget build(BuildContext context) => CareTabBuilder(builder: _build);
 
   Widget _build(BuildContext context, CareRepository care) {
+    // Built once per frame: each call formats up to 40 log rows.
+    final activity = care.activity;
     final scheme = Theme.of(context).colorScheme;
     final tokens = context.paws;
     final text = Theme.of(context).textTheme;
@@ -131,7 +133,7 @@ class HouseholdScreen extends StatelessWidget {
             const SizedBox(height: 24),
             const CareSectionHeader('Recent activity'),
             const SizedBox(height: 16),
-            if (care.activity.isEmpty)
+            if (activity.isEmpty)
               SurfaceCard(
                 radius: 20,
                 padding: const EdgeInsets.all(20),
@@ -164,7 +166,7 @@ class HouseholdScreen extends StatelessWidget {
                 ),
               )
             else
-              for (final item in care.activity) _ActivityRow(item: item),
+              for (final item in activity) _ActivityRow(item: item),
           ],
         ),
       ),

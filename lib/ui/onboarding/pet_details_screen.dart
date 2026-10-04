@@ -226,8 +226,8 @@ Future<void> _pick(
       'source': source.name,
       'bytes': bytes.length,
     });
-  } on PlatformException {
-    AppLog.event('pet.photo_failed', {'source': source.name});
+  } on PlatformException catch (error, stack) {
+    AppLog.error('pet.photo_failed', error, stack, {'source': source.name});
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(

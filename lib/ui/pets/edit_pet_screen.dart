@@ -113,10 +113,7 @@ class _EditPetScreenState extends State<EditPetScreen> {
 
     if (!mounted) return;
     if (!ok) {
-      AppLog.event('pet.update.ui_failed', {
-        'petId': widget.petId,
-        'error': care.lastError ?? 'unknown',
-      });
+      AppLog.event('pet.update.ui_failed', {'petId': widget.petId});
       setState(() {
         _busy = false;
         _error = care.lastError ?? 'Could not save. Try again.';

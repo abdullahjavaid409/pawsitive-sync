@@ -72,12 +72,16 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     setState(() => _attemptedSave = true);
     final validFields = _form.currentState!.validate();
     if (!validFields || _parts.isEmpty) {
+      AppLog.event('medication.form_invalid', {
+        'fields': !validFields,
+        'missingParts': _parts.isEmpty,
+      });
       final target = _nameField.currentState?.hasError == true
           ? _nameField.currentContext
           : _parts.isEmpty
           ? _scheduleKey.currentContext
           : _supplyField.currentContext;
-      if (target != null) {
+      if (target != null && target.mounted) {
         await Scrollable.ensureVisible(target, alignment: 0.2);
       }
       return;
@@ -180,16 +184,16 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                                 24,
                                 24,
                               ),
-                               children: [
-                                 CarePageHeader(
-                                   title: 'Add medicine',
-                                   subtitle: 'A simple routine for ${pet.name}.',
-                                   leading: CareBackButton(
-                                     fallbackRoute: AppRoutes.today,
-                                     enabled: !_busy,
-                                   ),
-                                   action: PetPortrait(pet, size: 58),
-                                 ),
+                              children: [
+                                CarePageHeader(
+                                  title: 'Add medicine',
+                                  subtitle: 'A simple routine for ${pet.name}.',
+                                  leading: CareBackButton(
+                                    fallbackRoute: AppRoutes.today,
+                                    enabled: !_busy,
+                                  ),
+                                  action: PetPortrait(pet, size: 58),
+                                ),
                                 if (care.pets.length > 1) ...[
                                   const SizedBox(height: 20),
                                   CarePetPicker(

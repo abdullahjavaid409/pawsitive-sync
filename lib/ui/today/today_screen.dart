@@ -79,9 +79,7 @@ class _TodayScreenState extends State<TodayScreen> {
         bottom: false,
         child: RefreshIndicator(
           onRefresh: () {
-            AppLog.event('today.pull_refresh', {
-              'connected': care.isConnected,
-            });
+            AppLog.event('today.pull_refresh', {'connected': care.isConnected});
             return care.isConnected ? care.sync(force: true) : Future.value();
           },
           child: ListView(
@@ -135,10 +133,10 @@ class _TodayScreenState extends State<TodayScreen> {
                 ),
                 if (next != null) ...[
                   const SizedBox(height: 16),
-                          _NextDose(
-                            dose: next,
-                            pet: care.tryPetById(next.petId),
-                            onLog: () => _openDose(context, next),
+                  _NextDose(
+                    dose: next,
+                    pet: care.tryPetById(next.petId),
+                    onLog: () => _openDose(context, next),
                     onDetails: () =>
                         context.push(AppRoutes.medication(next.medicationId)),
                   ),
@@ -195,7 +193,11 @@ class _TodayScreenState extends State<TodayScreen> {
                                 'eventId': event.id,
                                 'kind': event.kind.name,
                               });
-                              care.removeCareEvent(event.id);
+                              AppLog.unawaitedLogged(
+                                care.removeCareEvent(event.id),
+                                'care_event.remove_failed',
+                                {'eventId': event.id},
+                              );
                             },
                           ),
                       ],
@@ -283,7 +285,11 @@ class _TodayScreenState extends State<TodayScreen> {
                                 'eventId': event.id,
                                 'kind': event.kind.name,
                               });
-                              care.removeCareEvent(event.id);
+                              AppLog.unawaitedLogged(
+                                care.removeCareEvent(event.id),
+                                'care_event.remove_failed',
+                                {'eventId': event.id},
+                              );
                             },
                           ),
                       ],
@@ -801,9 +807,7 @@ class _StartCare extends StatelessWidget {
                   ),
                   const SizedBox(height: 10),
                   Text(
-                    pet == null
-                        ? 'Bring their daily care into one place.'
-                        : 'Add their first medicine. We’ll keep the routine together.',
+                    pet == null ? 'Bring their daily care into one place.' : 'Add their first medicine. We’ll keep the routine together.',
                     style: text.bodyLarge?.copyWith(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
@@ -899,9 +903,7 @@ class _QuickActions extends StatelessWidget {
                       AppLog.event(action.$3);
                       action.$4();
                     },
-                    borderRadius: BorderRadius.circular(
-                      context.paws.radii.lg,
-                    ),
+                    borderRadius: BorderRadius.circular(context.paws.radii.lg),
                     child: Padding(
                       padding: EdgeInsets.symmetric(
                         horizontal: context.paws.spacing.xs,
@@ -933,7 +935,9 @@ class _QuickActions extends StatelessWidget {
                             style: Theme.of(context).textTheme.bodySmall
                                 ?.copyWith(
                                   fontWeight: FontWeight.w500,
-                                  color: Theme.of(context).colorScheme.onSurface,
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurface,
                                 ),
                           ),
                         ],
@@ -1330,7 +1334,7 @@ class _CareEventTile extends StatelessWidget {
                       Text(event.title, style: text.titleSmall),
                       const SizedBox(height: 4),
                       Text(
-                         '${event.kindLabel} · $due · $petName',
+                        '${event.kindLabel} · $due · $petName',
                         style: text.bodyMedium?.copyWith(
                           color: scheme.onSurfaceVariant,
                         ),

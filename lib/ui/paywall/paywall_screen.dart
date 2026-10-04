@@ -106,8 +106,13 @@ class _PaywallScreenState extends State<PaywallScreen> {
   Future<void> _bootstrap() async {
     if (!mounted) return;
     final care = context.read<CareRepository>();
-    if (care.plan != BillingPlan.yearly) {
-      care.setPlan(BillingPlan.yearly);
+    // Subscribers keep their real plan; resetting it would overwrite the
+    // household's billing plan on the server.
+    if (!care.isPro && care.plan != BillingPlan.yearly) {
+      AppLog.unawaitedLogged(
+        care.setPlan(BillingPlan.yearly),
+        'billing.plan.failed',
+      );
     }
     await _loadOffer();
   }
@@ -119,7 +124,10 @@ class _PaywallScreenState extends State<PaywallScreen> {
     });
     if (RevenueCatService.isReady) {
       AppLog.event('billing.paywall.rc_ready', {'placement': _placement});
-      unawaited(RevenueCatService.syncAttributes({'last_paywall': _placement}));
+      AppLog.unawaitedLogged(
+        RevenueCatService.syncAttributes({'last_paywall': _placement}),
+        'billing.rc.attributes_failed',
+      );
     }
     final offer = await RevenueCatService.loadOffer(_placement);
     if (!mounted) return;
@@ -128,7 +136,9 @@ class _PaywallScreenState extends State<PaywallScreen> {
       _loadingOffer = false;
     });
     AppLog.event(
-      offer == null ? 'billing.paywall.offer_unavailable' : 'billing.paywall.offer_shown',
+      offer == null
+          ? 'billing.paywall.offer_unavailable'
+          : 'billing.paywall.offer_shown',
       {
         'placement': _placement,
         'rcReady': RevenueCatService.isReady,
@@ -144,7 +154,8 @@ class _PaywallScreenState extends State<PaywallScreen> {
   /// Trial days RevenueCat says this user gets on [plan]; null = no trial.
   int? _trialDays(BillingPlan plan) => _offer?.forPlan(plan)?.trialDays;
 
-  bool get _canBuy => _offer?.forPlan(context.read<CareRepository>().plan) != null;
+  bool get _canBuy =>
+      _offer?.forPlan(context.read<CareRepository>().plan) != null;
 
   String get _yearlyPerMonth =>
       _offer?.yearly?.perMonthString ?? _price(BillingPlan.yearly);
@@ -195,8 +206,11 @@ class _PaywallScreenState extends State<PaywallScreen> {
       setState(() => _busy = false);
       await _loadOffer();
       if (mounted && _offer == null) {
-        setState(() => _error = 'Couldn’t load prices from the App Store. '
-            'Check your connection and try again.');
+        setState(
+          () => _error =
+              'Couldn’t load prices from the App Store. '
+              'Check your connection and try again.',
+        );
       }
       return;
     }
@@ -255,9 +269,15 @@ class _PaywallScreenState extends State<PaywallScreen> {
       await model.finish(reminders: model.remindersOn);
       if (!mounted) return;
       if (model.remindersOn) {
-        DoseReminders.scheduleNext(care);
+        AppLog.unawaitedLogged(
+          DoseReminders.scheduleNext(care),
+          'reminders.schedule_failed',
+        );
       } else {
-        DoseReminders.cancel();
+        AppLog.unawaitedLogged(
+          DoseReminders.cancel(),
+          'reminders.cancel_failed',
+        );
       }
     }
     if (!mounted) return;
@@ -346,7 +366,10 @@ class _PaywallScreenState extends State<PaywallScreen> {
                       badge: _yearlyBadge,
                       onPressed: locked
                           ? null
-                          : () => care.setPlan(BillingPlan.yearly),
+                          : () => AppLog.unawaitedLogged(
+                              care.setPlan(BillingPlan.yearly),
+                              'billing.plan.failed',
+                            ),
                     ),
                     const SizedBox(height: 8),
                     _PlanTile(
@@ -356,7 +379,10 @@ class _PaywallScreenState extends State<PaywallScreen> {
                       price: '${_price(BillingPlan.monthly)}/mo',
                       onPressed: locked
                           ? null
-                          : () => care.setPlan(BillingPlan.monthly),
+                          : () => AppLog.unawaitedLogged(
+                              care.setPlan(BillingPlan.monthly),
+                              'billing.plan.failed',
+                            ),
                     ),
                     const SizedBox(height: 24),
                     Text('Always free', style: text.titleMedium),

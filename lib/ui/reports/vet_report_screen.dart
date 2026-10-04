@@ -33,6 +33,16 @@ class _VetReportScreenState extends State<VetReportScreen> {
     final text = Theme.of(context).textTheme;
     final report = pet == null ? null : care.reportFor(pet.id, _days);
     final hasReport = report != null && report.lines.isNotEmpty;
+    // Only built when shown; three newest given doses per medicine.
+    final recent = hasReport && _showWho
+        ? {
+            for (final line in report.lines)
+              line.medication.id: care
+                  .historyFor(line.medication.id)
+                  .take(3)
+                  .toList(),
+          }
+        : const <String, List<DoseLog>>{};
 
     return Scaffold(
       body: SafeArea(
@@ -102,7 +112,11 @@ class _VetReportScreenState extends State<VetReportScreen> {
                         child: _RangeChip(
                           label: '$days days',
                           selected: _days == days,
-                          onPressed: () => setState(() => _days = days),
+                          onPressed: () {
+                            if (_days == days) return;
+                            AppLog.event('report.range', {'days': days});
+                            setState(() => _days = days);
+                          },
                         ),
                       ),
                   ],
@@ -268,7 +282,10 @@ class _VetReportScreenState extends State<VetReportScreen> {
                 radius: 20,
                 child: SwitchListTile.adaptive(
                   value: _showWho,
-                  onChanged: (value) => setState(() => _showWho = value),
+                  onChanged: (value) {
+                    AppLog.event('report.show_caregivers', {'on': value});
+                    setState(() => _showWho = value);
+                  },
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 18,
                     vertical: 6,
@@ -285,7 +302,7 @@ class _VetReportScreenState extends State<VetReportScreen> {
                 const CareSectionHeader('Recent doses'),
                 const SizedBox(height: 12),
                 for (final line in report.lines)
-                  for (final log in care.historyFor(line.medication.id).take(3))
+                  for (final log in recent[line.medication.id]!)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 14),
                       child: Row(
@@ -373,7 +390,8 @@ class _VetReportScreenState extends State<VetReportScreen> {
               : box.localToGlobal(Offset.zero) & box.size,
         ),
       );
-    } catch (_) {
+    } catch (error, stack) {
+      AppLog.error('report.share_failed', error, stack, {'days': _days});
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(

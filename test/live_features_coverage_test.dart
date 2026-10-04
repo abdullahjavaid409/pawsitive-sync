@@ -59,11 +59,7 @@ Future<void> _exerciseAllLiveFeatures() async {
     weightKg: pet.weightKg,
     conditions: pet.conditions,
   );
-  await care.updatePet(
-    petId: pet.id,
-    name: 'Milo Jr',
-    species: Species.cat,
-  );
+  await care.updatePet(petId: pet.id, name: 'Milo Jr', species: Species.cat);
 
   // Medications
   await care.addMedication(
@@ -145,13 +141,7 @@ Future<void> _exerciseAllLiveFeatures() async {
 
   // Join household
   final joinAdapter = FakeHouseholdAdapter([
-    (
-      201,
-      {
-        ...connectHouseholdBody(),
-        'token': 'join-token',
-      },
-    ),
+    (201, {...connectHouseholdBody(), 'token': 'join-token'}),
     (200, {'ok': true}),
   ]);
   final joiner = CareRepository(
@@ -223,10 +213,12 @@ Future<void> _exerciseAllLiveFeatures() async {
     'sitter_web_token_v1:ABC234': 'cached-sitter-token',
   });
   final cached = CareRepository(
-    api: fakeHouseholdApi(FakeHouseholdAdapter([
-      (201, connectHouseholdBody(inviteCode: 'ABC234')),
-      (200, {'ok': true}),
-    ])),
+    api: fakeHouseholdApi(
+      FakeHouseholdAdapter([
+        (201, connectHouseholdBody(inviteCode: 'ABC234')),
+        (200, {'ok': true}),
+      ]),
+    ),
     clock: clock,
   );
   await cached.addPet(name: 'Miso', species: Species.cat);
@@ -256,7 +248,9 @@ Future<void> _exerciseAllLiveFeatures() async {
 
   // Push
   await PushService.registerIfConnected(null);
-  await PushService.registerIfConnected(HouseholdApi(Uri.parse('https://x.test')));
+  await PushService.registerIfConnected(
+    HouseholdApi(Uri.parse('https://x.test')),
+  );
   await PushService.setHouseholdPushEnabled(false);
   await PushService.notifyPartnerLogged(
     logId: '',

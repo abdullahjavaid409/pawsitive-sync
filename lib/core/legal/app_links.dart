@@ -10,6 +10,7 @@ abstract final class AppLinks {
       'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/';
   static const eula = terms;
   static const support = 'mailto:workplace0331@gmail.com';
+
   /// Apple subscription management (Guideline 3.1.2).
   static const manageAppleSubscriptions =
       'https://apps.apple.com/account/subscriptions';

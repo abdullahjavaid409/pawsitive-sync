@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:collection';
+import 'dart:convert';
 import 'dart:math';
 
 import 'package:characters/characters.dart';
@@ -44,13 +45,62 @@ class ReportLine {
     required this.medication,
     required this.given,
     required this.expected,
+    this.skipped = 0,
+    this.uncertain = 0,
+    this.removed = false,
   });
 
   final Medication medication;
   final int given;
+
+  /// Doses the schedule asked for in the range (at least the logged count).
   final int expected;
 
+  /// Skipped on purpose.
+  final int skipped;
+
+  /// Logged as "not sure if given".
+  final int uncertain;
+
+  /// The medicine was stopped/removed; kept so the period stays complete.
+  final bool removed;
+
+  /// Scheduled doses with no log at all. Never negative.
+  int get missed => max(expected - given - skipped - uncertain, 0);
+
   double get fraction => expected == 0 ? 0 : (given / expected).clamp(0, 1);
+}
+
+/// A scheduled dose with no log in the report range.
+class MissedDose {
+  const MissedDose({
+    required this.medicationName,
+    required this.day,
+    required this.part,
+  });
+
+  final String medicationName;
+  final DateTime day;
+  final DayPart part;
+}
+
+/// One logged dose in the report range (any outcome), newest first.
+class ReportEntry {
+  const ReportEntry({
+    required this.medicationId,
+    required this.medicationName,
+    required this.day,
+    required this.timeLabel,
+    required this.who,
+    required this.outcome,
+  });
+
+  final String medicationId;
+  final String medicationName;
+  final String day;
+  final String timeLabel;
+  final String who;
+  final LogOutcome outcome;
 }
 
 class PetReport {
@@ -60,17 +110,76 @@ class PetReport {
     required this.lines,
     required this.skipped,
     required this.notes,
+    this.uncertain = 0,
+    this.missedDoses = const [],
+    this.recent = const [],
   });
 
   final DateTime from;
   final DateTime to;
   final List<ReportLine> lines;
+
+  /// Skipped on purpose (all medicines).
   final int skipped;
+
+  /// "Not sure if given" (all medicines).
+  final int uncertain;
 
   /// Note text and how many times it was logged.
   final Map<String, int> notes;
 
-  bool get isEmpty => lines.every((line) => line.given == 0) && skipped == 0;
+  /// Scheduled doses with no log, newest first (capped at [maxMissedListed]).
+  final List<MissedDose> missedDoses;
+
+  /// Logged doses in range, newest first (capped at [maxRecent]).
+  final List<ReportEntry> recent;
+
+  static const maxMissedListed = 100;
+  static const maxRecent = 60;
+
+  int get given => lines.fold(0, (sum, line) => sum + line.given);
+  int get missed => lines.fold(0, (sum, line) => sum + line.missed);
+
+  bool get isEmpty =>
+      lines.every((line) => line.given == 0) && skipped == 0 && uncertain == 0;
+}
+
+/// A named browser link for a sitter. The token is a secret: it lives only
+/// in secure storage and in the URL the person chooses to share.
+class SitterLink {
+  const SitterLink({required this.token, this.label = '', this.expiresAt});
+
+  final String token;
+
+  /// "Who is this link for?" — empty for links made by older builds.
+  final String label;
+  final DateTime? expiresAt;
+
+  String get url => AppLinks.sitterWebLink(token);
+
+  String toCache() => jsonEncode({
+    'token': token,
+    'label': label,
+    if (expiresAt != null) 'expiresAt': expiresAt!.toIso8601String(),
+  });
+
+  /// Accepts the JSON written by [toCache] or a bare legacy token.
+  factory SitterLink.fromCache(String raw) {
+    if (raw.startsWith('{')) {
+      try {
+        final json = jsonDecode(raw) as Map<String, dynamic>;
+        final expires = json['expiresAt'];
+        return SitterLink(
+          token: '${json['token'] ?? ''}',
+          label: '${json['label'] ?? ''}',
+          expiresAt: expires is String ? DateTime.tryParse(expires) : null,
+        );
+      } on Object {
+        // Fall through: treat as an opaque token.
+      }
+    }
+    return SitterLink(token: raw);
+  }
 }
 
 /// The household: pets, people, medicine schedules, and every logged dose.
@@ -124,6 +233,25 @@ class CareRepository extends ChangeNotifier {
   final List<Medication> _medications = [];
   final List<DoseRecord> _logs = [];
   final List<CareEvent> _careEvents = [];
+
+  /// Medicines removed from the schedule, kept on this phone so their
+  /// history still shows in vet reports. Local only (not synced).
+  final List<Medication> _archivedMedications = [];
+
+  void _archive(Iterable<Medication> removed) {
+    final today = dayKey(now);
+    for (final m in removed) {
+      _archivedMedications
+        ..removeWhere((a) => a.id == m.id)
+        ..add(m.endDay.isEmpty || m.endDay.compareTo(today) > 0
+            ? m.copyWith(endDay: today)
+            : m);
+    }
+    // Bounded: older courses beyond this fall back to "Removed medicine".
+    if (_archivedMedications.length > 200) {
+      _archivedMedications.removeRange(0, _archivedMedications.length - 200);
+    }
+  }
 
   /// Household Pro from the server, set only by the RevenueCat webhook —
   /// shared with partners. Ignored until this phone is in a shared household.
@@ -414,16 +542,68 @@ class CareRepository extends ChangeNotifier {
     ];
   }
 
-  /// Given vs. expected doses for the last [days] days, from real logs only.
+  /// Given / skipped / not sure / missed against the schedule for the last
+  /// [days] days, from real logs only. Includes medicines removed since, so
+  /// the vet sees the whole period.
   PetReport reportFor(String petId, int days) {
     final time = now;
     final today = DateTime(time.year, time.month, time.day);
     final from = today.subtract(Duration(days: days - 1));
     final fromKey = dayKey(from);
+    final todayKey = dayKey(today);
+
+    // One pass over history: in-range logs grouped by medicine.
+    final inRange = <String, List<DoseRecord>>{};
+    for (final log in _logs) {
+      if (log.day.compareTo(fromKey) < 0 || log.day.compareTo(todayKey) > 0) {
+        continue;
+      }
+      (inRange[log.medicationId] ??= []).add(log);
+    }
+
+    final meds = <(Medication, bool)>[
+      for (final m in _medications)
+        if (m.petId == petId) (m, false),
+    ];
+    final known = {for (final m in _medications) m.id};
+    for (final m in _archivedMedications) {
+      if (m.petId == petId && !known.contains(m.id) && inRange[m.id] != null) {
+        meds.add((m, true));
+        known.add(m.id);
+      }
+    }
+    // Logs for a medicine this phone never saw (e.g. removed before joining):
+    // attributable only when the household has a single pet.
+    if (_pets.length == 1 && _pets.first.id == petId) {
+      for (final id in inRange.keys) {
+        if (known.contains(id)) continue;
+        final logs = inRange[id]!;
+        meds.add((
+          Medication(
+            id: id,
+            petId: petId,
+            name: 'Removed medicine',
+            amount: logs.first.amount,
+            parts: const [],
+            supplyTotal: 0,
+            dosesLeft: 0,
+            startDay: logs.last.day,
+            endDay: logs.first.day,
+          ),
+          true,
+        ));
+      }
+    }
+
     final lines = <ReportLine>[];
+    final missedDoses = <MissedDose>[];
+    final recent = <ReportEntry>[];
     var skipped = 0;
+    var uncertain = 0;
     final notes = <String, int>{};
-    for (final medication in medicationsFor(petId)) {
+    for (final (medication, removed) in meds) {
+      final logs = inRange[medication.id] ?? const <DoseRecord>[];
+      final logged = {for (final log in logs) '${log.day}|${log.part.name}'};
       final start = DateTime.tryParse(medication.startDay) ?? today;
       var expected = 0;
       for (
@@ -431,42 +611,78 @@ class CareRepository extends ChangeNotifier {
         !day.isAfter(today);
         day = DateTime(day.year, day.month, day.day + 1)
       ) {
-        if (!medication.isActiveOn(dayKey(day))) continue;
+        final key = dayKey(day);
+        if (!medication.isActiveOn(key)) continue;
         for (final part in medication.parts) {
           if (day == today && time.hour < part.opensAt) continue;
           expected++;
+          if (!logged.contains('$key|${part.name}')) {
+            missedDoses.add(
+              MissedDose(medicationName: medication.name, day: day, part: part),
+            );
+          }
         }
       }
       var given = 0;
-      for (final log in _logs) {
-        if (log.medicationId != medication.id) continue;
-        if (log.day.compareTo(fromKey) < 0) continue;
-        if (log.outcome == LogOutcome.given) {
-          given++;
-        } else {
-          skipped++;
+      var lineSkipped = 0;
+      var lineUncertain = 0;
+      for (final log in logs) {
+        switch (log.outcome) {
+          case LogOutcome.given:
+            given++;
+          case LogOutcome.skipped:
+            lineSkipped++;
+          case LogOutcome.uncertain:
+            lineUncertain++;
         }
         final note = log.note;
         if (note != null && note.isNotEmpty) {
           notes[note] = (notes[note] ?? 0) + 1;
         }
+        recent.add(
+          ReportEntry(
+            medicationId: medication.id,
+            medicationName: medication.name,
+            day: log.day,
+            timeLabel: log.timeLabel,
+            who: _who(log.memberId),
+            outcome: log.outcome,
+          ),
+        );
       }
+      skipped += lineSkipped;
+      uncertain += lineUncertain;
       lines.add(
         ReportLine(
           medication: medication,
           given: given,
-          expected: max(expected, given),
+          skipped: lineSkipped,
+          uncertain: lineUncertain,
+          expected: max(expected, given + lineSkipped + lineUncertain),
+          removed: removed,
         ),
       );
     }
+    missedDoses.sort((a, b) {
+      final byDay = b.day.compareTo(a.day);
+      return byDay != 0 ? byDay : b.part.index.compareTo(a.part.index);
+    });
+    // _logs is newest first per medicine; merge by day, stable otherwise.
+    recent.sort((a, b) => b.day.compareTo(a.day));
     return PetReport(
       from: from,
       to: today,
       lines: lines,
       skipped: skipped,
+      uncertain: uncertain,
       notes: notes,
+      missedDoses: missedDoses.take(PetReport.maxMissedListed).toList(),
+      recent: recent.take(PetReport.maxRecent).toList(),
     );
   }
+
+  /// Human day label ("Today", "Yesterday", "Mon, Oct 2") for report rows.
+  String dayLabel(String day) => _dayLabel(day);
 
   // ---------------------------------------------------------------------------
   // Loading and syncing
@@ -489,6 +705,12 @@ class CareRepository extends ChangeNotifier {
   }
 
   Future<void> restore() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _storeProLastRun = prefs.getBool(_lastStoreProKey) ?? false;
+    } on Object catch (error, stack) {
+      AppLog.error('store.billing_state_failed', error, stack);
+    }
     _careEvents
       ..clear()
       ..addAll(await _eventsStore.read());
@@ -506,6 +728,9 @@ class CareRepository extends ChangeNotifier {
       medications: saved.medications,
       logs: saved.logs,
     );
+    _archivedMedications
+      ..clear()
+      ..addAll(saved.archivedMedications);
     AppLog.event('data.restored', {
       'pets': _pets.length,
       'medications': _medications.length,
@@ -552,6 +777,8 @@ class CareRepository extends ChangeNotifier {
 
   void _applySession(HouseholdSession session) {
     final house = session.snapshot;
+    // A create/join answer is a fresh server snapshot, same as a sync.
+    _lastSyncedAt = now;
     _apply(
       householdId: house.householdId,
       token: session.token,
@@ -568,6 +795,8 @@ class CareRepository extends ChangeNotifier {
   }
 
   void _mergeSnapshot(HouseholdSnapshot house) {
+    final remoteMedIds = {for (final m in house.medications) m.id};
+    _archive(_medications.where((m) => !remoteMedIds.contains(m.id)));
     final knownLogIds = {for (final log in _logs) log.id};
     _notifyPartnerLogs(house, knownLogIds);
     _apply(
@@ -576,7 +805,9 @@ class CareRepository extends ChangeNotifier {
       memberId: house.memberId,
       inviteCode: house.inviteCode,
       isPro: house.isPro,
-      plan: house.plan,
+      // This phone's own subscription is the truth for the plan; a stale
+      // server copy must never overwrite it.
+      plan: _storePro ? _plan : house.plan,
       members: house.members,
       pets: house.pets,
       medications: house.medications,
@@ -641,34 +872,107 @@ class CareRepository extends ChangeNotifier {
   /// `sitter_web_token_v1:<invite>`; migrated to [SecureTokens] on first use.
   static const _sitterTokenKey = SecureTokens.sitterKeyPrefix;
 
-  Future<String?> _cachedSitterToken(String cacheKey) async {
+  /// Server limit for a sitter link's name.
+  static const sitterLabelMax = 40;
+
+  /// Default name offered in the "Who is this link for?" sheet,
+  /// e.g. "Sitter · Oct 4".
+  String defaultSitterLabel() {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final t = now;
+    return 'Sitter · ${months[t.month - 1]} ${t.day}';
+  }
+
+  /// Trimmed, never empty (falls back to [defaultSitterLabel]), at most
+  /// [sitterLabelMax] characters.
+  String normalizeSitterLabel(String? raw) {
+    final trimmed = (raw ?? '').trim().replaceAll(RegExp(r'\s+'), ' ');
+    final label = trimmed.isEmpty ? defaultSitterLabel() : trimmed;
+    final chars = label.characters;
+    return chars.length <= sitterLabelMax
+        ? label
+        : chars.take(sitterLabelMax).toString().trimRight();
+  }
+
+  SitterLink? _sitterLink;
+
+  /// The link shown on the invite screen, once loaded or created.
+  SitterLink? get sitterLink => _sitterLink;
+
+  String get _sitterCacheKey => '$_sitterTokenKey:$_inviteCode';
+
+  /// Cached link from secure storage. Older builds stored the bare token
+  /// (Keychain or, before that, preferences); those load with no name.
+  Future<SitterLink?> _cachedSitterLink(String cacheKey) async {
     try {
-      final secure = await SecureTokens.read(cacheKey);
-      if (secure != null && secure.isNotEmpty) return secure;
-      final prefs = await SharedPreferences.getInstance();
-      final legacy = prefs.getString(cacheKey);
-      if (legacy == null || legacy.isEmpty) return null;
-      await SecureTokens.write(cacheKey, legacy);
-      await prefs.remove(cacheKey);
-      AppLog.event('sitter.token_migrated');
-      return legacy;
+      var raw = await SecureTokens.read(cacheKey);
+      if (raw == null || raw.isEmpty) {
+        final prefs = await SharedPreferences.getInstance();
+        final legacy = prefs.getString(cacheKey);
+        if (legacy == null || legacy.isEmpty) return null;
+        await SecureTokens.write(cacheKey, legacy);
+        await prefs.remove(cacheKey);
+        AppLog.event('sitter.token_migrated');
+        raw = legacy;
+      }
+      final link = SitterLink.fromCache(raw);
+      if (link.expiresAt != null && !link.expiresAt!.isAfter(now)) {
+        await SecureTokens.delete(cacheKey);
+        AppLog.event('sitter.link_expired');
+        return null;
+      }
+      return link;
     } on Object catch (error, stack) {
       AppLog.error('sitter.token_read_failed', error, stack);
       return null;
     }
   }
 
+  /// Loads the cached link only — never calls the server. Free or
+  /// unconnected phones get null without a request.
+  Future<SitterLink?> loadSitterLink() async {
+    if (!canInviteHousehold || !isConnected || _inviteCode.isEmpty) {
+      return null;
+    }
+    final cached = await _cachedSitterLink(_sitterCacheKey);
+    if (cached != null) {
+      _sitterLink = cached;
+      AppLog.event('sitter.link_cached', {'hasName': cached.label.isNotEmpty});
+      notifyListeners();
+    }
+    return cached;
+  }
+
   Future<String?>? _sitterLinkRunning;
 
-  /// Returns a browser sitter link (Pro + connected). Caches the token in
-  /// secure storage. Concurrent calls share one request.
-  Future<String?> ensureSitterWebLink({bool force = false}) {
+  /// Returns a browser sitter link URL (Pro + connected), creating one named
+  /// [label] when none is cached (or when [force]). The token is cached in
+  /// secure storage; [sitterLink] holds name + expiry. Concurrent calls
+  /// share one request.
+  Future<String?> ensureSitterWebLink({bool force = false, String? label}) {
     return _sitterLinkRunning ??= _ensureSitterWebLink(
       force: force,
+      label: label,
     ).whenComplete(() => _sitterLinkRunning = null);
   }
 
-  Future<String?> _ensureSitterWebLink({required bool force}) async {
+  Future<String?> _ensureSitterWebLink({
+    required bool force,
+    String? label,
+  }) async {
     lastError = null;
     if (!canInviteHousehold) {
       AppLog.event('sitter.link_skipped', {'reason': 'free_tier'});
@@ -687,40 +991,54 @@ class CareRepository extends ChangeNotifier {
       AppLog.event('sitter.link_skipped', {'reason': 'no_invite_code'});
       return null;
     }
-    final cacheKey = '$_sitterTokenKey:$_inviteCode';
+    final cacheKey = _sitterCacheKey;
     if (!force) {
-      final cached = await _cachedSitterToken(cacheKey);
+      final cached = await _cachedSitterLink(cacheKey);
       if (cached != null) {
-        AppLog.event('sitter.link_cached');
-        return AppLinks.sitterWebLink(cached);
+        _sitterLink = cached;
+        AppLog.event('sitter.link_cached', {
+          'hasName': cached.label.isNotEmpty,
+        });
+        notifyListeners();
+        return cached.url;
       }
     }
+    final name = normalizeSitterLabel(label);
     try {
-      final ({String token, String url, DateTime expiresAt}) link;
-      try {
-        link = await api.createSitterLink();
-      } on HouseholdException catch (error) {
+      final link = await api.createSitterLink(label: name).catchError((
+        Object error,
+      ) async {
         // 403: the server doesn't see household Pro yet (RevenueCat webhook
         // or share step still in flight). Share this phone's Pro once, retry once.
-        if (error.status != 403 || !_storePro) rethrow;
+        if (error is! HouseholdException || error.status != 403 || !_storePro) {
+          throw error;
+        }
         AppLog.event('sitter.link_retry', {'reason': 'household_not_pro'});
         await startTrial();
-        link = await api.createSitterLink();
-      }
+        return api.createSitterLink(label: name);
+      });
       if (link.token.isEmpty) {
         AppLog.event('sitter.link_failed', {'reason': 'empty_token'});
         return null;
       }
+      final created = SitterLink(
+        token: link.token,
+        label: name,
+        expiresAt: link.expiresAt,
+      );
       try {
-        await SecureTokens.write(cacheKey, link.token);
+        await SecureTokens.write(cacheKey, created.toCache());
       } on Object catch (error, stack) {
         // The link still works this time; it is just not cached.
         AppLog.error('sitter.token_write_failed', error, stack);
       }
+      _sitterLink = created;
       AppLog.event('sitter.link_created', {
+        'hasCustomName': name != defaultSitterLabel(),
         'expiresAt': link.expiresAt.toIso8601String(),
       });
-      return AppLinks.sitterWebLink(link.token);
+      notifyListeners();
+      return created.url;
     } on HouseholdException catch (error) {
       lastError = error.status == 403 && _storePro
           ? 'Your Pro is still being set up for the household. Try again in a minute.'
@@ -792,6 +1110,7 @@ class CareRepository extends ChangeNotifier {
           members: List.of(_members),
           pets: List.of(_pets),
           medications: List.of(_medications),
+          archivedMedications: List.of(_archivedMedications),
           logs: List.of(_logs.take(3000)),
         ),
       );
@@ -934,6 +1253,10 @@ class CareRepository extends ChangeNotifier {
       _persist();
       _lastSyncedAt = now;
       AppLog.event('household.synced', {'doses': doses.length});
+      if (_storePro && !_isPro) {
+        // Server confirmed the household is still Free: share this phone's Pro.
+        await startTrial();
+      }
     } on HouseholdException catch (error) {
       syncError = error.message;
       AppLog.event('household.sync_failed', {'kind': error.kind.name});
@@ -955,9 +1278,11 @@ class CareRepository extends ChangeNotifier {
     try {
       final billing = await api.startTrial();
       _isPro = billing.isPro;
-      _plan = billing.plan;
+      if (!_storePro) _plan = billing.plan;
       AppLog.event(
-        billing.isPro ? 'billing.pro.carried_online' : 'billing.pro.carry_pending',
+        billing.isPro
+            ? 'billing.pro.carried_online'
+            : 'billing.pro.carry_pending',
         {'plan': _plan.name, 'isPro': billing.isPro},
       );
     } on HouseholdException catch (error) {
@@ -1349,9 +1674,11 @@ class CareRepository extends ChangeNotifier {
       'medication.remove',
       (api) async {
         await api.removeMedication(medicationId);
+        _archive(_medications.where((item) => item.id == medicationId));
         _medications.removeWhere((item) => item.id == medicationId);
       },
       () {
+        _archive(_medications.where((item) => item.id == medicationId));
         _medications.removeWhere((item) => item.id == medicationId);
         return true;
       },
@@ -1495,12 +1822,10 @@ class CareRepository extends ChangeNotifier {
 
     if (ok && primaryPet?.id == petId) {
       unawaited(
-        OnboardingProfile.syncFromPet(updated).catchError((
-          Object error,
-          StackTrace stack,
-        ) {
-          AppLog.error('onboarding.profile_sync_failed', error, stack);
-        }),
+        OnboardingProfile.syncFromPet(updated)
+            .catchError((Object error, StackTrace stack) {
+              AppLog.error('onboarding.profile_sync_failed', error, stack);
+            }),
       );
     }
     return ok;
@@ -1551,7 +1876,7 @@ class CareRepository extends ChangeNotifier {
     try {
       final billing = await AppLog.trace('billing.share_pro', api.startTrial);
       _isPro = billing.isPro;
-      _plan = billing.plan;
+      if (!_storePro) _plan = billing.plan;
       _changed();
       AppLog.event('billing.share_pro.completed', {
         'plan': _plan.name,
@@ -1566,14 +1891,44 @@ class CareRepository extends ChangeNotifier {
     }
   }
 
-  /// The one `billing.pro.unlocked` line per unlock (purchase, restore or a
-  /// live store update) — only when this phone was not already Pro.
-  void _logProUnlocked(String via) {
-    AppLog.event('billing.pro.unlocked', {
-      'plan': _plan.name,
-      'source': 'revenuecat',
-      'via': via,
-    });
+  static const _lastStoreProKey = 'billing_store_pro_v1';
+
+  /// This phone's RevenueCat Pro as of the last run, so RevenueCat loading an
+  /// existing subscription at launch is not mistaken for a new unlock.
+  bool _storeProLastRun = false;
+  bool _proActiveLogged = false;
+
+  /// One line per real change: `billing.pro.unlocked` on Free→Pro against
+  /// the last saved state, otherwise `billing.pro.active` once per launch.
+  void _onStoreProChanged(bool active, String via) {
+    if (active) {
+      if (_storeProLastRun) {
+        if (!_proActiveLogged) {
+          _proActiveLogged = true;
+          AppLog.event('billing.pro.active', {'plan': _plan.name});
+        }
+      } else {
+        _proActiveLogged = true;
+        AppLog.event('billing.pro.unlocked', {
+          'plan': _plan.name,
+          'source': 'revenuecat',
+          'via': via,
+        });
+      }
+    }
+    if (_storeProLastRun == active) return;
+    _storeProLastRun = active;
+    AppLog.unawaitedLogged(() async {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_lastStoreProKey, active);
+    }(), 'store.billing_state_failed');
+  }
+
+  /// Store plan wins while this phone's subscription is active; pushed to a
+  /// connected household once when it differs.
+  Future<void> _adoptStorePlan(BillingPlan? plan) async {
+    if (plan == null || plan == _plan) return;
+    await setPlan(plan);
   }
 
   /// Buys the selected plan through RevenueCat, then unlocks Pro locally.
@@ -1589,7 +1944,7 @@ class CareRepository extends ChangeNotifier {
       final wasPro = _storePro;
       _storePro = true;
       if (!wasPro) {
-        _logProUnlocked('purchase');
+        _onStoreProChanged(true, 'purchase');
         _changed();
       }
       await startTrial();
@@ -1634,11 +1989,10 @@ class CareRepository extends ChangeNotifier {
     // Restore already confirmed the entitlement; don't ask the store twice.
     final wasPro = _storePro;
     _storePro = true;
-    if (!wasPro) _logProUnlocked('restore');
+    if (!wasPro) _onStoreProChanged(true, 'restore');
     _changed();
     await startTrial();
-    final storePlan = (await RevenueCatService.currentStatus()).plan;
-    if (storePlan != null && storePlan != _plan) await setPlan(storePlan);
+    await _adoptStorePlan((await RevenueCatService.currentStatus()).plan);
     AppLog.event('billing.restore.completed', {'plan': _plan.name});
     return true;
   }
@@ -1655,6 +2009,9 @@ class CareRepository extends ChangeNotifier {
   /// Live store updates (late purchase, Ask to Buy approval, renewal,
   /// expiry, refund) from [RevenueCatService.onEntitlementChanged].
   void applyStoreEntitlement(bool active, BillingPlan? plan) {
+    if (active && plan != null && plan != _plan) {
+      AppLog.unawaitedLogged(_adoptStorePlan(plan), 'billing.plan.failed');
+    }
     if (_storePro == active) return;
     _storePro = active;
     // Shared households keep whatever the server says (partner may pay).
@@ -1663,15 +2020,13 @@ class CareRepository extends ChangeNotifier {
       'plan': plan?.name ?? 'unknown',
       if (isConnected) 'householdPro': _isPro,
     });
-    if (active) _logProUnlocked('store_update');
+    _onStoreProChanged(active, 'store_update');
     _changed();
-    // Share a new subscription with the household so partners get Pro too.
-    if (active && !_isPro && isConnected) {
-      unawaited(
-        startTrial().catchError((Object error, StackTrace stack) {
-          AppLog.error('billing.share_pro.failed', error, stack);
-        }),
-      );
+    // Share with the household only once a sync this session has confirmed
+    // it is still Free — at launch the saved flag may be stale, and the
+    // first sync shares if needed (no extra call on a normal launch).
+    if (active && !_isPro && isConnected && _lastSyncedAt != null) {
+      AppLog.unawaitedLogged(startTrial(), 'billing.share_pro.failed');
     }
   }
 
@@ -1682,19 +2037,22 @@ class CareRepository extends ChangeNotifier {
       return;
     }
     await RevenueCatService.identifyMember(billingUserId);
-    // syncAttributes catches and logs its own failures.
-    unawaited(RevenueCatService.syncAttributes(billingAttributes));
+    AppLog.unawaitedLogged(
+      RevenueCatService.syncAttributes(billingAttributes),
+      'billing.rc.attributes_failed',
+    );
     final status = await RevenueCatService.currentStatus();
     final storeChanged = _storePro != status.isPro;
     _storePro = status.isPro;
     if (storeChanged) _changed();
-    if (status.isPro && !_isPro) {
-      // Push the subscription to the household so partners get Pro too
-      // (no-op on a solo phone).
-      await startTrial();
-      if (status.plan != null && status.plan != _plan) {
-        await setPlan(status.plan!);
-      }
+    if (status.isPro) {
+      _onStoreProChanged(true, 'store_sync');
+      await _adoptStorePlan(status.plan);
+      // Share with the household only when a sync this session confirmed
+      // it is Free; otherwise the next sync decides (see [sync]).
+      if (!_isPro && _lastSyncedAt != null) await startTrial();
+    } else if (storeChanged) {
+      _onStoreProChanged(false, 'store_sync');
     }
     if (status.isPro && storeChanged) {
       AppLog.event('billing.sync.pro_unlocked', {'plan': _plan.name});
@@ -1799,9 +2157,19 @@ class CareRepository extends ChangeNotifier {
     _careEvents.clear();
     await _eventsStore.clear();
     _storePro = false;
+    _storeProLastRun = false;
+    _proActiveLogged = false;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_lastStoreProKey);
+    } on Object catch (error, stack) {
+      AppLog.error('store.billing_state_failed', error, stack);
+    }
     await RevenueCatService.logOut();
     await UpgradeNudgeState.clear();
     _lastSyncedAt = null;
+    _sitterLink = null;
+    _archivedMedications.clear();
     AppLog.event('household.reset');
     notifyListeners();
   }

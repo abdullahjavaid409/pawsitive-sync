@@ -66,9 +66,7 @@ class _AddPetScreenState extends State<AddPetScreen> {
     );
     if (!mounted) return;
     if (id == null) {
-      AppLog.event('pet.add.ui_failed', {
-        'error': care.lastError ?? 'unknown',
-      });
+      AppLog.event('pet.add.ui_failed', {'species': _species.name});
       setState(() {
         _busy = false;
         _error = care.lastError ?? 'Could not save. Try again.';

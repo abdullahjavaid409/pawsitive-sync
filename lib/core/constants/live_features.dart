@@ -68,13 +68,21 @@ abstract final class LiveFeatures {
       id: 'household_join',
       name: 'Join with invite code',
       tier: FeatureTier.pro,
-      logs: ['household.joined', 'household.join_rejected', 'household.join_skipped'],
+      logs: [
+        'household.joined',
+        'household.join_rejected',
+        'household.join_skipped',
+      ],
     ),
     LiveFeatureSpec(
       id: 'household_sync',
       name: 'Pull household state',
       tier: FeatureTier.pro,
-      logs: ['household.synced', 'household.sync_skipped', 'household.sync_failed'],
+      logs: [
+        'household.synced',
+        'household.sync_skipped',
+        'household.sync_failed',
+      ],
     ),
     LiveFeatureSpec(
       id: 'sitter_browser',
@@ -113,7 +121,11 @@ abstract final class LiveFeatures {
       id: 'billing',
       name: 'Plan + restore',
       tier: FeatureTier.free,
-      logs: ['billing.plan.changed', 'billing.restore.requested', 'billing.restore.skipped'],
+      logs: [
+        'billing.plan.changed',
+        'billing.restore.requested',
+        'billing.restore.skipped',
+      ],
     ),
     LiveFeatureSpec(
       id: 'onboarding',

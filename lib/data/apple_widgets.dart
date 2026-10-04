@@ -24,16 +24,13 @@ class AppleWidgets {
     };
     for (final record in care.logs) {
       // Same overwrite order as before (later entries in the list win).
-      byDay[record.day]?['${record.medicationId}:${record.part.name}'] =
-          record;
+      byDay[record.day]?['${record.medicationId}:${record.part.name}'] = record;
     }
     return {
       'version': 1,
       'updatedAt': now.millisecondsSinceEpoch / 1000,
       'hasPets': care.pets.isNotEmpty,
-      'days': [
-        for (final day in days) _day(care, day, byDay[dayKey(day)]!),
-      ],
+      'days': [for (final day in days) _day(care, day, byDay[dayKey(day)]!)],
     };
   }
 
@@ -97,7 +94,9 @@ class AppleWidgets {
       _lastPayload = content;
       final days = data['days']! as List;
       AppLog.event('widgets.refreshed', {
-        'doses': days.isEmpty ? 0 : ((days.first as Map)['doses'] as List).length,
+        'doses': days.isEmpty
+            ? 0
+            : ((days.first as Map)['doses'] as List).length,
         'bytes': payload.length,
       });
     } on MissingPluginException {

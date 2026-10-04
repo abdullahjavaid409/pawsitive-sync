@@ -87,10 +87,7 @@ class _AddCareEventSheetState extends State<_AddCareEventSheet> {
     );
     if (!mounted) return;
     if (!ok) {
-      AppLog.event('care_event.save_failed', {
-        'kind': _kind.name,
-        'error': care.lastError ?? 'unknown',
-      });
+      AppLog.event('care_event.save_failed', {'kind': _kind.name});
       setState(() {
         _busy = false;
         _error = care.lastError ?? 'Could not save. Try again.';
