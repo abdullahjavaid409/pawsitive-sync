@@ -1,5 +1,5 @@
 import { createServer } from "node:http";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -33,13 +33,39 @@ import {
   sitterForToken,
   sitterLogDose,
   refreshProFromRevenueCat,
+  revenueCatWebhookAuthorized,
   trackAnalytics,
 } from "./db.js";
+import { verifyAppleIdentityToken } from "./apple.js";
 
 const sitterPage = readFileSync(
   join(dirname(fileURLToPath(import.meta.url)), "web", "sitter.html"),
   "utf8",
 );
+
+/**
+ * The sitter page holds a bearer token, so it gets a strict CSP: only its own
+ * inline script/style (pinned by hash, computed here so edits can't drift),
+ * fetches only to this origin, never framed.
+ */
+function inlineHashes(html, tag) {
+  const pattern = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, "g");
+  return [...html.matchAll(pattern)].map(
+    (match) => `'sha256-${createHash("sha256").update(match[1]).digest("base64")}'`,
+  );
+}
+const sitterCsp = [
+  "default-src 'none'",
+  `script-src ${inlineHashes(sitterPage, "script").join(" ")}`,
+  `style-src ${inlineHashes(sitterPage, "style").join(" ")}`,
+  "connect-src 'self'",
+  "img-src 'self' data:",
+  "base-uri 'none'",
+  "form-action 'none'",
+  "frame-ancestors 'none'",
+].join("; ");
+
+const slowMs = Number(process.env.SLOW_REQUEST_MS) || 500;
 
 function log(event, fields) {
   process.stdout.write(
@@ -52,40 +78,64 @@ function log(event, fields) {
   );
 }
 
+/** A logger that stamps every line with the request it belongs to. */
+const scopedLog = (requestId) => (event, fields) => log(event, { requestId, ...fields });
+
+const baseHeaders = {
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "no-referrer",
+  "x-frame-options": "DENY",
+  "cache-control": "no-store",
+  "strict-transport-security": "max-age=31536000",
+  "cross-origin-resource-policy": "same-origin",
+};
+
+let shuttingDown = false;
+
 function send(res, status, body) {
   const payload = JSON.stringify(body);
   res.writeHead(status, {
+    ...baseHeaders,
     "content-type": "application/json; charset=utf-8",
     "content-length": Buffer.byteLength(payload),
-    "x-content-type-options": "nosniff",
-    "referrer-policy": "no-referrer",
-    "x-frame-options": "DENY",
-    "cache-control": "no-store",
+    // An oversized body was left unread: drop the connection after replying.
+    ...(status === 413 || shuttingDown ? { connection: "close" } : {}),
   });
   res.end(payload);
 }
 
 function sendHtml(res, status, html) {
   res.writeHead(status, {
+    ...baseHeaders,
     "content-type": "text/html; charset=utf-8",
     "content-length": Buffer.byteLength(html),
-    "x-content-type-options": "nosniff",
-    "referrer-policy": "no-referrer",
-    "cache-control": "no-store",
+    "content-security-policy": sitterCsp,
+    ...(shuttingDown ? { connection: "close" } : {}),
   });
   res.end(html);
 }
 
 const smallBody = 8 * 1024;
 const importBody = 512 * 1024;
+const webhookBody = 64 * 1024;
 const rateWindowMs = 60_000;
-const limits = { default: 120, join: 10, create: 10 };
+const limits = { default: 120, join: 10, create: 10, recover: 5, billing: 10, webhook: 600 };
 const hits = new Map();
+const maxTrackedClients = 20_000;
 
+/**
+ * Client IP for rate limiting. Railway's edge appends the address it saw to
+ * X-Forwarded-For, so the RIGHTMOST entry is the one a client can't forge
+ * (the leftmost is whatever the client sent). TRUSTED_PROXY_HOPS covers extra
+ * proxies in front (e.g. a CDN).
+ */
+const trustedHops = Math.max(Number(process.env.TRUSTED_PROXY_HOPS) || 1, 1);
 function clientKey(req) {
   const forwarded = req.headers["x-forwarded-for"];
   if (typeof forwarded === "string" && forwarded.length > 0) {
-    return forwarded.split(",")[0].trim().slice(0, 64);
+    const chain = forwarded.split(",").map((part) => part.trim()).filter(Boolean);
+    const ip = chain[Math.max(chain.length - trustedHops, 0)];
+    if (ip) return ip.slice(0, 64);
   }
   return req.socket.remoteAddress ?? "unknown";
 }
@@ -95,7 +145,11 @@ function limited(req, bucket) {
   const key = `${bucket}:${clientKey(req)}`;
   const current = hits.get(key);
   if (!current || current.resetAt <= now) {
-    if (hits.size > 5000) hits.clear();
+    if (hits.size >= maxTrackedClients) {
+      // Drop expired windows first; only wipe live ones if still over the cap.
+      for (const [entryKey, entry] of hits) if (entry.resetAt <= now) hits.delete(entryKey);
+      if (hits.size >= maxTrackedClients) hits.clear();
+    }
     hits.set(key, { count: 1, resetAt: now + rateWindowMs });
     return false;
   }
@@ -105,13 +159,21 @@ function limited(req, bucket) {
 
 function readJson(req, maxBytes = smallBody) {
   return new Promise((resolve, reject) => {
+    const tooLarge = () => Object.assign(new Error("Body too large"), { status: 413 });
+    const declared = Number(req.headers["content-length"]);
+    if (Number.isFinite(declared) && declared > maxBytes) {
+      reject(tooLarge());
+      return;
+    }
     const chunks = [];
     let size = 0;
     req.on("data", (chunk) => {
       size += chunk.length;
       if (size > maxBytes) {
-        reject(Object.assign(new Error("Body too large"), { status: 413 }));
-        req.destroy();
+        // Stop buffering; the 413 is sent with Connection: close.
+        req.removeAllListeners("data");
+        req.pause();
+        reject(tooLarge());
         return;
       }
       chunks.push(chunk);
@@ -132,6 +194,18 @@ function readJson(req, maxBytes = smallBody) {
   });
 }
 
+/** Push and other best-effort work runs after the response; shutdown waits for it. */
+const background = new Set();
+function runInBackground(work, requestId) {
+  const task = Promise.resolve()
+    .then(work)
+    .catch((error) => {
+      log("background.failed", { requestId, reason: String(error?.message ?? error).slice(0, 200) });
+    })
+    .finally(() => background.delete(task));
+  background.add(task);
+}
+
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {
   log("db.missing_url", {});
@@ -139,6 +213,11 @@ if (!connectionString) {
 }
 
 const pool = createPool(connectionString);
+// An idle client dying (DB restart, network blip) emits 'error' on the pool;
+// unhandled, that would crash the process.
+pool.on("error", (error) => {
+  log("db.pool_error", { code: error?.code ?? "unknown", reason: String(error?.message ?? error).slice(0, 200) });
+});
 
 async function connectWithRetry() {
   for (let attempt = 1; attempt <= 10; attempt += 1) {
@@ -158,62 +237,85 @@ async function connectWithRetry() {
 }
 
 function bucketFor(req, path) {
-  if (req.method === "POST" && path === "/v1/join") return "join";
-  if (req.method === "POST" && path === "/v1/households") return "create";
+  if (req.method !== "POST") return "default";
+  if (path === "/v1/join") return "join";
+  if (path === "/v1/households") return "create";
+  if (path === "/v1/auth/apple/recover") return "recover";
+  // Each call is a RevenueCat API request; keep a loop from burning the quota.
+  if (path === "/v1/billing/trial") return "billing";
+  if (path === "/v1/webhooks/revenuecat") return "webhook";
   return "default";
+}
+
+/** Plain words for the person; the developer reason goes to the logs only. */
+function failure(error) {
+  const status =
+    error instanceof SyntaxError || error instanceof URIError || error?.code === "ERR_INVALID_URL"
+      ? 400
+      : Number.isInteger(error?.status) && error.status >= 400 && error.status < 600
+        ? error.status
+        : 500;
+  const message =
+    error instanceof InputError
+      ? error.message
+      : status === 400
+        ? "Something went wrong sending that. Try again."
+        : status === 413
+          ? "That's too much to send at once. Try again with less."
+          : "Something went wrong on our side. Try again in a moment.";
+  // 5xx: the error message (never the stack, never query parameters) plus the
+  // Postgres SQLSTATE when there is one. 4xx: the InputError detail.
+  const reason =
+    status >= 500
+      ? String(error?.message ?? error).slice(0, 200)
+      : String(error?.detail ?? error?.message ?? message).slice(0, 200);
+  return { status, message, reason, code: typeof error?.code === "string" ? error.code : undefined };
 }
 
 const server = createServer(async (req, res) => {
   const started = Date.now();
-  const requestId = req.headers["x-request-id"]?.toString().slice(0, 64) || randomUUID();
-  const url = new URL(req.url ?? "/", "http://localhost");
+  // Echoed in a response header and logs: keep it to safe characters.
+  const requestId =
+    req.headers["x-request-id"]?.toString().replace(/[^A-Za-z0-9._:-]/g, "").slice(0, 64) || randomUUID();
   res.setHeader("x-request-id", requestId);
-
-  if (url.pathname !== "/health" && limited(req, bucketFor(req, url.pathname))) {
-    send(res, 429, { error: "Too many tries. Wait a minute and try again." });
-    log("request.limited", { requestId, method: req.method, path: url.pathname });
-    return;
-  }
+  let path = "/";
+  const timing = () => {
+    const durationMs = Date.now() - started;
+    return { durationMs, ...(durationMs >= slowMs ? { slow: true } : {}) };
+  };
 
   try {
+    // Inside the try: a malformed request target used to throw here, outside
+    // any handler, and crash the whole process.
+    const url = new URL(req.url ?? "/", "http://localhost");
+    path = url.pathname.slice(0, 200);
+
+    if (path !== "/health" && limited(req, bucketFor(req, url.pathname))) {
+      send(res, 429, { error: "Too many tries. Wait a minute and try again." });
+      log("request.limited", { requestId, method: req.method, path, status: 429, bucket: bucketFor(req, url.pathname) });
+      return;
+    }
+
     const result = await route(req, url, requestId);
     if (result.html) {
       sendHtml(res, result.status, result.html);
     } else {
       send(res, result.status, result.body);
     }
-    log("request.completed", {
-      requestId,
-      method: req.method,
-      path: url.pathname,
-      status: result.status,
-      durationMs: Date.now() - started,
-    });
+    log("request.completed", { requestId, method: req.method, path, status: result.status, ...timing() });
   } catch (error) {
-    const status = error instanceof SyntaxError ? 400 : error.status ?? 500;
-    // Every message here is shown to the user as-is: plain words only.
-    const message =
-      error instanceof InputError
-        ? error.message
-        : status === 400
-          ? "Something went wrong sending that. Try again."
-          : status === 413
-            ? "That's too much to send at once. Try again with less."
-            : "Something went wrong on our side. Try again in a moment.";
-    send(res, status, { error: message });
-    log("request.failed", {
-      requestId,
-      method: req.method,
-      path: url.pathname,
-      status,
-      reason:
-        status === 500
-          ? String(error?.message ?? error).slice(0, 200)
-          : (error?.detail ?? error?.message ?? message),
-      durationMs: Date.now() - started,
-    });
+    const { status, message, reason, code } = failure(error);
+    if (!res.headersSent) send(res, status, { error: message });
+    else res.destroy();
+    log("request.failed", { requestId, method: req.method, path, status, reason, code, ...timing() });
   }
 });
+
+// Slow-client protection (Node's defaults allow a 5-minute request).
+server.headersTimeout = 15_000;
+server.requestTimeout = 30_000;
+// Longer than Railway's proxy idle timeout so the proxy closes first.
+server.keepAliveTimeout = 65_000;
 
 async function authorize(req) {
   const header = req.headers.authorization;
@@ -268,7 +370,7 @@ async function route(req, url, requestId) {
       outcome: result.log.outcome,
       source: "sitter",
     });
-    await notifyHouseholdOnDose(pool, sitter, result.log, log);
+    runInBackground(() => notifyHouseholdOnDose(pool, sitter, result.log, scopedLog(requestId)), requestId);
     return { status: 201, body: result };
   }
 
@@ -292,7 +394,14 @@ async function route(req, url, requestId) {
 
   if (req.method === "POST" && path === "/v1/auth/apple/recover") {
     const body = await readJson(req);
-    const recovered = await recoverFromApple(pool, body.appleUserId);
+    // Only an Apple-signed identity token proves who this is. A bare
+    // appleUserId (old contract) would let anyone take over a household.
+    const apple = await verifyAppleIdentityToken(body.identityToken);
+    if (!apple.ok) {
+      log("auth.apple_rejected", { requestId, reason: apple.reason, route: "recover" });
+      return { status: 401, body: { error: "Apple Sign-In couldn't be confirmed. Try signing in again." } };
+    }
+    const recovered = await recoverFromApple(pool, apple.sub);
     if (!recovered) {
       return { status: 404, body: { error: "No household is linked to this Apple ID yet." } };
     }
@@ -301,13 +410,22 @@ async function route(req, url, requestId) {
   }
 
   if (req.method === "POST" && path === "/v1/webhooks/revenuecat") {
-    const body = await readJson(req, importBody);
-    // Header only — a secret inside the JSON body is never accepted.
-    const headerSecret = req.headers.authorization?.replace(/^Bearer\s+/i, "").trim();
+    // Header only — a secret inside the JSON body is never accepted — and
+    // checked before reading the body, so strangers can't make us parse 64 KB.
+    const headerValue = req.headers.authorization;
+    const check = revenueCatWebhookAuthorized(headerValue);
+    if (!check.ok) {
+      log(check.reason === "secret_not_configured" ? "billing.webhook_secret_missing" : "billing.webhook_unauthorized", {
+        requestId,
+        reason: check.reason,
+      });
+      return { status: 401, body: { error: "Invalid webhook secret" } };
+    }
+    const body = await readJson(req, webhookBody);
     const result = await handleRevenueCatWebhook(
       pool,
-      { ...body, authorization: headerSecret },
-      log,
+      { ...body, authorization: headerValue.replace(/^Bearer\s+/i, "").trim() },
+      scopedLog(requestId),
     );
     if (result.status === "unauthorized") return { status: 401, body: { error: "Invalid webhook secret" } };
     return { status: 200, body: result };
@@ -373,14 +491,24 @@ async function route(req, url, requestId) {
       return { status: 409, body: { error: "Someone already logged this dose.", log: result.conflict } };
     }
     log("dose.logged", { requestId, householdId: auth.householdId, outcome: result.log.outcome });
-    await notifyHouseholdOnDose(pool, auth, result.log, log);
+    runInBackground(() => notifyHouseholdOnDose(pool, auth, result.log, scopedLog(requestId)), requestId);
     return { status: 201, body: result };
   }
 
   if (req.method === "POST" && path === "/v1/sync/batch") {
     const body = await readJson(req, importBody);
-    const batch = await applyBatch(pool, auth, body, log);
-    log("sync.batch", { requestId, householdId: auth.householdId, count: body.operations?.length ?? 0 });
+    const { logged, ...batch } = await applyBatch(pool, auth, body);
+    const failed = batch.results.filter((item) => item.status === "error").length;
+    log("sync.batch", {
+      requestId,
+      householdId: auth.householdId,
+      count: batch.results.length,
+      failed,
+      dosesLogged: logged.length,
+    });
+    if (logged.length > 0) {
+      runInBackground(() => notifyHouseholdOnDose(pool, auth, logged, scopedLog(requestId)), requestId);
+    }
     return { status: 200, body: batch };
   }
 
@@ -396,7 +524,8 @@ async function route(req, url, requestId) {
       body: {
         token: created.token,
         expiresAt: created.expiresAt,
-        url: `/sitter?t=${encodeURIComponent(created.token)}`,
+        // Fragment, not query: never sent to the server or proxy logs on open.
+        url: `/sitter#t=${encodeURIComponent(created.token)}`,
       },
     };
   }
@@ -417,7 +546,12 @@ async function route(req, url, requestId) {
 
   if (req.method === "POST" && path === "/v1/auth/apple/link") {
     const body = await readJson(req);
-    const linked = await linkAppleAccount(pool, auth, body.appleUserId);
+    const apple = await verifyAppleIdentityToken(body.identityToken);
+    if (!apple.ok) {
+      log("auth.apple_rejected", { requestId, reason: apple.reason, route: "link" });
+      return { status: 401, body: { error: "Apple Sign-In couldn't be confirmed. Try signing in again." } };
+    }
+    const linked = await linkAppleAccount(pool, auth, apple.sub);
     log("auth.apple_linked", { requestId, householdId: auth.householdId });
     return { status: 200, body: linked };
   }
@@ -445,11 +579,13 @@ async function route(req, url, requestId) {
     const body = await readJson(req);
     const plan = await setPlan(pool, auth, body.plan);
     if (!plan) return { status: 400, body: { error: "Pick yearly or monthly." } };
+    log("billing.plan_set", { requestId, householdId: auth.householdId, plan });
     return { status: 200, body: { plan } };
   }
 
   if (req.method === "POST" && path === "/v1/billing/trial") {
-    return { status: 200, body: await refreshProFromRevenueCat(pool, auth, log) };
+    const refreshed = await refreshProFromRevenueCat(pool, auth, scopedLog(requestId));
+    return { status: 200, body: refreshed };
   }
 
   return { status: 404, body: { error: "That page doesn't exist." } };
@@ -463,11 +599,38 @@ server.listen(port, "0.0.0.0", () => {
   log("server.started", { port });
 });
 
+/**
+ * SIGTERM (Railway redeploy): stop accepting, let in-flight requests and
+ * background pushes finish, close the pool, exit. Hard stop after 10 s.
+ */
+async function shutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  log("server.stopping", { signal, inFlightBackground: background.size });
+  const force = setTimeout(() => {
+    log("server.stop_forced", { signal });
+    process.exit(1);
+  }, Number(process.env.SHUTDOWN_GRACE_MS) || 10_000);
+  force.unref();
+  const closed = new Promise((resolve) => server.close(resolve));
+  server.closeIdleConnections();
+  await closed;
+  await Promise.allSettled([...background]);
+  await pool.end().catch((error) => log("db.pool_end_failed", { reason: String(error?.message ?? error) }));
+  log("server.stopped", { signal });
+  process.exit(0);
+}
+
 for (const signal of ["SIGTERM", "SIGINT"]) {
   process.on(signal, () => {
-    log("server.stopping", { signal });
-    server.close(() => {
-      pool.end().then(() => process.exit(0));
-    });
+    shutdown(signal);
   });
 }
+
+process.on("unhandledRejection", (error) => {
+  log("process.unhandled_rejection", { reason: String(error?.message ?? error).slice(0, 200) });
+});
+process.on("uncaughtException", (error) => {
+  log("process.uncaught_exception", { reason: String(error?.message ?? error).slice(0, 200) });
+  process.exit(1);
+});

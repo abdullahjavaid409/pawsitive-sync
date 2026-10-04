@@ -109,7 +109,7 @@
     <div id="error" class="error" hidden></div>
     <div id="setup" hidden>
       <div class="card">
-        <p class="dose-meta">Paste the sitter link you received, or add <code>?t=...</code> to this page’s URL.</p>
+        <p class="dose-meta">Paste the sitter link you received, or add <code>#t=...</code> to this page’s URL.</p>
         <input id="tokenInput" type="text" placeholder="Sitter link token" autocomplete="off" />
         <button class="primary" type="button" id="openBtn">Open schedule</button>
       </div>
@@ -118,8 +118,14 @@
     <p class="footer">Pawsitive · shared pet med log</p>
   </main>
   <script>
-    const params = new URLSearchParams(location.search);
-    let token = params.get("t") || "";
+    // Token arrives as #t= (preferred: never sent to the server) or ?t= (older
+    // app builds). Either way, keep it only in the fragment from here on.
+    const hashParams = new URLSearchParams(location.hash.slice(1));
+    const queryParams = new URLSearchParams(location.search);
+    let token = hashParams.get("t") || queryParams.get("t") || "";
+    if (queryParams.has("t")) {
+      history.replaceState(null, "", `${location.pathname}#t=${encodeURIComponent(token)}`);
+    }
     const list = document.getElementById("list");
     const errorEl = document.getElementById("error");
     const setup = document.getElementById("setup");
@@ -129,6 +135,15 @@
       const d = new Date();
       const p = (n) => String(n).padStart(2, "0");
       return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+    }
+
+    // All server text (pet, medicine, amount, names) goes in via textContent —
+    // never innerHTML — so a household member can't inject script here.
+    function el(tag, className, text) {
+      const node = document.createElement(tag);
+      if (className) node.className = className;
+      if (text !== undefined) node.textContent = String(text);
+      return node;
     }
 
     function showError(message) {
@@ -142,7 +157,7 @@
 
     async function loadView() {
       showError("");
-      list.innerHTML = '<div class="empty">Loading…</div>';
+      list.replaceChildren(el("div", "empty", "Loading…"));
       const day = todayKey();
       const hour = new Date().getHours();
       const res = await fetch(`/v1/sitter/view?day=${day}&hour=${hour}`, {
@@ -150,7 +165,7 @@
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        list.innerHTML = "";
+        list.replaceChildren();
         showError(body.error || "Could not load doses. Check the link and try again.");
         setup.hidden = false;
         return;
@@ -164,18 +179,15 @@
 
     function renderDoses(doses) {
       if (!doses.length) {
-        list.innerHTML = '<div class="card empty">Nothing scheduled for today.</div>';
+        list.replaceChildren(el("div", "card empty", "Nothing scheduled for today."));
         return;
       }
-      list.innerHTML = "";
+      list.replaceChildren();
       for (const dose of doses) {
-        const card = document.createElement("div");
-        card.className = "card";
+        const card = el("div", "card");
         const amount = dose.amount ? ` · ${dose.amount}` : "";
-        card.innerHTML = `
-          <div class="dose-name">${dose.petName} — ${dose.name}${amount}</div>
-          <div class="dose-meta">${dose.part} · ${dose.timeLabel}</div>
-        `;
+        card.appendChild(el("div", "dose-name", `${dose.petName} — ${dose.name}${amount}`));
+        card.appendChild(el("div", "dose-meta", `${dose.part} · ${dose.timeLabel}`));
         const badge = document.createElement("span");
         if (dose.status === "given") {
           badge.className = "badge given";
@@ -250,18 +262,24 @@
     }
 
     document.getElementById("openBtn").onclick = () => {
-      token = document.getElementById("tokenInput").value.trim();
+      const raw = document.getElementById("tokenInput").value.trim();
+      token = raw;
+      try {
+        // A whole pasted link works too: take its t= value.
+        const link = new URL(raw);
+        token = new URLSearchParams(link.hash.slice(1)).get("t") || link.searchParams.get("t") || raw;
+      } catch (_) {}
       if (!token) {
         showError("Add the sitter link token.");
         return;
       }
-      history.replaceState(null, "", `?t=${encodeURIComponent(token)}`);
+      history.replaceState(null, "", `${location.pathname}#t=${encodeURIComponent(token)}`);
       loadView();
     };
 
     if (!token) {
       setup.hidden = false;
-      list.innerHTML = "";
+      list.replaceChildren();
     } else {
       loadView();
     }

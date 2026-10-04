@@ -103,20 +103,24 @@ class DoseReminders {
   }
 
   /// Reminds again after snoozing from the lock screen.
-  static Future<bool> snoozeMinutes(CareRepository care, int minutes, {Dose? target}) async {
+  static Future<bool> snoozeMinutes(
+    CareRepository care,
+    int minutes, {
+    Dose? target,
+  }) async {
     try {
-    await prepare();
-    final dose = target ?? care.nextDue;
-    if (dose == null || dose.status != DoseStatus.due) return false;
-    Pet? pet;
-    for (final item in care.pets) {
-      if (item.id == dose.petId) pet = item;
-    }
-    final when = tz.TZDateTime.now(tz.local).add(Duration(minutes: minutes));
-    final petName = pet?.name ?? 'Your pet';
-    final amount = dose.amount.isEmpty
-        ? dose.name
-        : '${dose.name}, ${dose.amount}';
+      await prepare();
+      final dose = target ?? care.nextDue;
+      if (dose == null || dose.status != DoseStatus.due) return false;
+      Pet? pet;
+      for (final item in care.pets) {
+        if (item.id == dose.petId) pet = item;
+      }
+      final when = tz.TZDateTime.now(tz.local).add(Duration(minutes: minutes));
+      final petName = pet?.name ?? 'Your pet';
+      final amount = dose.amount.isEmpty
+          ? dose.name
+          : '${dose.name}, ${dose.amount}';
       await _plugin.zonedSchedule(
         1,
         'Time for $petName',

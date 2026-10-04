@@ -15,11 +15,7 @@ class SyncBatchOp {
   final String type;
   final Map<String, Object?> payload;
 
-  Map<String, Object?> toJson() => {
-    'id': id,
-    'type': type,
-    'payload': payload,
-  };
+  Map<String, Object?> toJson() => {'id': id, 'type': type, 'payload': payload};
 
   static SyncBatchOp fromJson(Map<String, dynamic> json) => SyncBatchOp(
     id: '${json['id']}',
@@ -65,7 +61,8 @@ class SyncOutbox {
   }
 
   Future<void> remove(String id) async {
-    final items = await read()..removeWhere((op) => op.id == id);
+    final items = await read()
+      ..removeWhere((op) => op.id == id);
     await write(items);
   }
 

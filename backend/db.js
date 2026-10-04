@@ -1,5 +1,6 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import pg from "pg";
+import { fetchProEntitlement, proEntitlement } from "./revenuecat.js";
 
 const { Pool } = pg;
 
@@ -24,22 +25,69 @@ const species = ["cat", "dog", "rabbit", "other"];
 const roles = ["owner", "caregiver", "sitter"];
 const outcomes = ["given", "skipped", "uncertain"];
 const codeAlphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+/** Signed-in app members per household (sitter links don't count). */
+const maxMembers = 30;
+
+function envInt(name, fallback, min, max) {
+  const value = Number.parseInt(process.env[name] ?? "", 10);
+  return Number.isFinite(value) ? Math.min(Math.max(value, min), max) : fallback;
+}
 
 export function createPool(connectionString) {
   return new Pool({
     connectionString,
-    max: 5,
-    idleTimeoutMillis: 10_000,
+    // One request uses one connection (household reads are a single query), so
+    // 10 per instance serves thousands of households and leaves room under
+    // Postgres' max_connections for a second replica and psql.
+    max: envInt("PG_POOL_MAX", 10, 1, 50),
+    idleTimeoutMillis: 30_000,
+    // Fail fast with a 500 instead of queueing forever when the pool is drained.
+    connectionTimeoutMillis: 5_000,
+    // A runaway query or a stuck transaction can't hold a connection hostage.
+    statement_timeout: envInt("PG_STATEMENT_TIMEOUT_MS", 15_000, 1_000, 120_000),
+    idle_in_transaction_session_timeout: 30_000,
+    application_name: "pawsitive-api",
   });
 }
 
+const migrationLockKey = 72_041_101; // any constant; serialises boots of several replicas
+
 export async function migrate(pool, log) {
   const started = Date.now();
+  const client = await pool.connect();
+  try {
+    // Two replicas booting together must not run DDL at the same time.
+    await client.query("SELECT pg_advisory_lock($1)", [migrationLockKey]);
+    await migrateLocked(client);
+  } finally {
+    await client.query("SELECT pg_advisory_unlock($1)", [migrationLockKey]).catch(() => {});
+    client.release();
+  }
+  log("db.migrated", { version: schemaVersion, durationMs: Date.now() - started });
+}
+
+/** CREATE INDEX CONCURRENTLY so a big table keeps taking writes while it builds. */
+async function ensureIndexConcurrently(client, name, definition) {
+  // A failed concurrent build leaves an INVALID index that IF NOT EXISTS would skip.
+  const invalid = await client.query(
+    `SELECT 1 FROM pg_class c JOIN pg_index i ON i.indexrelid = c.oid
+     WHERE c.relname = $1 AND NOT i.indisvalid`,
+    [name],
+  );
+  if (invalid.rowCount > 0) await client.query(`DROP INDEX CONCURRENTLY IF EXISTS ${name}`);
+  await client.query(`CREATE INDEX CONCURRENTLY IF NOT EXISTS ${name} ON ${definition}`);
+}
+
+/** `pool` here is the one locked client: every statement runs on it. */
+async function migrateLocked(pool) {
   await pool.query("CREATE TABLE IF NOT EXISTS meta (key text PRIMARY KEY, value text NOT NULL)");
   const current = await pool.query("SELECT value FROM meta WHERE key = 'schema_version'");
   const fromVersion = current.rows[0]?.value ?? null;
-  if (fromVersion === "1" || fromVersion === null) {
-    // Version 1 held one shared demo household with no owners; nothing in it is user data.
+  // Version 1 held one shared demo household with no owners; nothing in it is user data.
+  // A missing version row alone is NOT proof of v1 (a partial restore could lose `meta`):
+  // only drop when the v2+ `households` table doesn't exist either.
+  const households = await pool.query("SELECT to_regclass('public.households') IS NOT NULL AS present");
+  if (fromVersion === "1" || (fromVersion === null && !households.rows[0].present)) {
     await pool.query("DROP TABLE IF EXISTS activity, doses, medications, pets, members, settings CASCADE");
   }
   await pool.query(`
@@ -161,12 +209,16 @@ export async function migrate(pool, log) {
   await pool.query(`
     ALTER TABLE households ADD COLUMN IF NOT EXISTS rc_event_at timestamptz;
   `);
+  // Household snapshot reads the newest 100 days of logs; without this it
+  // sorts every log the household ever wrote.
+  await ensureIndexConcurrently(pool, "dose_logs_created_idx", "dose_logs (household_id, created_at DESC)");
+  // Duplicate of the UNIQUE constraint's own index: double write cost, no reads.
+  await pool.query("DROP INDEX IF EXISTS sitter_links_token_idx");
   await pool.query(
     `INSERT INTO meta (key, value) VALUES ('schema_version', $1)
      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
     [schemaVersion],
   );
-  log("db.migrated", { version: schemaVersion, durationMs: Date.now() - started });
 }
 
 /**
@@ -291,7 +343,8 @@ function readMedication(input) {
     supplyTotal,
     dosesLeft: input?.dosesLeft === undefined ? supplyTotal : count(input.dosesLeft, supplyTotal),
     startDay: day(input?.startDay, "medication.startDay"),
-    endDay: text(input?.endDay, "medication.endDay", { max: 10, required: false }) || "",
+    // Compared as a string against YYYY-MM-DD days, so anything else means "no end".
+    endDay: /^\d{4}-\d{2}-\d{2}$/.test(input?.endDay ?? "") ? input.endDay : "",
   };
 }
 
@@ -365,16 +418,21 @@ async function insertMedication(client, householdId, medication) {
 
 async function transaction(pool, work) {
   const client = await pool.connect();
+  let broken;
   try {
     await client.query("BEGIN");
     const result = await work(client);
     await client.query("COMMIT");
     return result;
   } catch (error) {
-    await client.query("ROLLBACK");
+    // A failed ROLLBACK (dead connection) must not hide the real error, and
+    // that connection must not go back into the pool.
+    await client.query("ROLLBACK").catch((rollbackError) => {
+      broken = rollbackError;
+    });
     throw error;
   } finally {
-    client.release();
+    client.release(broken);
   }
 }
 
@@ -420,21 +478,24 @@ export async function createHousehold(pool, body) {
     }
     for (const pet of pets) await insertPet(client, householdId, pet);
     for (const medication of medications) await insertMedication(client, householdId, medication);
-    for (const entry of logs) {
+    if (logs.length > 0) {
+      // Up to 2000 offline logs: one statement, not 2000 round trips.
       await client.query(
         `INSERT INTO dose_logs (household_id, id, medication_id, part, day, member_id, outcome, amount, note, time_label)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING`,
+         SELECT $1, * FROM unnest($2::text[], $3::text[], $4::text[], $5::text[], $6::text[],
+                                  $7::text[], $8::text[], $9::text[], $10::text[])
+         ON CONFLICT DO NOTHING`,
         [
           householdId,
-          entry.id,
-          entry.medicationId,
-          entry.part,
-          entry.day,
-          entry.memberId ?? ownerId,
-          entry.outcome,
-          entry.amount,
-          entry.note,
-          entry.timeLabel,
+          logs.map((entry) => entry.id),
+          logs.map((entry) => entry.medicationId),
+          logs.map((entry) => entry.part),
+          logs.map((entry) => entry.day),
+          logs.map((entry) => entry.memberId ?? ownerId),
+          logs.map((entry) => entry.outcome),
+          logs.map((entry) => entry.amount),
+          logs.map((entry) => entry.note),
+          logs.map((entry) => entry.timeLabel),
         ],
       );
     }
@@ -450,10 +511,23 @@ export async function joinHousehold(pool, body) {
   const householdId = household.rows[0].id;
   const memberId = newId("member");
   const token = newToken();
-  await pool.query(
-    `INSERT INTO members (household_id, id, name, role, token_hash) VALUES ($1,$2,$3,$4,$5)`,
-    [householdId, memberId, name, oneOf(body?.role, ["caregiver", "sitter"], "role", "caregiver"), hashToken(token)],
+  // A leaked invite code must not let anyone add members without bound.
+  const inserted = await pool.query(
+    `INSERT INTO members (household_id, id, name, role, token_hash)
+     SELECT $1,$2,$3,$4,$5
+     WHERE (SELECT count(*) FROM members WHERE household_id = $1 AND token_hash IS NOT NULL) < $6`,
+    [
+      householdId,
+      memberId,
+      name,
+      oneOf(body?.role, ["caregiver", "sitter"], "role", "caregiver"),
+      hashToken(token),
+      maxMembers,
+    ],
   );
+  if (inserted.rowCount === 0) {
+    throw new InputError("This household is full. Ask the owner to remove someone first.", "member cap reached");
+  }
   return { token, householdId, memberId };
 }
 
@@ -465,11 +539,14 @@ export async function memberForToken(pool, token) {
 }
 
 function mapMember(row, memberId) {
+  // Apps create the household with the owner named "You"; to everyone else
+  // that would read as themselves ("You gave Miso"), so call them Owner.
+  const placeholder = row.role === "owner" && row.id !== memberId && /^you$/i.test(row.name);
   return {
     id: row.id,
-    name: row.name,
+    name: placeholder ? "Owner" : row.name,
     role: row.role,
-    joined: row.token_hash !== null,
+    joined: row.joined ?? row.token_hash != null,
     ...(row.id === memberId ? { isYou: true } : {}),
   };
 }
@@ -539,26 +616,41 @@ function mapCareEvent(row) {
   };
 }
 
-export async function loadHousehold(pool, { householdId, memberId }) {
-  const [house, members, pets, medications, logs, careEvents] = await Promise.all([
-    pool.query("SELECT * FROM households WHERE id = $1", [householdId]),
-    pool.query("SELECT * FROM members WHERE household_id = $1 ORDER BY created_at", [householdId]),
-    pool.query("SELECT * FROM pets WHERE household_id = $1 ORDER BY created_at", [householdId]),
-    pool.query(
-      "SELECT * FROM medications WHERE household_id = $1 AND archived = false ORDER BY created_at",
-      [householdId],
-    ),
-    pool.query(
-      `SELECT * FROM dose_logs WHERE household_id = $1
-       AND created_at > now() - interval '100 days' ORDER BY created_at DESC LIMIT 3000`,
-      [householdId],
-    ),
-    pool.query(
-      "SELECT * FROM care_events WHERE household_id = $1 ORDER BY due_day ASC LIMIT 200",
-      [householdId],
-    ),
-  ]);
-  const household = house.rows[0];
+/**
+ * The whole household in ONE round trip on ONE pooled connection (it used to
+ * fan out six parallel queries, so a single request could drain the pool).
+ * Token hashes never leave the database. `logDay` narrows logs to one day
+ * (sitter view) instead of the 100-day window.
+ */
+export async function loadHousehold(pool, { householdId, memberId }, { logDay } = {}) {
+  const logFilter = logDay
+    ? "household_id = $1 AND day = $2"
+    : "household_id = $1 AND created_at > now() - interval '100 days'";
+  const result = await pool.query(
+    `SELECT
+       (SELECT row_to_json(h) FROM (
+          SELECT id, invite_code, is_pro, plan, rc_expires_at FROM households WHERE id = $1
+        ) h) AS household,
+       (SELECT coalesce(json_agg(m ORDER BY m.created_at), '[]'::json) FROM (
+          SELECT id, name, role, token_hash IS NOT NULL AS joined, created_at
+          FROM members WHERE household_id = $1
+        ) m) AS members,
+       (SELECT coalesce(json_agg(p ORDER BY p.created_at), '[]'::json) FROM (
+          SELECT * FROM pets WHERE household_id = $1
+        ) p) AS pets,
+       (SELECT coalesce(json_agg(d ORDER BY d.created_at), '[]'::json) FROM (
+          SELECT * FROM medications WHERE household_id = $1 AND archived = false
+        ) d) AS medications,
+       (SELECT coalesce(json_agg(l ORDER BY l.created_at DESC), '[]'::json) FROM (
+          SELECT * FROM dose_logs WHERE ${logFilter} ORDER BY created_at DESC LIMIT 3000
+        ) l) AS logs,
+       (SELECT coalesce(json_agg(c ORDER BY c.due_day), '[]'::json) FROM (
+          SELECT * FROM care_events WHERE household_id = $1 ORDER BY due_day ASC LIMIT 200
+        ) c) AS care_events`,
+    logDay ? [householdId, logDay] : [householdId],
+  );
+  const row = result.rows[0];
+  const household = row?.household;
   if (!household) return null;
   return {
     household: {
@@ -568,18 +660,23 @@ export async function loadHousehold(pool, { householdId, memberId }) {
       plan: household.plan,
     },
     memberId,
-    members: members.rows.map((row) => mapMember(row, memberId)),
-    pets: pets.rows.map(mapPet),
-    medications: medications.rows.map(mapMedication),
-    logs: logs.rows.map(mapLog),
-    careEvents: careEvents.rows.map(mapCareEvent),
+    members: row.members.map((member) => mapMember(member, memberId)),
+    pets: row.pets.map(mapPet),
+    medications: row.medications.map(mapMedication),
+    logs: row.logs.map(mapLog),
+    careEvents: row.care_events.map(mapCareEvent),
   };
 }
 
 export async function addPet(pool, { householdId }, body) {
-  const existing = await pool.query("SELECT count(*)::int AS n FROM pets WHERE household_id = $1", [householdId]);
+  const pet = readPet(body);
+  // Not counting this pet itself: a replayed outbox addPet is an upsert, not an 11th pet.
+  const existing = await pool.query(
+    "SELECT count(*)::int AS n FROM pets WHERE household_id = $1 AND id <> $2",
+    [householdId, pet.id],
+  );
   if (existing.rows[0].n >= 10) throw new InputError("A household can have up to 10 pets.");
-  return insertPet(pool, householdId, readPet(body));
+  return insertPet(pool, householdId, pet);
 }
 
 export async function updatePet(pool, { householdId }, petId, body) {
@@ -686,8 +783,6 @@ export async function setPlan(pool, { householdId }, plan) {
   return plan;
 }
 
-const revenueCatApi = "https://api.revenuecat.com/v1/subscribers/";
-
 /**
  * POST /v1/billing/trial (path kept for shipped apps): the caller says it just
  * bought or restored. Ask RevenueCat — never the client — whether this
@@ -695,37 +790,20 @@ const revenueCatApi = "https://api.revenuecat.com/v1/subscribers/";
  * purchases made before sharing, which no webhook ties to the household.
  */
 export async function refreshProFromRevenueCat(pool, { householdId, memberId }, logFn = () => {}) {
-  const secret = process.env.REVENUECAT_SECRET_KEY;
-  if (!secret) {
-    logFn("billing.rc_refresh_skipped", { householdId, reason: "no_secret_key" });
+  const pro = await fetchProEntitlement(`${householdId}:${memberId}`);
+  if (!pro.ok) {
+    logFn("billing.rc_refresh_failed", { householdId, reason: pro.reason });
   } else {
-    const appUserId = `${householdId}:${memberId}`;
-    try {
-      const response = await fetch(revenueCatApi + encodeURIComponent(appUserId), {
-        headers: { authorization: `Bearer ${secret}`, accept: "application/json" },
-        signal: AbortSignal.timeout(8000),
+    if (pro.active) {
+      await applyProState(pool, householdId, {
+        isPro: true,
+        expiresAt: pro.expiresAt,
+        productId: pro.productId,
+        eventAt: new Date(),
       });
-      if (!response.ok) {
-        logFn("billing.rc_refresh_failed", { householdId, status: response.status });
-      } else {
-        const entitlement = (await response.json())?.subscriber?.entitlements?.[proEntitlement];
-        const expiresIso = entitlement?.grace_period_expires_date ?? entitlement?.expires_date ?? null;
-        const expiresAt = expiresIso ? new Date(expiresIso) : null;
-        const active = entitlement != null && (expiresAt == null || expiresAt.getTime() > Date.now());
-        if (active) {
-          await applyProState(pool, householdId, {
-            isPro: true,
-            expiresAt,
-            productId: typeof entitlement.product_identifier === "string" ? entitlement.product_identifier : null,
-            eventAt: new Date(),
-          });
-        }
-        // Not active: leave it. A partner may pay; EXPIRATION webhooks revoke.
-        logFn("billing.rc_refresh", { householdId, active });
-      }
-    } catch (error) {
-      logFn("billing.rc_refresh_failed", { householdId, error: String(error?.name ?? error) });
     }
+    // Not active: leave it. A partner may pay; EXPIRATION webhooks revoke.
+    logFn("billing.rc_refresh", { householdId, active: pro.active });
   }
   const row = (
     await pool.query("SELECT plan, is_pro, rc_expires_at FROM households WHERE id = $1", [householdId])
@@ -805,25 +883,22 @@ export async function registerDevice(pool, auth, body) {
 }
 
 export async function leaveHousehold(pool, { householdId, memberId }) {
-  await pool.query("DELETE FROM device_tokens WHERE household_id = $1 AND member_id = $2", [
-    householdId,
-    memberId,
-  ]);
-  const result = await pool.query(
-    "DELETE FROM members WHERE household_id = $1 AND id = $2 AND role <> 'owner'",
-    [householdId, memberId],
-  );
-  if (result.rowCount > 0) return { left: true };
-  const owner = await pool.query(
-    "SELECT 1 FROM members WHERE household_id = $1 AND id = $2 AND role = 'owner'",
-    [householdId, memberId],
-  );
-  if (owner.rowCount === 0) return { left: false };
-  await pool.query("UPDATE members SET token_hash = NULL WHERE household_id = $1 AND id = $2", [
-    householdId,
-    memberId,
-  ]);
-  return { left: true, ownerSignedOut: true };
+  return transaction(pool, async (client) => {
+    await client.query("DELETE FROM device_tokens WHERE household_id = $1 AND member_id = $2", [
+      householdId,
+      memberId,
+    ]);
+    const result = await client.query(
+      "DELETE FROM members WHERE household_id = $1 AND id = $2 AND role <> 'owner'",
+      [householdId, memberId],
+    );
+    if (result.rowCount > 0) return { left: true };
+    const owner = await client.query(
+      "UPDATE members SET token_hash = NULL WHERE household_id = $1 AND id = $2 AND role = 'owner'",
+      [householdId, memberId],
+    );
+    return owner.rowCount > 0 ? { left: true, ownerSignedOut: true } : { left: false };
+  });
 }
 
 export async function exportHouseholdData(pool, { householdId, memberId }) {
@@ -835,17 +910,36 @@ export async function exportHouseholdData(pool, { householdId, memberId }) {
   };
 }
 
+/**
+ * The funnel events the app sends (AnalyticsService._funnelEvents). This route
+ * is unauthenticated, so free-form names would let anyone grow the table
+ * without bound; add new names here when the app adds them.
+ */
+const analyticsEvents = new Set([
+  "onboarding.finished",
+  "dose.log.completed",
+  "household.connected",
+  "household.joined",
+  "billing.purchase.completed",
+  "billing.pro.unlocked",
+  "care_event.added",
+  ...(process.env.ANALYTICS_EXTRA_EVENTS ?? "").split(",").map((name) => name.trim()).filter(Boolean),
+]);
+
 export async function trackAnalytics(pool, events) {
   const list = Array.isArray(events) ? events.slice(0, 50) : [];
+  const counts = new Map();
   for (const item of list) {
-    const name = text(item?.name, "event.name", { max: 64, required: false });
-    if (!name) continue;
-    const safe = name.replace(/[^a-z0-9_.]/gi, "").slice(0, 48);
-    if (!safe) continue;
+    const name = typeof item?.name === "string" ? item.name : "";
+    if (analyticsEvents.has(name)) counts.set(name, (counts.get(name) ?? 0) + 1);
+  }
+  if (counts.size > 0) {
+    // One statement per batch instead of one per event.
     await pool.query(
-      `INSERT INTO analytics_daily (day, event, count) VALUES (CURRENT_DATE, $1, 1)
-       ON CONFLICT (day, event) DO UPDATE SET count = analytics_daily.count + 1`,
-      [safe],
+      `INSERT INTO analytics_daily (day, event, count)
+       SELECT CURRENT_DATE, e.name, e.n FROM unnest($1::text[], $2::int[]) AS e(name, n)
+       ON CONFLICT (day, event) DO UPDATE SET count = analytics_daily.count + EXCLUDED.count`,
+      [[...counts.keys()], [...counts.values()]],
     );
   }
   return { recorded: list.length };
@@ -887,15 +981,22 @@ export async function applyBatchOperation(pool, auth, operation) {
   }
 }
 
-export async function applyBatch(pool, auth, body, logFn) {
+/**
+ * Applies outbox operations one by one (each is its own transaction, and each
+ * is idempotent on replay: upserts, conflict-guarded dose logs). Returns the
+ * fresh household plus `logged` — new dose logs for the caller to notify on
+ * once, instead of a push per replayed dose.
+ */
+export async function applyBatch(pool, auth, body) {
   const operations = list(body?.operations, 100);
   const results = [];
+  const logged = [];
   for (const operation of operations) {
     const opId = text(operation?.id, "operation.id", { max: 48, required: false }) || newId("op");
     try {
       const result = await applyBatchOperation(pool, auth, operation);
       if (result.status === "ok" && result.log && operation?.type === "logDose") {
-        await notifyHouseholdOnDose(pool, auth, result.log, logFn);
+        logged.push(result.log);
       }
       results.push({ id: opId, ...result });
     } catch (error) {
@@ -906,7 +1007,7 @@ export async function applyBatch(pool, auth, body, logFn) {
       });
     }
   }
-  return { results, household: await loadHousehold(pool, auth) };
+  return { results, household: await loadHousehold(pool, auth), logged };
 }
 
 const partOpensAt = { morning: 0, afternoon: 12, evening: 17 };
@@ -944,15 +1045,18 @@ export async function createSitterLink(pool, auth, body) {
   const memberId = newId("sitter");
   const token = newToken();
   const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-  await pool.query(
-    `INSERT INTO members (household_id, id, name, role) VALUES ($1,$2,$3,'sitter')`,
-    [auth.householdId, memberId, label],
-  );
-  await pool.query(
-    `INSERT INTO sitter_links (household_id, id, member_id, token_hash, label, expires_at)
-     VALUES ($1,$2,$3,$4,$5,$6)`,
-    [auth.householdId, linkId, memberId, hashToken(token), label, expiresAt],
-  );
+  // Member + link together or not at all (no orphan sitter members).
+  await transaction(pool, async (client) => {
+    await client.query(
+      `INSERT INTO members (household_id, id, name, role) VALUES ($1,$2,$3,'sitter')`,
+      [auth.householdId, memberId, label],
+    );
+    await client.query(
+      `INSERT INTO sitter_links (household_id, id, member_id, token_hash, label, expires_at)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [auth.householdId, linkId, memberId, hashToken(token), label, expiresAt],
+    );
+  });
   return { token, expiresAt: expiresAt.toISOString(), memberId, linkId };
 }
 
@@ -977,7 +1081,8 @@ export async function sitterForToken(pool, token) {
 export async function getSitterView(pool, sitterAuth, query) {
   const viewDay = day(query?.day, "day");
   const hour = Math.min(Math.max(Number(query?.hour) || 0, 0), 23);
-  const snapshot = await loadHousehold(pool, sitterAuth);
+  // Only this day's logs: the sitter never needs the 100-day history.
+  const snapshot = await loadHousehold(pool, sitterAuth, { logDay: viewDay });
   if (!snapshot) return null;
   const petsById = Object.fromEntries(snapshot.pets.map((pet) => [pet.id, pet]));
   const logsByKey = {};
@@ -1028,43 +1133,51 @@ export async function sitterLogDose(pool, sitterAuth, body) {
   return result;
 }
 
-export async function notifyHouseholdOnDose(pool, auth, logEntry, logFn) {
-  const [tokens, medication, member] = await Promise.all([
-    pool.query(
-      `SELECT token, platform FROM device_tokens
-       WHERE household_id = $1 AND member_id <> $2 AND push_enabled = true`,
-      [auth.householdId, auth.memberId],
-    ),
+/**
+ * Tells the rest of the household about new dose logs. Accepts one log or a
+ * batch (outbox replay): the device-token lookup runs first and alone, so the
+ * common no-partner case costs one indexed query; a batch sends one summary
+ * instead of a push per dose. Best-effort: callers don't await it on the
+ * request path.
+ */
+export async function notifyHouseholdOnDose(pool, auth, logEntries, logFn) {
+  const entries = (Array.isArray(logEntries) ? logEntries : [logEntries]).filter(Boolean);
+  if (entries.length === 0) return;
+  const tokens = await pool.query(
+    `SELECT token, platform FROM device_tokens
+     WHERE household_id = $1 AND member_id <> $2 AND push_enabled = true`,
+    [auth.householdId, auth.memberId],
+  );
+  if (tokens.rowCount === 0) return;
+  const first = entries[0];
+  const [medication, member] = await Promise.all([
     pool.query("SELECT name FROM medications WHERE household_id = $1 AND id = $2", [
       auth.householdId,
-      logEntry.medicationId,
+      first.medicationId,
     ]),
     pool.query("SELECT name FROM members WHERE household_id = $1 AND id = $2", [
       auth.householdId,
       auth.memberId,
     ]),
   ]);
-  if (tokens.rowCount === 0) return;
   const medName = medication.rows[0]?.name ?? "a dose";
   const who = member.rows[0]?.name ?? "Someone";
   const outcomeLabel =
-    logEntry.outcome === "given"
-      ? "gave"
-      : logEntry.outcome === "skipped"
-        ? "skipped"
-        : "marked uncertain for";
-  const title = logEntry.outcome === "given" ? "Dose logged" : "Dose update";
-  const body = `${who} ${outcomeLabel} ${medName}`;
+    first.outcome === "given" ? "gave" : first.outcome === "skipped" ? "skipped" : "marked uncertain for";
+  const single = entries.length === 1;
+  const title = single && first.outcome !== "given" ? "Dose update" : "Dose logged";
+  const body = single ? `${who} ${outcomeLabel} ${medName}` : `${who} logged ${entries.length} doses`;
   const fcmKey = process.env.FCM_SERVER_KEY;
   for (const row of tokens.rows) {
     logFn("push.queued", {
       householdId: auth.householdId,
       platform: row.platform,
+      doses: entries.length,
       hasFcm: Boolean(fcmKey),
     });
     if (!fcmKey || row.platform === "ios" || !row.token.startsWith("fcm:")) continue;
     try {
-      await fetch("https://fcm.googleapis.com/fcm/send", {
+      const response = await fetch("https://fcm.googleapis.com/fcm/send", {
         method: "POST",
         headers: {
           authorization: `key=${fcmKey}`,
@@ -1073,16 +1186,16 @@ export async function notifyHouseholdOnDose(pool, auth, logEntry, logFn) {
         body: JSON.stringify({
           to: row.token.slice(4),
           notification: { title, body },
-          data: { type: "dose_logged", logId: logEntry.id },
+          data: { type: "dose_logged", logId: first.id },
         }),
+        signal: AbortSignal.timeout(5000),
       });
+      if (!response.ok) logFn("push.failed", { householdId: auth.householdId, status: response.status });
     } catch (error) {
-      logFn("push.failed", { reason: String(error?.message ?? error).slice(0, 120) });
+      logFn("push.failed", { householdId: auth.householdId, reason: String(error?.name ?? error).slice(0, 60) });
     }
   }
 }
-
-const proEntitlement = "pro";
 
 /** Events that carry the subscription's current expiry; Pro = not yet expired. */
 const stateEvents = new Set([
@@ -1100,10 +1213,25 @@ const stateEvents = new Set([
 ]);
 
 function secretMatches(given, secret) {
-  if (typeof given !== "string") return false;
-  const a = Buffer.from(given);
-  const b = Buffer.from(secret);
-  return a.length === b.length && timingSafeEqual(a, b);
+  if (typeof given !== "string" || !given || !secret) return false;
+  // Equal-length digests: constant time and doesn't leak the secret's length.
+  const a = createHash("sha256").update(given).digest();
+  const b = createHash("sha256").update(secret).digest();
+  return timingSafeEqual(a, b);
+}
+
+/**
+ * RevenueCat sends the configured Authorization header value verbatim; it is
+ * checked before the body is even read. Fails closed when no secret is set.
+ */
+export function revenueCatWebhookAuthorized(headerValue) {
+  const secret = process.env.REVENUECAT_WEBHOOK_SECRET;
+  if (!secret) return { ok: false, reason: "secret_not_configured" };
+  if (typeof headerValue !== "string" || !headerValue) return { ok: false, reason: "missing_header" };
+  const given = headerValue.replace(/^Bearer\s+/i, "").trim();
+  // Accept the secret configured with or without a "Bearer " prefix in RevenueCat.
+  const expected = secret.replace(/^Bearer\s+/i, "").trim();
+  return secretMatches(given, expected) ? { ok: true } : { ok: false, reason: "bad_secret" };
 }
 
 /** Household for a RevenueCat customer. Apps log in as "<householdId>:<memberId>";
@@ -1151,6 +1279,12 @@ async function applyProState(pool, householdId, { isPro, expiresAt, productId, e
   return result.rowCount > 0;
 }
 
+/** Ignored webhooks still answer 200 (RevenueCat would retry otherwise) but are logged. */
+function ignored(logFn, reason, type) {
+  logFn("billing.webhook_ignored", { reason, type: type || null });
+  return { status: "ignored", reason };
+}
+
 export async function handleRevenueCatWebhook(pool, body, logFn) {
   const secret = process.env.REVENUECAT_WEBHOOK_SECRET;
   if (!secret) {
@@ -1158,7 +1292,9 @@ export async function handleRevenueCatWebhook(pool, body, logFn) {
     logFn("billing.webhook_secret_missing", {});
     return { status: "unauthorized" };
   }
-  if (!secretMatches(body?.authorization, secret)) return { status: "unauthorized" };
+  if (!secretMatches(body?.authorization, secret.replace(/^Bearer\s+/i, "").trim())) {
+    return { status: "unauthorized" };
+  }
 
   const event = body?.event;
   const type = typeof event?.type === "string" ? event.type : "";
@@ -1166,11 +1302,11 @@ export async function handleRevenueCatWebhook(pool, body, logFn) {
     logFn("billing.webhook_test", { environment: event?.environment ?? "" });
     return { status: "ok", test: true };
   }
-  if (!type) return { status: "ignored", reason: "no_event" };
+  if (!type) return ignored(logFn, "no_event", type);
 
   const entitlements = event.entitlement_ids;
   if (Array.isArray(entitlements) && entitlements.length > 0 && !entitlements.includes(proEntitlement)) {
-    return { status: "ignored", reason: "other_entitlement" };
+    return ignored(logFn, "other_entitlement", type);
   }
 
   const eventAt = new Date(
@@ -1182,7 +1318,7 @@ export async function handleRevenueCatWebhook(pool, body, logFn) {
     // The subscription moved to another store account; the old owner loses it.
     // The new owner's app re-syncs Pro and the next renewal confirms it.
     const from = await householdForCustomer(pool, customerIds(event, "transferred_from"));
-    if (!from.householdId) return { status: "ignored", reason: from.reason };
+    if (!from.householdId) return ignored(logFn, from.reason, type);
     await applyProState(pool, from.householdId, { isPro: false, expiresAt: eventAt, productId: null, eventAt });
     logFn("billing.webhook", { householdId: from.householdId, type, isPro: false });
     return { status: "ok", isPro: false };
@@ -1204,14 +1340,14 @@ export async function handleRevenueCatWebhook(pool, body, logFn) {
       isPro = true; // lifetime / non-expiring
     }
   } else {
-    return { status: "ignored", reason: "event_type" };
+    return ignored(logFn, "event_type", type);
   }
 
   const found = await householdForCustomer(
     pool,
     customerIds(event, "app_user_id", "original_app_user_id", "aliases"),
   );
-  if (!found.householdId) return { status: "ignored", reason: found.reason };
+  if (!found.householdId) return ignored(logFn, found.reason, type);
 
   const applied = await applyProState(pool, found.householdId, { isPro, expiresAt, productId, eventAt });
   if (!applied) {

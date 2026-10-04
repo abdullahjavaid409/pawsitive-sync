@@ -43,7 +43,9 @@ abstract final class AnalyticsService {
       await _dio.post<void>(
         '/v1/analytics/batch',
         data: {
-          'events': [for (final name in events) {'name': name}],
+          'events': [
+            for (final name in events) {'name': name},
+          ],
         },
       );
       AppLog.event('analytics.flushed', {'count': events.length});
