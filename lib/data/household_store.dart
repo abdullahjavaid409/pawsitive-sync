@@ -1,10 +1,10 @@
-import 'dart:convert';
-
+import 'package:collection/collection.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
-import 'package:pawsitive_sync/data/household_api.dart';
+import 'package:pawsitive_sync/data/legacy_prefs_store.dart';
+import 'package:pawsitive_sync/data/local_database.dart';
 import 'package:pawsitive_sync/data/secure_tokens.dart';
 import 'package:pawsitive_sync/domain/models.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite/sqflite.dart';
 
 /// What this phone remembers about its household between launches.
 class StoredHousehold {
@@ -20,6 +20,7 @@ class StoredHousehold {
     required this.logs,
     this.householdId = '',
     this.archivedMedications = const [],
+    this.deletedLogIds = const {},
   });
 
   final String householdId;
@@ -31,17 +32,39 @@ class StoredHousehold {
   final List<Member> members;
   final List<Pet> pets;
   final List<Medication> medications;
+
+  /// Newest first. On [HouseholdStore.read], only the recent window; older
+  /// logs stay on disk (see [HouseholdStore.readLogs]).
   final List<DoseRecord> logs;
 
-  /// Removed medicines kept for vet-report history (local only).
+  /// Stopped medicines (each with [Medication.archivedAt]), kept so their
+  /// dose history keeps its real name.
   final List<Medication> archivedMedications;
+
+  /// Logs to remove from disk on this write. Logs are never deleted just for
+  /// being absent from [logs]: memory holds only a window of the history.
+  final Set<String> deletedLogIds;
 }
 
-/// Saves the household as JSON in shared preferences so it survives restarts
-/// and works offline. The bearer token is kept apart in [SecureTokens]
-/// (Keychain / Keystore) and never written to preferences.
+/// Saves the household in [LocalDatabase], one row per record. The bearer
+/// token is kept apart in [SecureTokens] (Keychain / Keystore) and never
+/// written to the database or preferences.
+///
+/// [write] compares against what it last read or wrote and touches only the
+/// rows that changed, in one transaction: logging a dose is one row insert
+/// (plus the medicine's supply), however long the history is.
+///
+/// Use one store per database: the row cache assumes nothing else writes
+/// these tables.
 class HouseholdStore {
-  static const _key = 'household_v2';
+  HouseholdStore({LocalDatabase? database}) : _database = database;
+
+  final LocalDatabase? _database;
+  LocalDatabase get _db => _database ?? LocalDatabase.shared;
+
+  /// Days of history [read] loads into memory. Covers the longest report
+  /// (90 days) with margin; older logs stay on disk.
+  static const recentDays = 100;
 
   /// Last token known to be in secure storage, so a write touches the
   /// Keychain only when the token actually changed.
@@ -51,71 +74,369 @@ class HouseholdStore {
   /// mistaken for "signed out" and wipe a good token on the next write.
   bool _tokenKnown = false;
 
-  Future<StoredHousehold?> read() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_key);
-    if (raw == null) {
+  // Row cache: table → id → row, as last read from or committed to disk.
+  // Rows are compared by value, so a model rebuilt with the same data (a
+  // server snapshot) costs a comparison, not a write.
+  final Map<String, Map<String, Map<String, Object?>>> _rows = {};
+  Map<String, String> _meta = {};
+
+  /// False until the small tables were read (or fully written) through this
+  /// store; until then a write replaces them wholesale.
+  bool _primed = false;
+  int _generation = -1;
+  int _maxSeq = 0;
+
+  /// Deletes that failed to commit, retried with the next write.
+  final Set<String> _pendingLogDeletes = {};
+
+  static const _rowEquality = MapEquality<String, Object?>();
+
+  void _syncGeneration() {
+    if (_generation == _db.generation) return;
+    _generation = _db.generation;
+    _rows.clear();
+    _meta = {};
+    _primed = false;
+    _maxSeq = 0;
+  }
+
+  /// The saved household, or null when nothing is saved. [sinceDay]
+  /// (YYYY-MM-DD) limits the logs loaded into memory; null loads them all.
+  Future<StoredHousehold?> read({String? sinceDay}) async {
+    final db = await _db.open();
+    if (db == null) return _legacyRead();
+    _syncGeneration();
+    final metaRows = await db.query('meta');
+    final meta = {
+      for (final row in metaRows) '${row['key']}': '${row['value']}',
+    };
+    if (meta['saved'] != '1') {
       // Nothing saved (fresh install or reinstall). The iOS Keychain outlives
       // an uninstall, so drop any orphaned token from a previous install.
       await _writeToken(null, force: true);
       return null;
     }
-    final Map<String, dynamic> json;
-    try {
-      json = jsonDecode(raw) as Map<String, dynamic>;
-    } on Object catch (error, stack) {
-      AppLog.error('store.household_corrupt', error, stack);
-      await prefs.remove(_key);
-      return null;
-    }
-    final token = await _readToken(prefs, json);
-    try {
-      List<T> list<T>(String key, T Function(Map<String, dynamic>) map) => [
-        for (final item in json[key] as List? ?? const [])
-          if (item is Map<String, dynamic>) map(item),
-      ];
-      return StoredHousehold(
-        householdId: json['householdId'] as String? ?? '',
-        token: token,
-        memberId: json['memberId'] as String? ?? 'you',
-        inviteCode: json['inviteCode'] as String? ?? '',
-        isPro: json['isPro'] == true,
-        plan: json['plan'] == 'monthly'
-            ? BillingPlan.monthly
-            : BillingPlan.yearly,
-        members: list('members', memberFromJson),
-        pets: list('pets', petFromJson),
-        medications: list('medications', medicationFromJson),
-        logs: list('logs', doseRecordFromJson),
-        archivedMedications: list('archivedMedications', medicationFromJson),
-      );
-    } on Object catch (error, stack) {
-      AppLog.error('store.household_corrupt', error, stack);
-      await prefs.remove(_key);
-      return null;
-    }
+    final members = await _readTable(db, 'members', LocalRows.toMember);
+    final pets = await _readTable(db, 'pets', LocalRows.toPet);
+    final allMeds = await _readTable(
+      db,
+      'medications',
+      LocalRows.toMedication,
+    );
+    final logRows = await db.query(
+      'dose_logs',
+      where: sinceDay == null ? null : 'day >= ?',
+      whereArgs: sinceDay == null ? null : [sinceDay],
+      orderBy: 'day DESC, minute DESC, seq DESC',
+    );
+    final logs = _parseRows('dose_logs', logRows, LocalRows.toLog);
+    _maxSeq =
+        Sqflite.firstIntValue(
+          await db.rawQuery('SELECT max(seq) FROM dose_logs'),
+        ) ??
+        0;
+    _meta = meta;
+    _primed = true;
+    final token = await _readToken();
+    return StoredHousehold(
+      householdId: meta['household_id'] ?? '',
+      token: token,
+      memberId: meta['member_id'] ?? 'you',
+      inviteCode: meta['invite_code'] ?? '',
+      isPro: meta['is_pro'] == '1',
+      plan: meta['plan'] == 'monthly' ? BillingPlan.monthly : BillingPlan.yearly,
+      members: members,
+      pets: pets,
+      medications: [
+        for (final m in allMeds)
+          if (!m.isArchived) m,
+      ],
+      archivedMedications: [
+        for (final m in allMeds)
+          if (m.isArchived) m,
+      ],
+      logs: logs,
+    );
   }
 
-  /// Secure token, migrating a pre-Keychain install's plain-text token once.
-  Future<String?> _readToken(
-    SharedPreferences prefs,
-    Map<String, dynamic> json,
-  ) async {
-    final legacy = json['token'];
-    if (legacy is String && legacy.isNotEmpty) {
-      try {
-        await SecureTokens.write(SecureTokens.householdKey, legacy);
-        _savedToken = legacy;
-        _tokenKnown = true;
-        json.remove('token');
-        await prefs.setString(_key, jsonEncode(json));
-        AppLog.event('store.token_migrated');
-      } on Object catch (error, stack) {
-        // Keep the plain copy so the phone stays linked; retried next launch.
-        AppLog.error('store.token_migrate_failed', error, stack);
-      }
-      return legacy;
+  /// Logs on disk, newest first, with `fromDay <= day < beforeDay` (either
+  /// bound optional), at most [limit]. For history outside the window
+  /// [read] loads, e.g. the full history sent when a household is shared.
+  Future<List<DoseRecord>> readLogs({
+    String? fromDay,
+    String? beforeDay,
+    int? limit,
+  }) async {
+    final db = await _db.open();
+    if (db == null) {
+      final house = await _legacyRead();
+      return [
+        for (final log in house?.logs ?? const <DoseRecord>[])
+          if ((fromDay == null || log.day.compareTo(fromDay) >= 0) &&
+              (beforeDay == null || log.day.compareTo(beforeDay) < 0))
+            log,
+      ].take(limit ?? 1 << 30).toList();
     }
+    final where = [
+      if (fromDay != null) 'day >= ?',
+      if (beforeDay != null) 'day < ?',
+    ];
+    final rows = await db.query(
+      'dose_logs',
+      where: where.isEmpty ? null : where.join(' AND '),
+      whereArgs: [?fromDay, ?beforeDay],
+      orderBy: 'day DESC, minute DESC, seq DESC',
+      limit: limit,
+    );
+    return _parseRows('dose_logs', rows, LocalRows.toLog, cache: false);
+  }
+
+  Future<List<T>> _readTable<T>(
+    Database db,
+    String table,
+    T Function(Map<String, Object?>) parse,
+  ) async {
+    final rows = await db.query(table, orderBy: 'position');
+    return _parseRows(table, rows, parse);
+  }
+
+  /// One bad row (hand-edited file, a bug in an old build) is skipped and
+  /// logged instead of losing the whole household.
+  List<T> _parseRows<T>(
+    String table,
+    List<Map<String, Object?>> rows,
+    T Function(Map<String, Object?>) parse, {
+    bool cache = true,
+  }) {
+    final cached = cache ? (_rows[table] ??= {}) : null;
+    final out = <T>[];
+    var bad = 0;
+    for (final row in rows) {
+      try {
+        out.add(parse(row));
+        cached?['${row['id']}'] = row;
+      } on Object {
+        bad++;
+      }
+    }
+    if (bad > 0) {
+      AppLog.event('store.row_corrupt', {'table': table, 'rows': bad});
+    }
+    return out;
+  }
+
+  /// Saves [house]: changed rows are upserted, removed ones deleted, all in
+  /// one transaction. On failure nothing is half-saved, `store.write_failed`
+  /// is logged and the error rethrown; the next write retries the same rows.
+  Future<void> write(StoredHousehold house) async {
+    final db = await _db.open();
+    await _writeToken(house.token);
+    if (db == null) {
+      await LegacyPrefsStore.writeHousehold(house);
+      return;
+    }
+    _syncGeneration();
+
+    final meta = LegacyPrefsStore.metaRows(house);
+    final metaChanges = {
+      for (final entry in meta.entries)
+        if (_meta[entry.key] != entry.value) entry.key: entry.value,
+    };
+
+    final members = _diff('members', [
+      for (final (i, m) in house.members.indexed) LocalRows.member(m, i),
+    ]);
+    final pets = _diff('pets', [
+      for (final (i, pet) in house.pets.indexed) LocalRows.pet(pet, i),
+    ]);
+    final archived = {for (final m in house.medications) m.id};
+    final medications = _diff('medications', [
+      for (final (i, m) in house.medications.indexed)
+        LocalRows.medication(m, i),
+      for (final (i, m) in house.archivedMedications.indexed)
+        if (!archived.contains(m.id)) LocalRows.medication(m, i),
+    ]);
+
+    // Logs: upsert new/changed only. New rows get increasing seq from the
+    // oldest to the newest so same-minute order survives a restart.
+    final logCache = _rows['dose_logs'] ??= {};
+    final logUpserts = <Map<String, Object?>>[];
+    var seq = _maxSeq;
+    for (final log in house.logs.reversed) {
+      final cached = logCache[log.id];
+      final row = LocalRows.log(log, cached == null ? ++seq : cached['seq']! as int);
+      if (cached == null || !_rowEquality.equals(cached, row)) {
+        logUpserts.add(row);
+      }
+    }
+    final logDeletes = {..._pendingLogDeletes, ...house.deletedLogIds};
+
+    if (metaChanges.isEmpty &&
+        members.isEmpty &&
+        pets.isEmpty &&
+        medications.isEmpty &&
+        logUpserts.isEmpty &&
+        logDeletes.isEmpty) {
+      return;
+    }
+
+    var table = 'meta';
+    try {
+      await db.transaction((txn) async {
+        Future<void> run(String name, void Function(Batch batch) fill) async {
+          table = name;
+          final batch = txn.batch();
+          fill(batch);
+          await batch.commit(noResult: true);
+        }
+
+        await run('meta', (batch) {
+          for (final entry in metaChanges.entries) {
+            batch.insert('meta', {
+              'key': entry.key,
+              'value': entry.value,
+            }, conflictAlgorithm: ConflictAlgorithm.replace);
+          }
+        });
+        for (final change in [members, pets, medications]) {
+          await run(change.table, (batch) => change.apply(batch, _primed));
+        }
+        await run('dose_logs', (batch) {
+          for (final row in logUpserts) {
+            batch.insert(
+              'dose_logs',
+              row,
+              conflictAlgorithm: ConflictAlgorithm.replace,
+            );
+          }
+          for (final id in logDeletes) {
+            batch.delete('dose_logs', where: 'id = ?', whereArgs: [id]);
+          }
+        });
+      });
+    } on Object catch (error, stack) {
+      _pendingLogDeletes.addAll(logDeletes);
+      AppLog.error('store.write_failed', error, stack, {
+        'table': table,
+        'rows': logUpserts.length + logDeletes.length,
+      });
+      rethrow;
+    }
+
+    // Committed: the cache now describes the disk.
+    _meta = {..._meta, ...metaChanges};
+    for (final change in [members, pets, medications]) {
+      _rows[change.table] = change.after;
+    }
+    for (final row in logUpserts) {
+      logCache['${row['id']}'] = row;
+    }
+    for (final id in logDeletes) {
+      logCache.remove(id);
+    }
+    // Keep the cache to what memory holds, so it never outgrows the window.
+    if (logCache.length > house.logs.length) {
+      final live = {for (final log in house.logs) log.id};
+      logCache.removeWhere((id, _) => !live.contains(id));
+    }
+    _maxSeq = seq;
+    _pendingLogDeletes.removeAll(logDeletes);
+    _primed = true;
+  }
+
+  _TableChange _diff(String table, List<Map<String, Object?>> rows) {
+    final before = _rows[table] ?? const {};
+    final after = {for (final row in rows) '${row['id']}': row};
+    return _TableChange(
+      table: table,
+      after: after,
+      upserts: [
+        for (final row in rows)
+          if (!_primed ||
+              !_rowEquality.equals(before['${row['id']}'], row))
+            row,
+      ],
+      deletes: [
+        for (final id in before.keys)
+          if (!after.containsKey(id)) id,
+      ],
+    );
+  }
+
+  /// Forgets the household (sign-out, reset). The database file itself is
+  /// removed by account deletion (see `LocalDatabase.deleteFile`).
+  Future<void> clear() async {
+    final db = await _db.open();
+    if (db == null) {
+      await LegacyPrefsStore.clearHousehold();
+    } else {
+      _syncGeneration();
+      await db.transaction((txn) async {
+        final batch = txn.batch();
+        for (final table in const [
+          'members',
+          'pets',
+          'medications',
+          'dose_logs',
+        ]) {
+          batch.delete(table);
+        }
+        // Keep the migration marker so old blobs are never imported again.
+        batch.delete(
+          'meta',
+          where: 'key <> ?',
+          whereArgs: [LegacyPrefsStore.migratedMetaKey],
+        );
+        await batch.commit(noResult: true);
+      });
+      _rows.clear();
+      _meta = {};
+      _primed = true;
+      _maxSeq = 0;
+      _pendingLogDeletes.clear();
+    }
+    await _writeToken(null, force: true);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Old preferences format, for a run where the database can't be used.
+
+  Future<StoredHousehold?> _legacyRead() async {
+    final json = await LegacyPrefsStore.readHouseholdJson();
+    if (json == null) {
+      if (!await LegacyPrefsStore.sqliteOwnsData()) {
+        await _writeToken(null, force: true);
+      }
+      return null;
+    }
+    final token = await _legacyToken(json) ?? await _readToken();
+    final house = LegacyPrefsStore.parseHousehold(json, token: token);
+    if (house == null) await LegacyPrefsStore.clearHousehold();
+    return house;
+  }
+
+  /// A pre-Keychain build's plain-text token, moved to secure storage once.
+  Future<String?> _legacyToken(Map<String, dynamic> json) async {
+    final legacy = json['token'];
+    if (legacy is! String || legacy.isEmpty) return null;
+    try {
+      await SecureTokens.write(SecureTokens.householdKey, legacy);
+      _savedToken = legacy;
+      _tokenKnown = true;
+      json.remove('token');
+      await LegacyPrefsStore.rewriteHouseholdJson(json);
+      AppLog.event('store.token_migrated');
+    } on Object catch (error, stack) {
+      // Keep the plain copy so the phone stays linked; retried next launch.
+      AppLog.error('store.token_migrate_failed', error, stack);
+    }
+    return legacy;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Token (secure storage only)
+
+  Future<String?> _readToken() async {
     try {
       final token = await SecureTokens.read(SecureTokens.householdKey);
       _savedToken = token;
@@ -143,32 +464,33 @@ class HouseholdStore {
       AppLog.error('store.token_write_failed', error, stack);
     }
   }
+}
 
-  Future<void> write(StoredHousehold house) async {
-    final prefs = await SharedPreferences.getInstance();
-    await _writeToken(house.token);
-    await prefs.setString(
-      _key,
-      jsonEncode({
-        'householdId': house.householdId,
-        'memberId': house.memberId,
-        'inviteCode': house.inviteCode,
-        'isPro': house.isPro,
-        'plan': house.plan.name,
-        'members': [for (final member in house.members) member.toJson()],
-        'pets': [for (final pet in house.pets) pet.toStoreJson()],
-        'medications': [for (final item in house.medications) item.toJson()],
-        'archivedMedications': [
-          for (final item in house.archivedMedications) item.toJson(),
-        ],
-        'logs': [for (final log in house.logs.take(3000)) log.toJson()],
-      }),
-    );
-  }
+/// Pending changes to one small table (members, pets, medications).
+class _TableChange {
+  const _TableChange({
+    required this.table,
+    required this.after,
+    required this.upserts,
+    required this.deletes,
+  });
 
-  Future<void> clear() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_key);
-    await _writeToken(null, force: true);
+  final String table;
+  final Map<String, Map<String, Object?>> after;
+  final List<Map<String, Object?>> upserts;
+  final List<String> deletes;
+
+  bool get isEmpty => upserts.isEmpty && deletes.isEmpty;
+
+  /// [primed]: the cache describes the disk. Otherwise rows this store never
+  /// saw may be on disk, so the table is replaced wholesale.
+  void apply(Batch batch, bool primed) {
+    if (!primed) batch.delete(table);
+    for (final row in upserts) {
+      batch.insert(table, row, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+    for (final id in deletes) {
+      batch.delete(table, where: 'id = ?', whereArgs: [id]);
+    }
   }
 }
