@@ -13,10 +13,10 @@ first store upload.
 | What | Value |
 |------|-------|
 | iOS bundle ID | `com.pawsitivesync.app` |
-| iOS widget extension | `com.pawsitivesync.app.PawsitiveWidgets` |
-| iOS App Group (app ↔ widget) | `group.com.pawsitivesync.app` |
+| iOS widget extension | `com.pawsitivesync.app.widgets` |
+| iOS App Group (app ↔ widget) | `group.com.pawsitivesync.shared` |
 | Android application ID | `com.pawsitivesync.app` |
-| Apple developer team | `U2Y7U5RMWV` |
+| Apple developer team | `48AMK8N4G5` (Abdul Manan) |
 
 The Dart package stays `pawsitive_sync` — that is the code name, not the store ID.
 
