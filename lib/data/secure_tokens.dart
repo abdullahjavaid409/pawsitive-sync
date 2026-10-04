@@ -27,8 +27,10 @@ abstract final class SecureTokens {
 
   /// Removes every cached sitter token (household reset / leave).
   static Future<void> deleteSitterTokens() async {
-    final all = await _storage.readAll();
-    for (final key in all.keys) {
+    // Copy the keys first: some storage backends (and the test fake) hand back
+    // their live map, and deleting while iterating it throws.
+    final keys = (await _storage.readAll()).keys.toList();
+    for (final key in keys) {
       if (key.startsWith(sitterKeyPrefix)) await _storage.delete(key: key);
     }
   }
