@@ -243,9 +243,11 @@ class CareRepository extends ChangeNotifier {
     for (final m in removed) {
       _archivedMedications
         ..removeWhere((a) => a.id == m.id)
-        ..add(m.endDay.isEmpty || m.endDay.compareTo(today) > 0
-            ? m.copyWith(endDay: today)
-            : m);
+        ..add(
+          m.endDay.isEmpty || m.endDay.compareTo(today) > 0
+              ? m.copyWith(endDay: today)
+              : m,
+        );
     }
     // Bounded: older courses beyond this fall back to "Removed medicine".
     if (_archivedMedications.length > 200) {

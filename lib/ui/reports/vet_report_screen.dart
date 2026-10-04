@@ -8,6 +8,7 @@ import 'package:pawsitive_sync/core/widgets/care_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
+import 'package:pawsitive_sync/data/vet_report_pdf.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -33,16 +34,14 @@ class _VetReportScreenState extends State<VetReportScreen> {
     final text = Theme.of(context).textTheme;
     final report = pet == null ? null : care.reportFor(pet.id, _days);
     final hasReport = report != null && report.lines.isNotEmpty;
-    // Only built when shown; three newest given doses per medicine.
-    final recent = hasReport && _showWho
-        ? {
-            for (final line in report.lines)
-              line.medication.id: care
-                  .historyFor(line.medication.id)
-                  .take(3)
-                  .toList(),
-          }
-        : const <String, List<DoseLog>>{};
+    // Only built when shown; three newest in-range logs per medicine.
+    final recent = <String, List<ReportEntry>>{};
+    if (hasReport && _showWho) {
+      for (final entry in report.recent) {
+        final list = recent.putIfAbsent(entry.medicationId, () => []);
+        if (list.length < 3) list.add(entry);
+      }
+    }
 
     return Scaffold(
       body: SafeArea(
@@ -159,8 +158,7 @@ class _VetReportScreenState extends State<VetReportScreen> {
                       children: [
                         Expanded(
                           child: CareMetric(
-                            value:
-                                '${report.lines.fold<int>(0, (sum, line) => sum + line.given)}',
+                            value: '${report.given}',
                             label: 'Doses given',
                           ),
                         ),
@@ -302,16 +300,21 @@ class _VetReportScreenState extends State<VetReportScreen> {
                 const CareSectionHeader('Recent doses'),
                 const SizedBox(height: 12),
                 for (final line in report.lines)
-                  for (final log in recent[line.medication.id]!)
+                  for (final log
+                      in recent[line.medication.id] ?? const <ReportEntry>[])
                     Padding(
                       padding: const EdgeInsets.only(bottom: 14),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           StrokeIcon(
-                            StrokeIconKind.check,
+                            log.outcome == LogOutcome.given
+                                ? StrokeIconKind.check
+                                : StrokeIconKind.file,
                             size: 18,
-                            color: context.paws.brandDark,
+                            color: log.outcome == LogOutcome.given
+                                ? context.paws.brandDark
+                                : scheme.onSurfaceVariant,
                           ),
                           const SizedBox(width: 12),
                           Expanded(
@@ -324,7 +327,12 @@ class _VetReportScreenState extends State<VetReportScreen> {
                                 ),
                                 const SizedBox(height: 3),
                                 Text(
-                                  '${log.when} · ${log.who}',
+                                  [
+                                    '${care.dayLabel(log.day)} · ${log.timeLabel}',
+                                    log.who,
+                                    if (log.outcome != LogOutcome.given)
+                                      _outcomeLabel(log.outcome),
+                                  ].join(' · '),
                                   style: text.bodyMedium,
                                 ),
                               ],
@@ -379,19 +387,45 @@ class _VetReportScreenState extends State<VetReportScreen> {
   ) async {
     setState(() => _sharing = true);
     final box = buttonContext.findRenderObject() as RenderBox?;
+    final origin = box == null
+        ? null
+        : box.localToGlobal(Offset.zero) & box.size;
+    final days = _days;
+    final showWho = _showWho;
+    final summary = _plainReport(care, pet, report);
     try {
-      AppLog.event('report.shared', {'days': _days});
-      await SharePlus.instance.share(
+      final watch = Stopwatch()..start();
+      final pdf = await buildVetReportPdfInBackground(
+        pet: pet,
+        report: report,
+        showCaregivers: showWho,
+        generatedAt: care.now,
+      );
+      AppLog.event('report.pdf_built', {
+        'ms': watch.elapsedMilliseconds,
+        'pages': pdf.pages,
+        'bytes': pdf.bytes.length,
+        'days': days,
+      });
+      final name = vetReportFileName(pet, care.now);
+      final result = await SharePlus.instance.share(
         ShareParams(
           subject: '${pet.name} · care report',
-          text: _plainReport(care, pet, report),
-          sharePositionOrigin: box == null
-              ? null
-              : box.localToGlobal(Offset.zero) & box.size,
+          text: summary,
+          files: [
+            XFile.fromData(pdf.bytes, mimeType: 'application/pdf', name: name),
+          ],
+          fileNameOverrides: [name],
+          sharePositionOrigin: origin,
         ),
       );
+      AppLog.event('report.shared', {
+        'format': 'pdf',
+        'days': days,
+        'status': result.status.name,
+      });
     } catch (error, stack) {
-      AppLog.error('report.share_failed', error, stack, {'days': _days});
+      AppLog.error('report.share_failed', error, stack, {'days': days});
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -403,6 +437,12 @@ class _VetReportScreenState extends State<VetReportScreen> {
       if (mounted) setState(() => _sharing = false);
     }
   }
+
+  static String _outcomeLabel(LogOutcome outcome) => switch (outcome) {
+    LogOutcome.given => 'Given',
+    LogOutcome.skipped => 'Skipped',
+    LogOutcome.uncertain => 'Not sure',
+  };
 
   static const _months = [
     'Jan',
@@ -439,14 +479,16 @@ class _VetReportScreenState extends State<VetReportScreen> {
       for (final line in report.lines)
         '• ${line.medication.name}${line.medication.amount.isEmpty ? '' : ' ${line.medication.amount}'} (${line.medication.whenLabel.toLowerCase()}): ${line.given} of ${line.expected}',
       if (report.skipped > 0) 'Skipped on purpose: ${report.skipped}',
+      if (report.uncertain > 0) 'Not sure if given: ${report.uncertain}',
+      if (report.missed > 0) 'Missed (no log): ${report.missed}',
       '',
       'Symptom notes: ${report.notes.isEmpty ? 'none logged' : [for (final e in report.notes.entries) '${e.key} ×${e.value}'].join(', ')}',
       if (_showWho) ...[
         '',
         'Recent doses:',
-        for (final line in report.lines)
-          for (final log in care.historyFor(line.medication.id).take(5))
-            '• ${line.medication.name} · ${log.when} · ${log.who}',
+        for (final log in report.recent.take(10))
+          '• ${log.medicationName} · ${care.dayLabel(log.day)} · ${log.timeLabel} · ${log.who}'
+              '${log.outcome == LogOutcome.given ? '' : ' · ${_outcomeLabel(log.outcome)}'}',
       ],
       '',
       'Sent from Pawsitive',
