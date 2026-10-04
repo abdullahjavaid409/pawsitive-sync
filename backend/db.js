@@ -274,6 +274,10 @@ async function migrateLocked(pool) {
   // (rollback) simply never reads it.
   await pool.query(`
     ALTER TABLE medications ADD COLUMN IF NOT EXISTS times jsonb;
+    -- Saved while Free but over Free's limits (an old or modified app, or Pro
+    -- that ended before an offline add synced). Never rejected: the medicine
+    -- and its doses stay, apps pause its reminders until Pro.
+    ALTER TABLE medications ADD COLUMN IF NOT EXISTS needs_pro boolean NOT NULL DEFAULT false;
   `);
   // One-time: the old household-wide Pro flag moves onto the owner's row so
   // nobody loses Pro. Guarded by a meta key so it never re-runs (a later
@@ -831,6 +835,8 @@ function mapMedication(row) {
     endDay: row.end_day || "",
     // Additive: old apps ignore it. Omitted (not null) when unset.
     ...(row.times ? { times: row.times } : {}),
+    // Additive: only sent when set; old apps ignore it.
+    ...(row.needs_pro ? { needsPro: true } : {}),
   };
 }
 
@@ -917,6 +923,13 @@ export async function loadHousehold(pool, { householdId, memberId }, { logDay } 
   const row = result.rows[0];
   const household = row?.household;
   if (!household) return null;
+  // Pro (even a purchase the server heard of late) unlocks marked medicines
+  // for good: they count as Pro-era schedules from now on. Only runs when
+  // something is marked, so a normal snapshot costs no extra query.
+  if (hasPro(row.members) && row.medications.some((m) => m.needs_pro)) {
+    await pool.query("UPDATE medications SET needs_pro = false WHERE household_id = $1 AND needs_pro", [householdId]);
+    for (const medication of row.medications) medication.needs_pro = false;
+  }
   const role = row.members.find((member) => member.id === memberId)?.role ?? "sitter";
   const isOwner = role === "owner";
   return {
@@ -966,8 +979,47 @@ export async function updatePet(pool, { householdId }, petId, body) {
   return insertPet(pool, householdId, readPet({ ...body, id: petId }));
 }
 
+/** Free tier, mirrored from the app (PetLimits): one medicine per pet, morning only, 4:00–11:59. */
+const freeMedsPerPet = 1;
+const freeMorningFirst = "04:00";
+const freeMorningLast = "11:59";
+
+function morningInFreeWindow(time) {
+  // "HH:mm" compares correctly as text; no custom time means 08:00.
+  return time == null || (time >= freeMorningFirst && time <= freeMorningLast);
+}
+
+/** Why a new medicine is over Free's limits, or null when it fits. */
+async function freeLimitBreach(pool, householdId, medication) {
+  if (medication.parts.length !== 1 || medication.parts[0] !== "morning") return "times";
+  if (!morningInFreeWindow(medication.times?.morning)) return "time_window";
+  const others = await pool.query(
+    `SELECT count(*)::int AS n FROM medications
+     WHERE household_id = $1 AND pet_id = $2 AND id <> $3 AND archived = false
+       AND (end_day = '' OR end_day >= $4)`,
+    [householdId, medication.petId, medication.id, medication.startDay],
+  );
+  return others.rows[0].n >= freeMedsPerPet ? "meds" : null;
+}
+
+/**
+ * Adds (or re-sends) a medicine. Over Free's limits without Pro it is still
+ * saved — rejecting would make the app drop it, and a pet's medicine must
+ * never vanish — but marked `needs_pro`, cleared once the household has Pro.
+ * Household creation (the app's first upload) never marks: that data was
+ * made on the phone under its own rules, including Pro-era schedules.
+ */
 export async function addMedication(pool, { householdId }, body) {
-  return insertMedication(pool, householdId, readMedication(body));
+  const input = readMedication(body);
+  const medication = await insertMedication(pool, householdId, input);
+  if (await householdHasPro(pool, householdId)) return medication;
+  const breach = await freeLimitBreach(pool, householdId, input);
+  if (!breach) return medication;
+  await pool.query("UPDATE medications SET needs_pro = true WHERE household_id = $1 AND id = $2", [
+    householdId,
+    input.id,
+  ]);
+  return { ...medication, needsPro: true };
 }
 
 /**
@@ -984,10 +1036,20 @@ export async function updateMedication(pool, { householdId }, medicationId, body
   if (current.rowCount === 0) return null;
   const times = readTimes(body?.times, current.rows[0].parts);
   if (times === undefined) return mapMedication(current.rows[0]);
+  // Free keeps the morning reminder in the morning. Only a changed morning
+  // time counts, so one saved on Pro is kept; over the limit it is saved
+  // and marked, never refused (see addMedication).
+  const before = current.rows[0].times?.morning ?? null;
+  const after = times?.morning ?? null;
+  const breach =
+    current.rows[0].parts.includes("morning") &&
+    after !== before &&
+    !morningInFreeWindow(after) &&
+    !(await householdHasPro(pool, householdId));
   const result = await pool.query(
-    `UPDATE medications SET times = $3::jsonb
+    `UPDATE medications SET times = $3::jsonb, needs_pro = needs_pro OR $4
      WHERE household_id = $1 AND id = $2 AND archived = false RETURNING *`,
-    [householdId, medId, times == null ? null : JSON.stringify(times)],
+    [householdId, medId, times == null ? null : JSON.stringify(times), breach],
   );
   return result.rows[0] ? mapMedication(result.rows[0]) : null;
 }

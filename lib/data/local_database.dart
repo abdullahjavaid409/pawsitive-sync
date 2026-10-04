@@ -31,7 +31,8 @@ class LocalDatabase {
 
   static const fileName = 'pawsitive.db';
   /// v2: `medications.times` (custom reminder times, JSON or NULL).
-  static const schemaVersion = 2;
+  /// v3: `medications.needs_pro` (server marked it over Free's limits).
+  static const schemaVersion = 3;
 
   final DatabaseFactory? _factory;
   final Future<String> Function() _path;
@@ -159,6 +160,11 @@ class LocalDatabase {
     if (from < 2) {
       await db.execute('ALTER TABLE medications ADD COLUMN times TEXT');
     }
+    if (from < 3) {
+      await db.execute(
+        'ALTER TABLE medications ADD COLUMN needs_pro INTEGER NOT NULL DEFAULT 0',
+      );
+    }
     AppLog.event('store.migrated', {'from': from, 'to': to});
   }
 
@@ -184,7 +190,8 @@ class LocalDatabase {
           name TEXT NOT NULL, amount TEXT NOT NULL, parts TEXT NOT NULL,
           supply_total INTEGER NOT NULL, doses_left INTEGER NOT NULL,
           start_day TEXT NOT NULL, end_day TEXT NOT NULL,
-          archived INTEGER NOT NULL, archived_at TEXT, times TEXT)''')
+          archived INTEGER NOT NULL, archived_at TEXT, times TEXT,
+          needs_pro INTEGER NOT NULL DEFAULT 0)''')
       ..execute('''
         CREATE TABLE dose_logs (
           id TEXT PRIMARY KEY, medication_id TEXT NOT NULL, part TEXT NOT NULL,
@@ -291,6 +298,7 @@ abstract final class LocalRows {
     'archived': m.isArchived ? 1 : 0,
     'archived_at': m.archivedAt,
     'times': m.times.isEmpty ? null : jsonEncode(DoseTimes.encode(m.times)),
+    'needs_pro': m.needsPro ? 1 : 0,
   };
 
   static Medication toMedication(Map<String, Object?> row) {
@@ -306,6 +314,7 @@ abstract final class LocalRows {
       'startDay': row['start_day'],
       'endDay': row['end_day'],
       'times': _json(row['times']),
+      'needsPro': row['needs_pro'] == 1,
     });
     if (row['archived'] != 1) return parsed;
     return parsed.copyWith(archivedAt: '${row['archived_at'] ?? ''}');

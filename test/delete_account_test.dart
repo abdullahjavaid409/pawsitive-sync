@@ -31,6 +31,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'fake_reminder_platform.dart';
 import 'photo_test_helpers.dart';
+import 'support/sample_household.dart';
 
 const _notifications = MethodChannel(
   'dexterous.com/flutter/local_notifications',
@@ -340,7 +341,7 @@ void main() {
     tester,
   ) async {
     final api = routeApi(RouteAdapter({}));
-    final care = CareRepository.sample(api: api);
+    final care = sampleCare(api: api);
     api.token = 'house-token'; // sample data starts solo; link it
     expect(care.accountDeleteScope, AccountDeleteScope.household);
     await tester.pumpWidget(
@@ -375,7 +376,7 @@ void main() {
       Uri.parse('https://example.test'),
       dio: Dio()..httpClientAdapter = _GatedAdapter(gate),
     );
-    final care = CareRepository.sample(api: api);
+    final care = sampleCare(api: api);
     api.token = 'house-token';
     await tester.pumpWidget(
       MultiProvider(

@@ -74,9 +74,11 @@ struct CareProvider: TimelineProvider {
               let snapshot = try? JSONDecoder().decode(CareSnapshot.self, from: data), snapshot.version == 1 else { return .empty }
         return snapshot
     }
+    /// Widget-gallery preview and the redacted loading placeholder only
+    /// (Apple's pattern). Generic on purpose: never shown as real data.
     private func sample() -> CareEntry {
         let now = Date()
-        let dose = CareDose(id: "preview", pet: "Miso", medicine: "Daily medicine", amount: "1 tablet", dueAt: now.timeIntervalSince1970, scheduledAt: now.timeIntervalSince1970, state: "pending")
+        let dose = CareDose(id: "preview", pet: "Your pet", medicine: "Daily medicine", amount: "1 tablet", dueAt: now.timeIntervalSince1970, scheduledAt: now.timeIntervalSince1970, state: "pending")
         return CareEntry(date: now, snapshot: CareSnapshot(version: 1, updatedAt: now.timeIntervalSince1970, hasPets: true, days: [CareDay(startsAt: Calendar.current.startOfDay(for: now).timeIntervalSince1970, doses: [dose])]))
     }
 }

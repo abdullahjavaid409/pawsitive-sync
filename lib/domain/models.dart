@@ -289,6 +289,7 @@ class Medication {
     this.endDay = '',
     this.archivedAt,
     this.times = const {},
+    this.needsPro = false,
   });
 
   final String id;
@@ -333,6 +334,12 @@ class Medication {
   final String? archivedAt;
 
   bool get isArchived => archivedAt != null;
+
+  /// The server saved it over Free's limits (old or modified app, or Pro
+  /// that ended before an offline add synced). Never set by this phone;
+  /// cleared by the server once the household has Pro. Doses still log;
+  /// reminders wait for Pro (see [CareRepository.isMedicationLocked]).
+  final bool needsPro;
 
   /// "Oct 2" — the local day it was stopped, or empty while active.
   String get stoppedDayLabel {
@@ -438,6 +445,7 @@ class Medication {
     String? endDay,
     String? archivedAt,
     Map<DayPart, int>? times,
+    bool? needsPro,
   }) {
     return Medication(
       id: id,
@@ -451,6 +459,7 @@ class Medication {
       endDay: endDay ?? this.endDay,
       archivedAt: archivedAt ?? this.archivedAt,
       times: times ?? this.times,
+      needsPro: needsPro ?? this.needsPro,
     );
   }
 
@@ -468,6 +477,8 @@ class Medication {
     // what it has when the field is missing, so a replayed add can't wipe
     // times set later on another phone.
     if (times.isNotEmpty) 'times': DoseTimes.encode(times),
+    // Read back from saved data; the server ignores it and decides itself.
+    if (needsPro) 'needsPro': true,
   };
 }
 

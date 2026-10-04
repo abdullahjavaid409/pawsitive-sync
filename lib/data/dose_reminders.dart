@@ -314,6 +314,7 @@ abstract final class DoseReminders {
           m.startDay,
           m.endDay,
           m.dosesLeft,
+          m.needsPro,
         ),
       for (final p in care.pets) Object.hash(p.id, p.name, p.photoPath),
       for (final log in care.logs)
@@ -399,7 +400,12 @@ abstract final class DoseReminders {
           now: care.now,
           location: tz.local,
           pets: care.pets,
-          medications: care.medications,
+          // A medicine the server marked "needs Pro" keeps its doses on
+          // Today but reminds only with Pro.
+          medications: [
+            for (final m in care.medications)
+              if (!m.needsPro || isPro) m,
+          ],
           logs: care.logs,
           memberNames: members,
           settings: settings,

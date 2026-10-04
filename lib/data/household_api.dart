@@ -738,6 +738,8 @@ Medication _medication(Map<String, dynamic> json) {
     archivedAt: _nonEmpty(json['archivedAt']),
     // Absent from old servers and old saved data: default times.
     times: _times(json, parts),
+    // Absent unless set (old servers never set it).
+    needsPro: json['needsPro'] == true,
   );
 }
 

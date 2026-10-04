@@ -659,3 +659,102 @@ describe("custom reminder times (medications.times)", () => {
     assert.equal((await view("hour=16")).status, "due");
   });
 });
+
+describe("Free limits on the server: marked, never refused", () => {
+  const med = (id, petId, extra = {}) => ({ id, petId, name: id, parts: ["morning"], startDay: today, ...extra });
+  const snapshot = async (token) => (await call("GET", "/v1/household", { token })).body;
+  const marked = async (token, id) => (await snapshot(token)).medications.find((m) => m.id === id)?.needsPro === true;
+
+  async function freshPet(house, id) {
+    const pet = await call("POST", "/v1/pets", { token: house.owner.token, body: { id, name: id, species: "dog" } });
+    assert.equal(pet.status, 201);
+  }
+
+  test("household creation keeps the phone's data as is (Pro-era schedules)", async () => {
+    const house = await household();
+    // med-1 is morning + evening on a Free household, uploaded at creation.
+    assert.equal(await marked(house.owner.token, "med-1"), false);
+  });
+
+  test("one morning medicine per pet fits Free; nothing is marked", async () => {
+    const house = await household();
+    await freshPet(house, "pet-ok");
+    const added = await call("POST", "/v1/medications", {
+      token: house.owner.token,
+      body: med("ok-1", "pet-ok", { times: { morning: "04:00" } }),
+    });
+    assert.equal(added.status, 201);
+    assert.equal(added.body.medication.needsPro, undefined);
+    // A lost reply re-sent with the same id doesn't count against itself.
+    const again = await call("POST", "/v1/medications", { token: house.owner.token, body: med("ok-1", "pet-ok") });
+    assert.equal(again.body.medication.needsPro, undefined);
+  });
+
+  test("over the limits: saved (201) and marked, for every kind of breach", async () => {
+    const house = await household();
+    await freshPet(house, "pet-a");
+    await freshPet(house, "pet-b");
+    await freshPet(house, "pet-c");
+    const cases = [
+      ["second medicine for a pet", med("m-2nd", "pet-1")],
+      ["evening dose", med("m-eve", "pet-a", { parts: ["evening"] })],
+      ["morning at 9 PM", med("m-late", "pet-b", { times: { morning: "21:00" } })],
+      ["morning just past noon", med("m-noon", "pet-c", { times: { morning: "12:00" } })],
+    ];
+    for (const [name, body] of cases) {
+      const added = await call("POST", "/v1/medications", { token: house.owner.token, body });
+      assert.equal(added.status, 201, name);
+      assert.equal(added.body.medication.needsPro, true, name);
+      assert.equal(await marked(house.owner.token, body.id), true, name);
+    }
+  });
+
+  test("a stopped or finished medicine frees the slot", async () => {
+    const house = await household();
+    await freshPet(house, "pet-s");
+    await call("POST", "/v1/medications", { token: house.owner.token, body: med("old", "pet-s", { endDay: "2026-01-01", startDay: "2025-12-01" }) });
+    const added = await call("POST", "/v1/medications", { token: house.owner.token, body: med("new", "pet-s") });
+    assert.equal(added.body.medication.needsPro, undefined);
+  });
+
+  test("moving the morning reminder out of the morning marks it; a kept time doesn't", async () => {
+    const house = await household();
+    await freshPet(house, "pet-t");
+    await call("POST", "/v1/medications", { token: house.owner.token, body: med("t-1", "pet-t") });
+    const ok = await call("PATCH", "/v1/medications/t-1", { token: house.owner.token, body: { times: { morning: "06:30" } } });
+    assert.equal(ok.body.medication.needsPro, undefined);
+    const late = await call("PATCH", "/v1/medications/t-1", { token: house.owner.token, body: { times: { morning: "22:00" } } });
+    assert.equal(late.status, 200);
+    assert.equal(late.body.medication.needsPro, true);
+    // med-1's evening time can still change (Pro-era schedule).
+    const evening = await call("PATCH", "/v1/medications/med-1", { token: house.owner.token, body: { times: { evening: "19:00" } } });
+    assert.equal(evening.body.medication.needsPro, undefined);
+  });
+
+  test("sync/batch follows the same rule: ok + marked, never an error", async () => {
+    const house = await household();
+    const batch = await call("POST", "/v1/sync/batch", {
+      token: house.owner.token,
+      body: { operations: [{ id: "op-1", type: "addMedication", payload: med("b-2nd", "pet-1", { parts: ["evening"] }) }] },
+    });
+    assert.equal(batch.status, 200);
+    assert.equal(batch.body.results[0].status, "ok");
+    assert.equal(batch.body.household.medications.find((m) => m.id === "b-2nd").needsPro, true);
+  });
+
+  test("Pro (even heard late) clears every mark for good", async () => {
+    const house = await household();
+    await call("POST", "/v1/medications", { token: house.owner.token, body: med("p-2nd", "pet-1") });
+    assert.equal(await marked(house.owner.token, "p-2nd"), true);
+    await webhook(house, "you", "INITIAL_PURCHASE");
+    assert.equal(await marked(house.caregiver.token, "p-2nd"), false);
+    await webhook(house, "you", "EXPIRATION");
+    assert.equal(await isPro(house.owner.token), false);
+    // Made while Pro was known: stays a Pro-era schedule after Pro ends.
+    assert.equal(await marked(house.owner.token, "p-2nd"), false);
+    // Adding on Pro marks nothing.
+    await webhook(house, "you", "INITIAL_PURCHASE");
+    const onPro = await call("POST", "/v1/medications", { token: house.owner.token, body: med("p-3rd", "pet-1", { parts: ["evening"] }) });
+    assert.equal(onPro.body.medication.needsPro, undefined);
+  });
+});

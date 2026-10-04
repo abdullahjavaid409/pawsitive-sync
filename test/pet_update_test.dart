@@ -1,11 +1,11 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pawsitive_sync/core/constants/pet_limits.dart';
-import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/domain/models.dart';
+import 'support/sample_household.dart';
 
 void main() {
   test('updatePet saves changes locally', () async {
-    final care = CareRepository.sample();
+    final care = sampleCare();
     final pet = care.primaryPet!;
     final ok = await care.updatePet(
       petId: pet.id,
@@ -25,7 +25,7 @@ void main() {
   });
 
   test('updatePet rejects missing pet', () async {
-    final care = CareRepository.sample();
+    final care = sampleCare();
     final ok = await care.updatePet(
       petId: 'missing',
       name: 'Ghost',
@@ -36,7 +36,7 @@ void main() {
   });
 
   test('updatePet rejects empty name', () async {
-    final care = CareRepository.sample();
+    final care = sampleCare();
     final ok = await care.updatePet(
       petId: care.primaryPet!.id,
       name: '   ',
@@ -46,7 +46,7 @@ void main() {
   });
 
   test('updatePet noop when nothing changed', () async {
-    final care = CareRepository.sample();
+    final care = sampleCare();
     final pet = care.primaryPet!;
     final ok = await care.updatePet(
       petId: pet.id,

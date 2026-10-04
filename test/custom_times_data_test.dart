@@ -301,7 +301,7 @@ void main() {
         path: () async => path,
       );
       final db = (await LocalDatabase.shared.open())!;
-      expectLogged('store.migrated', fields: {'from': 1, 'to': 2});
+      expectLogged('store.migrated', fields: {'from': 1, 'to': LocalDatabase.schemaVersion});
       final columns = await db.rawQuery('PRAGMA table_info(medications)');
       expect(columns.map((c) => c['name']), contains('times'));
       final row = (await db.query('medications')).single;

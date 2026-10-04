@@ -7,6 +7,7 @@ import 'package:pawsitive_sync/domain/models.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'test_log_helpers.dart';
+import 'support/sample_household.dart';
 
 void main() {
   setUp(() {
@@ -18,14 +19,14 @@ void main() {
 
   group('Pro vs Free', () {
     test('free tier blocks a second pet when sample already has two', () {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       expect(care.isPro, isFalse);
       expect(care.pets.length, 2);
       expect(care.canAddPet, isFalse);
     });
 
     test('pro trial unlocks adding more pets', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       care.applyStoreEntitlement(true, BillingPlan.yearly);
       expect(care.isPro, isTrue);
       expect(care.canAddPet, isTrue);
@@ -33,7 +34,7 @@ void main() {
     });
 
     test('pro tier respects household pet cap', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       care.applyStoreEntitlement(true, BillingPlan.yearly);
       for (var i = 0; i < PetLimits.maxPetsPerHousehold - 2; i++) {
         final id = await care.addPet(name: 'Pet $i', species: Species.cat);
@@ -66,7 +67,7 @@ void main() {
     });
 
     test('Free history and reports cover the last 30 days; Pro sees all', () {
-      final care = CareRepository.sample(
+      final care = sampleCare(
         clock: () => DateTime(2026, 10, 10, 14),
       );
       expect(care.historyFromDay, '2026-09-11');
@@ -79,7 +80,7 @@ void main() {
     test('medication with endDay is inactive after course ends', () async {
       DateTime clock() => DateTime(2026, 10, 10, 14);
       // Pro: the sample's Miso already has Free's medicine count.
-      final care = CareRepository.sample(clock: clock)..debugStorePro = true;
+      final care = sampleCare(clock: clock)..debugStorePro = true;
       final endDay = dayKey(clock().add(const Duration(days: 7)));
       await care.addMedication(
         petId: 'miso',
@@ -99,7 +100,7 @@ void main() {
 
     test('ended medication does not appear in today doses', () async {
       DateTime clock() => DateTime(2026, 10, 20, 14);
-      final care = CareRepository.sample(clock: clock);
+      final care = sampleCare(clock: clock);
       await care.addMedication(
         petId: 'miso',
         name: 'Short course',
@@ -116,7 +117,7 @@ void main() {
 
   group('Dose logging edge cases', () {
     test('uncertain dose stays due with check-first subtitle', () async {
-      final care = CareRepository.sample(
+      final care = sampleCare(
         clock: () => DateTime(2026, 10, 3, 14),
       );
       final dose = care.doses.firstWhere((d) => d.status == DoseStatus.due);
@@ -128,7 +129,7 @@ void main() {
     });
 
     test('given dose can replace uncertain log', () async {
-      final care = CareRepository.sample(
+      final care = sampleCare(
         clock: () => DateTime(2026, 10, 3, 14),
       );
       final dose = care.doses.firstWhere((d) => d.status == DoseStatus.due);
@@ -144,7 +145,7 @@ void main() {
     });
 
     test('double log of same dose is rejected', () async {
-      final care = CareRepository.sample(
+      final care = sampleCare(
         clock: () => DateTime(2026, 10, 3, 14),
       );
       final dose = care.doses.firstWhere((d) => d.status == DoseStatus.due);
@@ -167,7 +168,7 @@ void main() {
     });
 
     test('skip removes dose from today list', () async {
-      final care = CareRepository.sample(
+      final care = sampleCare(
         clock: () => DateTime(2026, 10, 3, 14),
       );
       final dose = care.doses.firstWhere((d) => d.status == DoseStatus.due);
@@ -181,7 +182,7 @@ void main() {
   group('Care events', () {
     test('adds and lists upcoming care events', () async {
       DateTime clock() => DateTime(2026, 10, 3);
-      final care = CareRepository.sample(clock: clock);
+      final care = sampleCare(clock: clock);
       final ok = await care.addCareEvent(
         petId: 'miso',
         title: 'Rabies booster',
@@ -197,7 +198,7 @@ void main() {
     });
 
     test('rejects care event without pet', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       final ok = await care.addCareEvent(
         petId: 'missing',
         title: 'Vet visit',
@@ -209,7 +210,7 @@ void main() {
     });
 
     test('removeCareEvent drops item from upcoming list', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       await care.addCareEvent(
         petId: 'miso',
         title: 'Checkup',
@@ -225,14 +226,14 @@ void main() {
 
   group('Household join validation', () {
     test('rejects short invite code', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       final error = await care.join(code: 'ABC', name: 'Alex');
       expect(error, isNotNull);
       expectLogged('household.join_rejected', fields: {'reason': 'short_code'});
     });
 
     test('rejects empty name', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       final error = await care.join(code: 'ABCDEF', name: '  ');
       expect(error, isNotNull);
       expectLogged('household.join_rejected', fields: {'reason': 'missing_name'});
@@ -279,7 +280,7 @@ void main() {
 
   group('Medication validation', () {
     test('rejects empty name', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       final ok = await care.addMedication(
         petId: 'miso',
         name: '  ',
@@ -291,7 +292,7 @@ void main() {
     });
 
     test('rejects empty schedule parts', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       final ok = await care.addMedication(
         petId: 'miso',
         name: 'Test med',
@@ -303,7 +304,7 @@ void main() {
     });
 
     test('refill restores supply count', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       final med = care.medications.firstWhere((m) => m.tracksSupply);
       final ok = await care.refill(med.id);
       expect(ok, isTrue);

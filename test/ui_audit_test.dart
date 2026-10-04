@@ -11,6 +11,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'fake_household_api.dart';
+import 'support/sample_household.dart';
 
 GoRouter _inviteRouter() => GoRouter(
   initialLocation: AppRoutes.invite,
@@ -109,15 +110,15 @@ void main() {
     );
     expect(builds, 1);
 
-    care.loadSampleData();
+    loadSampleHousehold(care);
     await t.pump();
     expect(builds, 2, reason: 'visible: rebuilds on change');
 
     setVisible(() => visible = false);
     await t.pump();
     final hiddenBuilds = builds;
-    care.loadSampleData();
-    care.loadSampleData();
+    loadSampleHousehold(care);
+    loadSampleHousehold(care);
     await t.pump();
     expect(builds, hiddenBuilds, reason: 'hidden: no rebuild storm');
 

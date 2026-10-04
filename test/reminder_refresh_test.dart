@@ -16,6 +16,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'fake_household_api.dart';
 import 'fake_reminder_platform.dart';
 import 'test_log_helpers.dart';
+import 'support/sample_household.dart';
 
 const _today = '2026-10-04';
 
@@ -26,7 +27,7 @@ Future<(CareRepository, DateTime Function(), void Function(DateTime))> _care(
   bool gaba = true,
 }) async {
   var now = at;
-  final care = CareRepository.sample(clock: () => now);
+  final care = sampleCare(clock: () => now);
   if (gaba) {
     // Pro for setup only: Free schedules one morning medicine per pet.
     care.debugStorePro = true;

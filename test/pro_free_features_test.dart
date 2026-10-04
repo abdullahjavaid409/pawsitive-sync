@@ -6,6 +6,7 @@ import 'package:pawsitive_sync/domain/models.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'test_log_helpers.dart';
+import 'support/sample_household.dart';
 
 /// Pro vs Free: one switch ([CareRepository.isPro]) gates every paid feature.
 /// Safety features (dose log, uncertain, skip, double-dose) stay free.
@@ -306,7 +307,7 @@ void main() {
     });
 
     test('Pro respects 10-pet household cap', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       care.applyStoreEntitlement(true, BillingPlan.yearly);
       final toAdd = PetLimits.maxPetsPerHousehold - care.pets.length;
       for (var i = 0; i < toAdd; i++) {

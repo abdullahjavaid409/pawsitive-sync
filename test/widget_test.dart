@@ -10,6 +10,7 @@ import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'support/sample_household.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -123,7 +124,7 @@ void main() {
     await tester.pumpWidget(
       MultiProvider(
         providers: [
-          ChangeNotifierProvider(create: (_) => CareRepository.sample()),
+          ChangeNotifierProvider(create: (_) => sampleCare()),
           ChangeNotifierProvider.value(value: onboarding),
         ],
         child: MaterialApp.router(
@@ -197,7 +198,7 @@ void main() {
   });
 
   test('logging a due dose marks it given', () async {
-    final care = CareRepository.sample();
+    final care = sampleCare();
     expect(care.givenCount, 3);
     final doseId = CareRepository.doseIdFor('fluids', DayPart.afternoon);
     expect(care.doseById(doseId)?.status, DoseStatus.due);
@@ -216,7 +217,7 @@ void main() {
   });
 
   test('the same dose cannot be logged twice', () async {
-    final care = CareRepository.sample();
+    final care = sampleCare();
     final doseId = CareRepository.doseIdFor('fluids', DayPart.afternoon);
     await care.logDose(
       doseId: doseId,
@@ -236,7 +237,7 @@ void main() {
 
   test('a new medicine shows on Today and in the vet report', () async {
     // Pro: the sample's Miso already has Free's medicine count.
-    final care = CareRepository.sample()..debugStorePro = true;
+    final care = sampleCare()..debugStorePro = true;
     final before = care.doses.length;
     final saved = await care.addMedication(
       petId: 'miso',
@@ -255,7 +256,7 @@ void main() {
   });
 
   test('free tier blocks a second pet', () async {
-    final care = CareRepository.sample();
+    final care = sampleCare();
     final blocked = await care.addPet(
       name: 'Pepper',
       species: Species.dog,
@@ -267,7 +268,7 @@ void main() {
   });
 
   test('a new pet can be added after setup with Pro', () async {
-    final care = CareRepository.sample();
+    final care = sampleCare();
     care.applyStoreEntitlement(true, BillingPlan.yearly);
     final id = await care.addPet(
       name: 'Pepper',
@@ -331,7 +332,7 @@ Future<void> _pumpHome(WidgetTester tester, Size size) async {
   await tester.pumpWidget(
     MultiProvider(
       providers: [
-        ChangeNotifierProvider(create: (_) => CareRepository.sample()),
+        ChangeNotifierProvider(create: (_) => sampleCare()),
         ChangeNotifierProvider.value(value: onboarding),
       ],
       child: const PawsitiveApp(),

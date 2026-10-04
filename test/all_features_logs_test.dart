@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'fake_household_api.dart';
 import 'test_log_helpers.dart';
+import 'support/sample_household.dart';
 
 /// Every repository feature: happy path, edge case, and structured log.
 void main() {
@@ -35,7 +36,7 @@ void main() {
     });
 
     test('add rejected empty name logs pet.add_rejected', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       expect(await care.addPet(name: '  ', species: Species.cat), isNull);
       expectLogged('pet.add_rejected', fields: {'reason': 'missing_name'});
     });
@@ -47,7 +48,7 @@ void main() {
     });
 
     test('add blocked at household cap logs household_limit', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       care.applyStoreEntitlement(true, BillingPlan.yearly);
       for (var i = care.pets.length; i < PetLimits.maxPetsPerHousehold; i++) {
         await care.addPet(name: 'Pet $i', species: Species.cat);
@@ -72,7 +73,7 @@ void main() {
     });
 
     test('update missing pet logs pet.update.missing', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       expect(
         await care.updatePet(
           petId: 'ghost',
@@ -85,7 +86,7 @@ void main() {
     });
 
     test('update noop logs pet.update.noop', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       final pet = care.primaryPet!;
       expect(
         await care.updatePet(
@@ -119,7 +120,7 @@ void main() {
     });
 
     test('add rejected missing name logs medication.add_rejected', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       expect(
         await care.addMedication(
           petId: 'miso',
@@ -133,7 +134,7 @@ void main() {
     });
 
     test('add rejected empty schedule logs missing_parts', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       expect(
         await care.addMedication(
           petId: 'miso',
@@ -147,7 +148,7 @@ void main() {
     });
 
     test('add rejected missing pet logs missing_pet', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       expect(
         await care.addMedication(
           petId: 'missing',
@@ -161,14 +162,14 @@ void main() {
     });
 
     test('refill logs medication.refill.completed', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       final med = care.medications.firstWhere((m) => m.tracksSupply);
       expect(await care.refill(med.id), isTrue);
       expectLogged('medication.refill.completed');
     });
 
     test('remove logs medication.remove.completed', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       final med = care.medications.first;
       expect(await care.removeMedication(med.id), isTrue);
       expectLogged('medication.remove.completed');
@@ -177,7 +178,7 @@ void main() {
 
   group('Doses', () {
     test('log success logs dose.log.completed', () async {
-      final care = CareRepository.sample(
+      final care = sampleCare(
         clock: () => DateTime(2026, 10, 3, 14),
       );
       final dose = care.doses.firstWhere((d) => d.status == DoseStatus.due);
@@ -194,7 +195,7 @@ void main() {
     });
 
     test('double log rejected logs dose.log.rejected', () async {
-      final care = CareRepository.sample(
+      final care = sampleCare(
         clock: () => DateTime(2026, 10, 3, 14),
       );
       final dose = care.doses.firstWhere((d) => d.status == DoseStatus.due);
@@ -217,7 +218,7 @@ void main() {
     });
 
     test('uncertain logs dose.uncertain.completed', () async {
-      final care = CareRepository.sample(
+      final care = sampleCare(
         clock: () => DateTime(2026, 10, 3, 14),
       );
       final dose = care.doses.firstWhere((d) => d.status == DoseStatus.due);
@@ -226,7 +227,7 @@ void main() {
     });
 
     test('skip logs dose.skip.completed', () async {
-      final care = CareRepository.sample(
+      final care = sampleCare(
         clock: () => DateTime(2026, 10, 3, 14),
       );
       final dose = care.doses.firstWhere((d) => d.status == DoseStatus.due);
@@ -235,7 +236,7 @@ void main() {
     });
 
     test('uncertain dose can be resolved as skipped', () async {
-      final care = CareRepository.sample(
+      final care = sampleCare(
         clock: () => DateTime(2026, 10, 3, 14),
       );
       final dose = care.doses.firstWhere((d) => d.status == DoseStatus.due);
@@ -246,7 +247,7 @@ void main() {
     });
 
     test('log on removed medication logs dose.log.rejected', () async {
-      final care = CareRepository.sample(
+      final care = sampleCare(
         clock: () => DateTime(2026, 10, 3, 14),
       );
       final dose = care.doses.firstWhere((d) => d.status == DoseStatus.due);
@@ -267,7 +268,7 @@ void main() {
 
   group('Care events', () {
     test('add logs care_event.added', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       expect(
         await care.addCareEvent(
           petId: 'miso',
@@ -281,7 +282,7 @@ void main() {
     });
 
     test('rejected missing pet logs care_event.rejected', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       expect(
         await care.addCareEvent(
           petId: 'missing',
@@ -295,7 +296,7 @@ void main() {
     });
 
     test('rejected empty title logs care_event.rejected', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       expect(
         await care.addCareEvent(
           petId: 'miso',
@@ -309,7 +310,7 @@ void main() {
     });
 
     test('remove logs care_event.removed', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       await care.addCareEvent(
         petId: 'miso',
         title: 'Checkup',
@@ -482,13 +483,13 @@ void main() {
     });
 
     test('setPlan logs billing.plan.changed', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       await care.setPlan(BillingPlan.monthly);
       expectLogged('billing.plan.changed', fields: {'plan': 'monthly'});
     });
 
     test('restore without RevenueCat logs billing.restore.skipped', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       expect(await care.restoreBilling(), isFalse);
       expectLogged('billing.restore.requested');
       expectLogged('billing.restore.skipped', fields: {'reason': 'not_configured'});
@@ -497,7 +498,7 @@ void main() {
 
   group('Household & sync', () {
     test('join short code logs household.join_rejected', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       expect(await care.join(code: 'ABC', name: 'Alex'), isNotNull);
       expectLogged('household.join_rejected', fields: {'reason': 'short_code'});
     });
@@ -511,19 +512,19 @@ void main() {
     });
 
     test('join without API logs household.join_skipped', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       expect(await care.join(code: 'ABCDEF', name: 'Alex'), isNotNull);
       expectLogged('household.join_skipped', fields: {'reason': 'no_api'});
     });
 
     test('connect without API logs household.connect_skipped', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       expect(await care.connect(), isNotNull);
       expectLogged('household.connect_skipped', fields: {'reason': 'no_api'});
     });
 
     test('sync offline logs household.sync_skipped', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       await care.sync();
       expectLogged('household.sync_skipped', fields: {'reason': 'no_api'});
     });

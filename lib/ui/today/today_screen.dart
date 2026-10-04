@@ -227,6 +227,19 @@ class _TodayScreenState extends State<TodayScreen> {
                         context.push(AppRoutes.medication(next.medicationId)),
                   ),
                 ],
+                if (care.lockedMedications.isNotEmpty) ...[
+                  const SizedBox(height: 16),
+                  _RemindersNeedPro(
+                    medications: care.lockedMedications,
+                    // billing.paywall.opened reason=more_dose_times from=today_locked.
+                    onTap: () => context.push(
+                      AppRoutes.paywallWith(
+                        reason: 'more_dose_times',
+                        from: 'today_locked',
+                      ),
+                    ),
+                  ),
+                ],
                 if (care.canShowLowSupplyAlerts && low != null) ...[
                   const SizedBox(height: 16),
                   _LowSupply(
@@ -988,6 +1001,55 @@ class _LowSupply extends StatelessWidget {
       ),
     ),
   );
+}
+
+/// A medicine saved over Free's limits (see [Medication.needsPro]): its
+/// doses stay on Today and log as usual; only its reminders wait for Pro.
+class _RemindersNeedPro extends StatelessWidget {
+  const _RemindersNeedPro({required this.medications, required this.onTap});
+  final List<Medication> medications;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final names = medications.length == 1
+        ? medications.single.name
+        : '${medications.length} medicines';
+    return Material(
+      color: context.paws.warningBg,
+      borderRadius: BorderRadius.circular(16),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Row(
+            children: [
+              StrokeIcon(
+                StrokeIconKind.lock,
+                size: 20,
+                color: context.paws.warning,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  '$names: reminders paused on Free. Doses still log.',
+                  style: Theme.of(context).textTheme.bodyMedium
+                      ?.copyWith(color: context.paws.warning),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'See Pro',
+                style: Theme.of(context).textTheme.titleSmall
+                    ?.copyWith(color: context.paws.warning),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _StartCare extends StatelessWidget {

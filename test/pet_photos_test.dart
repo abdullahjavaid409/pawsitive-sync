@@ -14,6 +14,7 @@ import 'package:pawsitive_sync/domain/models.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'photo_test_helpers.dart';
+import 'support/sample_household.dart';
 
 Map<String, Object?> _field(String event) =>
     AppLog.testRecords.lastWhere((r) => r.name == event).fields;
@@ -375,7 +376,7 @@ void main() {
   });
 
   test('a log by someone no longer in the household reads "Former member"', () {
-    final care = CareRepository.sample();
+    final care = sampleCare();
     expect(care.memberById('gone-1').name, CareRepository.formerMemberName);
     expect(
       HouseholdException('x', kind: HouseholdErrorKind.offline).timedOut,

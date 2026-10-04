@@ -571,7 +571,12 @@ async function route(req, url, requestId) {
   if (req.method === "POST" && path === "/v1/medications") {
     allow("medication.add");
     const medication = await addMedication(pool, auth, await readJson(req));
-    log("medication.added", { requestId, householdId: auth.householdId, medicationId: medication.id });
+    log("medication.added", {
+      requestId,
+      householdId: auth.householdId,
+      medicationId: medication.id,
+      ...(medication.needsPro ? { needsPro: true } : {}),
+    });
     return { status: 201, body: { medication } };
   }
 
@@ -580,7 +585,12 @@ async function route(req, url, requestId) {
     allow("medication.update");
     const medication = await updateMedication(pool, auth, decodeURIComponent(medicationPath[1]), await readJson(req));
     if (!medication) return { status: 404, body: { error: "That medicine was removed. Pull down to refresh." } };
-    log("medication.updated", { requestId, householdId: auth.householdId, medicationId: medication.id });
+    log("medication.updated", {
+      requestId,
+      householdId: auth.householdId,
+      medicationId: medication.id,
+      ...(medication.needsPro ? { needsPro: true } : {}),
+    });
     return { status: 200, body: { medication } };
   }
   if (req.method === "DELETE" && medicationPath) {

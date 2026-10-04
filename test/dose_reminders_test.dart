@@ -12,12 +12,13 @@ import 'package:timezone/timezone.dart' as tz;
 
 import 'fake_reminder_platform.dart';
 import 'test_log_helpers.dart';
+import 'support/sample_household.dart';
 
 /// Sample household: insulin AM+PM, benazepril AM, joint AM, fluids PM. Morning doses are already logged by Sara and Dan.
 /// UTC clock + UTC zone so the test host's own zone never matters.
 CareRepository _care([DateTime? at]) {
   var now = at ?? DateTime.utc(2026, 10, 4, 14);
-  return CareRepository.sample(clock: () => now);
+  return sampleCare(clock: () => now);
 }
 
 const _today = '2026-10-04';

@@ -14,6 +14,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'fake_reminder_platform.dart';
 import 'test_log_helpers.dart';
+import 'support/sample_household.dart';
 
 Medication _med(
   String id, {
@@ -166,7 +167,7 @@ void main() {
       AppLog.enableTestCapture();
       final state = EngagementState();
       await state.load();
-      final care = CareRepository.sample(clock: () => DateTime(2026, 10, 4, 21));
+      final care = sampleCare(clock: () => DateTime(2026, 10, 4, 21));
       for (final dose in care.doses.where((d) => d.status != DoseStatus.given)) {
         await care.logDose(doseId: dose.id, memberId: 'you', amount: '', timeLabel: '9:00 PM');
       }
@@ -176,7 +177,7 @@ void main() {
       // A fresh load reads the saved days; a day with gaps adds nothing.
       final again = EngagementState();
       await again.load();
-      again.update(CareRepository.sample(clock: () => DateTime(2026, 10, 5, 9)));
+      again.update(sampleCare(clock: () => DateTime(2026, 10, 5, 9)));
       expect(again.careDayCount, 1);
       AppLog.disableTestCapture();
     });
@@ -230,7 +231,7 @@ void main() {
     }
 
     testWidgets('a notification tap opens that dose’s log sheet on Today', (tester) async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       await pumpApp(tester, care);
       final due = care.doses.firstWhere((d) => d.status == DoseStatus.due);
       DoseReminders.pendingOpen.value = ReminderOpen(doseId: due.id);
@@ -240,7 +241,7 @@ void main() {
     });
 
     testWidgets('reminders on but blocked by the OS: one honest note, dismissible', (tester) async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       final engagement = await pumpApp(tester, care);
       DoseReminders.permission.value = ReminderPermission.denied;
       await tester.pumpAndSettle();
@@ -254,7 +255,7 @@ void main() {
     });
 
     testWidgets('Settings: each engagement feature has its own opt-out', (tester) async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       final engagement = EngagementState();
       await tester.pumpWidget(
         MultiProvider(

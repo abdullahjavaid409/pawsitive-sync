@@ -224,25 +224,11 @@ class CareRepository extends ChangeNotifier {
     PetPhotoStore? photoStore,
     PetPhotoTransfer? photoTransfer,
     DateTime Function()? clock,
-    bool sample = false,
   }) : _eventsStore = eventsStore ?? CareEventsStore(),
        _syncEngine = syncEngine ?? SyncEngine(),
        _photos = photoStore,
        _photoTransfer = photoTransfer ?? PetPhotoTransfer(),
-       _clock = clock ?? DateTime.now {
-    if (sample) loadSampleData();
-  }
-
-  /// Demo household for widget tests only — never reachable from the app.
-  @visibleForTesting
-  factory CareRepository.sample({
-    HouseholdApi? api,
-    DateTime Function()? clock,
-  }) => CareRepository(
-    api: api,
-    clock: clock ?? () => DateTime(2026, 10, 2, 13, 6),
-    sample: true,
-  );
+       _clock = clock ?? DateTime.now;
 
   final HouseholdApi? _api;
   final HouseholdStore? _store;
@@ -587,6 +573,17 @@ class CareRepository extends ChangeNotifier {
       part != DayPart.morning ||
       (minute >= PetLimits.freeMorningFirstMinute &&
           minute <= PetLimits.freeMorningLastMinute);
+
+  /// A medicine the server saved over Free's limits: its doses still show
+  /// and log, but it reminds only once the household has Pro.
+  bool isMedicationLocked(Medication medication) =>
+      medication.needsPro && !isPro;
+
+  /// Medicines waiting for Pro (see [isMedicationLocked]).
+  List<Medication> get lockedMedications => [
+    for (final m in _medications)
+      if (isMedicationLocked(m)) m,
+  ];
 
   /// Pro-only: weekly summary notification.
   bool get canUseWeeklySummary => isPro;
@@ -3067,135 +3064,29 @@ class CareRepository extends ChangeNotifier {
     );
   }
 
-  /// Demo household used by widget tests.
+  /// Sets the whole household in one step, so a test starts from a known
+  /// state. The app never calls it: it starts empty and only ever shows
+  /// what the person entered or a partner synced. Fixtures live in
+  /// `test/support/sample_household.dart`, never in the app.
   @visibleForTesting
-  void loadSampleData() {
-    final today = dayKey(now);
+  void debugLoadHousehold({
+    required List<Member> members,
+    required List<Pet> pets,
+    required List<Medication> medications,
+    required List<DoseRecord> logs,
+  }) {
+    // Copied first: callers may pass this repository's own read-only views
+    // (e.g. `care.pets`), which `_apply` clears before refilling.
     _apply(
       token: null,
       memberId: 'you',
       inviteCode: '',
       isPro: false,
       plan: BillingPlan.yearly,
-      members: const [
-        _youMember,
-        Member(
-          id: 'sara',
-          name: 'Sara',
-          initials: 'S',
-          role: MemberRole.caregiver,
-          avatarTone: AvatarTone.soft,
-          status: 'Active now',
-          active: true,
-        ),
-        Member(
-          id: 'dan',
-          name: 'Dan',
-          initials: 'D',
-          role: MemberRole.caregiver,
-          avatarTone: AvatarTone.neutral,
-        ),
-      ],
-      pets: const [
-        Pet(
-          id: 'miso',
-          name: 'Miso',
-          species: Species.cat,
-          ageYears: 12,
-          breed: 'Domestic shorthair',
-          sex: 'female',
-          conditions: ['Diabetes', 'Kidney disease'],
-          weightKg: 4.6,
-          onTimePercent: 0,
-          dailyMeds: 0,
-        ),
-        Pet(
-          id: 'juniper',
-          name: 'Juniper',
-          species: Species.dog,
-          ageYears: 8,
-          breed: 'Mixed breed',
-          sex: 'female',
-          conditions: ['Arthritis'],
-          weightKg: 18.2,
-          onTimePercent: 0,
-          dailyMeds: 0,
-        ),
-      ],
-      medications: [
-        Medication(
-          id: 'insulin',
-          petId: 'miso',
-          name: 'Insulin',
-          amount: '2 units',
-          parts: const [DayPart.morning, DayPart.evening],
-          supplyTotal: 0,
-          dosesLeft: 0,
-          startDay: today,
-        ),
-        Medication(
-          id: 'benazepril',
-          petId: 'miso',
-          name: 'Benazepril',
-          amount: '2.5 mg',
-          parts: const [DayPart.morning],
-          supplyTotal: 30,
-          dosesLeft: 4,
-          startDay: today,
-        ),
-        Medication(
-          id: 'joint',
-          petId: 'juniper',
-          name: 'Joint supplement',
-          amount: '',
-          parts: const [DayPart.morning],
-          supplyTotal: 0,
-          dosesLeft: 0,
-          startDay: today,
-        ),
-        Medication(
-          id: 'fluids',
-          petId: 'miso',
-          name: 'Fluids',
-          amount: '100 ml',
-          parts: const [DayPart.afternoon],
-          supplyTotal: 0,
-          dosesLeft: 0,
-          startDay: today,
-        ),
-      ],
-      logs: [
-        DoseRecord(
-          id: 'log-joint',
-          medicationId: 'joint',
-          part: DayPart.morning,
-          day: today,
-          memberId: 'dan',
-          outcome: LogOutcome.given,
-          amount: '',
-          timeLabel: '8:30 AM',
-        ),
-        DoseRecord(
-          id: 'log-benazepril',
-          medicationId: 'benazepril',
-          part: DayPart.morning,
-          day: today,
-          memberId: 'sara',
-          outcome: LogOutcome.given,
-          amount: '2.5 mg',
-          timeLabel: '8:04 AM',
-        ),
-        DoseRecord(
-          id: 'log-insulin',
-          medicationId: 'insulin',
-          part: DayPart.morning,
-          day: today,
-          memberId: 'sara',
-          outcome: LogOutcome.given,
-          amount: '2 units',
-          timeLabel: '8:02 AM',
-        ),
-      ],
+      members: [_youMember, ...members.where((m) => !m.isYou)],
+      pets: List.of(pets),
+      medications: List.of(medications),
+      logs: List.of(logs),
     );
     notifyListeners();
   }

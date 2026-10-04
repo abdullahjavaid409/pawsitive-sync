@@ -12,6 +12,7 @@ import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'support/sample_household.dart';
 
 void main() {
   setUp(() {
@@ -23,7 +24,7 @@ void main() {
   testWidgets('pet filter updates daily progress and next dose together', (
     tester,
   ) async {
-    final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 14));
+    final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14));
     await _pump(tester, care);
     expect(find.text('2 doses left today'), findsOneWidget);
     expect(find.text('Log dose'), findsOneWidget);
@@ -40,7 +41,7 @@ void main() {
     tester,
   ) async {
     // Pro: the sample's Miso already has Free's medicine count.
-    final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 14))
+    final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14))
       ..debugStorePro = true;
     await care.addMedication(
       petId: 'miso',
@@ -71,7 +72,7 @@ void main() {
   testWidgets('upcoming doses offer details without a give-now action', (
     tester,
   ) async {
-    final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 7));
+    final care = sampleCare(clock: () => DateTime(2026, 10, 3, 7));
     await _pump(tester, care);
     expect(find.text('Later today'), findsOneWidget);
     expect(find.text('View medicine'), findsOneWidget);
@@ -81,7 +82,7 @@ void main() {
   testWidgets('a pet with no report can switch back to a pet with records', (
     tester,
   ) async {
-    final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 14));
+    final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14));
     care.applyStoreEntitlement(true, BillingPlan.yearly);
     // A removed medicine keeps its in-range history in the report, so the
     // empty state needs a pet that never had a medicine.
@@ -105,7 +106,7 @@ void main() {
     tester,
   ) async {
     // Pro: Juniper already has Free's one medicine.
-    final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 14))
+    final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14))
       ..debugStorePro = true;
     final router = await _pump(tester, care);
     router.go('${AppRoutes.schedule}?pet=juniper');
@@ -173,7 +174,7 @@ void main() {
     'medicine validation explains missing details and optional supply can be removed',
     (tester) async {
       // Pro: Free at its medicine cap opens the paywall instead (own test).
-      final care = CareRepository.sample()..debugStorePro = true;
+      final care = sampleCare()..debugStorePro = true;
       final initialCount = care.medications.length;
       final router = await _pump(tester, care);
       router.go(AppRoutes.schedule);
@@ -212,7 +213,7 @@ void main() {
   );
 
   testWidgets('first care event is discoverable, saves notes and confirms removal', (tester) async {
-    final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 14));
+    final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14));
     await _pump(tester, care);
     await _reveal(tester, find.text('Add event'));
     await tester.tap(find.text('Add event'));
@@ -241,7 +242,7 @@ void main() {
   });
 
   testWidgets('uncertain doses are clearly marked for review', (tester) async {
-    final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 14));
+    final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14));
     final dose = care.nextDue!;
     await care.markDoseUncertain(dose.id);
     await _pump(tester, care);
@@ -254,7 +255,7 @@ void main() {
   });
 
   testWidgets('care event sheet supports large text with the keyboard open', (tester) async {
-    final care = CareRepository.sample();
+    final care = sampleCare();
     await _pump(tester, care, size: const Size(320, 640), scale: 1.6);
     await _reveal(tester, find.text('Add event'));
     await tester.tap(find.text('Add event'));
@@ -278,7 +279,7 @@ void main() {
     testWidgets('main tabs scroll without overflow at $scenario', (
       tester,
     ) async {
-      final care = CareRepository.sample(
+      final care = sampleCare(
         clock: () => DateTime(2026, 10, 3, 14),
       );
       final router = await _pump(

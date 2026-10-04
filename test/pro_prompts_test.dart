@@ -16,6 +16,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'test_log_helpers.dart';
+import 'support/sample_household.dart';
 
 void main() {
   setUp(() {
@@ -126,7 +127,7 @@ void main() {
 
   group('paywall at every Pro moment', () {
     testWidgets('free: every Pro action shows a visible lock; Pro: none', (t) async {
-      final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 14));
+      final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14));
       final router = await _pump(t, care);
       router.go(AppRoutes.household);
       await t.pumpAndSettle();
@@ -165,7 +166,7 @@ void main() {
     });
 
     testWidgets('second pet from Today opens the "every pet" paywall', (t) async {
-      final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 14));
+      final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14));
       final router = await _pump(t, care);
       router.go(AppRoutes.pets);
       await t.pumpAndSettle();
@@ -178,7 +179,7 @@ void main() {
     testWidgets('Free at the medicine cap: add medicine opens the paywall', (
       t,
     ) async {
-      final care = CareRepository.sample(
+      final care = sampleCare(
         clock: () => DateTime(2026, 10, 3, 14),
       );
       expect(care.canAddMedication('miso'), isFalse);
@@ -207,7 +208,7 @@ void main() {
       (t) async {
         // Added while Pro, then lapsed: Free over the medicine cap keeps
         // every medicine and its doses — only adding more is gated.
-        final care = CareRepository.sample(
+        final care = sampleCare(
           clock: () => DateTime(2026, 10, 3, 14),
         )..debugStorePro = true;
         await care.addMedication(
@@ -243,7 +244,7 @@ void main() {
     testWidgets('Pro sees the real low-supply banner, never the teaser', (
       t,
     ) async {
-      final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 14))
+      final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14))
         ..debugStorePro = true;
       await care.addMedication(
         petId: 'miso',
@@ -258,7 +259,7 @@ void main() {
     });
 
     testWidgets('"Not sure if given" never interrupts: queued, shown on the next idle visit', (t) async {
-      final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 14));
+      final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14));
       await _pump(t, care);
       await _reveal(t, find.text('Log dose'));
       await t.tap(find.text('Log dose'));
@@ -296,7 +297,7 @@ void main() {
         'pro_prompts_pending_v1': ['uncertain'],
       });
       // 2 PM: Fluids is due and not given.
-      final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 14));
+      final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14));
       await _pump(t, care);
       await t.pump(const Duration(seconds: 4));
       await t.pumpAndSettle();

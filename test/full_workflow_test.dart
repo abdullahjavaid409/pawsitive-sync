@@ -7,6 +7,7 @@ import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'test_log_helpers.dart';
+import 'support/sample_household.dart';
 
 /// End-to-end care journey: delete → fresh start → every feature → delete again.
 void main() {
@@ -19,7 +20,7 @@ void main() {
 
   test('complete delete → setup → features → delete logs every step', () async {
     DateTime clock() => DateTime(2026, 10, 3, 14);
-    final care = CareRepository.sample(clock: clock);
+    final care = sampleCare(clock: clock);
     final onboarding = OnboardingViewModel();
 
     // --- 1. Delete / reset (Settings → Delete account) ---
@@ -194,7 +195,7 @@ void main() {
   });
 
   test('reset clears persisted care events', () async {
-    final care = CareRepository.sample();
+    final care = sampleCare();
     await care.addCareEvent(
       petId: care.primaryPet!.id,
       title: 'Vaccine',
@@ -204,7 +205,7 @@ void main() {
     expect(care.careEvents, isNotEmpty);
     await care.reset();
     expect(care.careEvents, isEmpty);
-    final restored = CareRepository.sample();
+    final restored = sampleCare();
     await restored.restore();
     expect(restored.careEvents, isEmpty);
   });

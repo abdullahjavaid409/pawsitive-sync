@@ -14,6 +14,7 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'test_log_helpers.dart';
+import 'support/sample_household.dart';
 
 void main() {
   setUp(() {
@@ -44,7 +45,7 @@ void main() {
     tester,
   ) async {
     // Pro: the sample's Miso already has Free's medicine count.
-    final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 6))
+    final care = sampleCare(clock: () => DateTime(2026, 10, 3, 6))
       ..debugStorePro = true;
     final router = await _pump(tester, care);
     router.go('${AppRoutes.schedule}?pet=miso');
@@ -72,7 +73,7 @@ void main() {
 
   testWidgets('dismissing the picker keeps the default', (tester) async {
     // Pro: the sample's Miso already has Free's medicine count.
-    final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 6))
+    final care = sampleCare(clock: () => DateTime(2026, 10, 3, 6))
       ..debugStorePro = true;
     final router = await _pump(tester, care);
     router.go('${AppRoutes.schedule}?pet=miso');
@@ -89,7 +90,7 @@ void main() {
   testWidgets('medicine screen: change the evening time; Today follows', (
     tester,
   ) async {
-    final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 6));
+    final care = sampleCare(clock: () => DateTime(2026, 10, 3, 6));
     final router = await _pump(tester, care);
     router.go('/medication/insulin');
     await tester.pumpAndSettle();
@@ -106,7 +107,7 @@ void main() {
   });
 
   testWidgets('24-hour phones see 19:00, not 7:00 PM', (tester) async {
-    final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 6));
+    final care = sampleCare(clock: () => DateTime(2026, 10, 3, 6));
     await care.setMedicationTimes('insulin', {DayPart.evening: 19 * 60});
     ClockFormat.use24h.value = true;
     final router = await _pump(tester, care);
