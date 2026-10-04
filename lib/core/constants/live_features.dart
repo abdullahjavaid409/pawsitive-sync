@@ -4,6 +4,10 @@ abstract final class LiveFeatures {
   static const version = '1.0.0';
 
   /// Repository + service logs that must be exercised in automated tests.
+  ///
+  /// One line per user action: these data-layer events are the record of
+  /// an outcome; screens don't log a second "saved"/"failed" line for it
+  /// (see one_log_per_action_test.dart).
   static const coverage = <LiveFeatureSpec>[
     LiveFeatureSpec(
       id: 'dose_log',
@@ -68,20 +72,28 @@ abstract final class LiveFeatures {
       id: 'household_join',
       name: 'Join with invite code',
       tier: FeatureTier.pro,
-      logs: ['household.joined', 'household.join_rejected', 'household.join_skipped'],
+      logs: [
+        'household.joined',
+        'household.join_rejected',
+        'household.join_skipped',
+      ],
     ),
     LiveFeatureSpec(
       id: 'household_sync',
       name: 'Pull household state',
       tier: FeatureTier.pro,
-      logs: ['household.synced', 'household.sync_skipped', 'household.sync_failed'],
+      logs: [
+        'household.synced',
+        'household.sync_skipped',
+        'household.sync_failed',
+      ],
     ),
     LiveFeatureSpec(
       id: 'sitter_browser',
       name: 'Browser sitter link (no app)',
       tier: FeatureTier.pro,
       logs: [
-        'sitter.link_ready',
+        'sitter.link_created',
         'sitter.link_cached',
         'sitter.link_skipped',
         'sitter.link_failed',
@@ -102,13 +114,31 @@ abstract final class LiveFeatures {
       id: 'pro_gates',
       name: 'Pro unlocks invites / multi-pet / export / low supply',
       tier: FeatureTier.pro,
-      logs: ['billing.pro.unlocked', 'household.reset'],
+      logs: [
+        'billing.store.entitlement_changed',
+        'billing.pro.unlocked',
+        'billing.share_pro.completed',
+        'household.reset',
+      ],
     ),
     LiveFeatureSpec(
       id: 'billing',
       name: 'Plan + restore',
       tier: FeatureTier.free,
-      logs: ['billing.plan.changed', 'billing.restore.requested', 'billing.restore.skipped'],
+      logs: [
+        'billing.plan.changed',
+        'billing.restore.requested',
+        'billing.restore.skipped',
+      ],
+    ),
+    // Migration and write-failure lines (`store.migrated`,
+    // `store.migrate_failed`, `store.write_failed`) need a crafted disk and
+    // are asserted in local_database_test.dart.
+    LiveFeatureSpec(
+      id: 'local_store',
+      name: 'On-phone database (offline, per-record saves)',
+      tier: FeatureTier.free,
+      logs: ['store.opened', 'data.restored'],
     ),
     LiveFeatureSpec(
       id: 'onboarding',

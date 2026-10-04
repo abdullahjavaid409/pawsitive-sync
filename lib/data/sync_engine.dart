@@ -17,43 +17,59 @@ class SyncEngine {
       return const BatchFlushResult(applied: 0);
     }
     AppLog.event('sync.batch.start', {'count': pending.length});
-    final response = await api.syncBatch([
-      for (final op in pending) op,
-    ]);
+    final response = await api.syncBatch([for (final op in pending) op]);
     final applied = <String>[];
+    final sentLogIds = {
+      for (final op in pending)
+        if (op.type == 'logDose') op.id: op.payload['id'],
+    };
     String? conflictMessage;
+    DoseRecord? conflictLog;
+    String? roleMessage;
     for (final result in response.results) {
       if (result.status == 'ok' ||
           result.status == 'missing' ||
           result.status == 'error') {
         applied.add(result.id);
+        if (result.status == 'error') {
+          // Dropped from the outbox either way: a rejected op never succeeds
+          // on retry. The returned snapshot puts the server's truth back.
+          AppLog.event('sync.batch.op_rejected', {
+            'id': result.id,
+            'message': result.message ?? '',
+            'code': ?result.code,
+          });
+          if (result.code == 'role_forbidden') {
+            roleMessage ??= result.message;
+          }
+        }
+      } else if (result.status == 'retry') {
+        // The server failed on its side (not a bad op): it stays queued and
+        // goes again with the next sync, so nothing saved offline is lost.
+        AppLog.event('sync.batch.op_retry', {'id': result.id});
       } else if (result.status == 'conflict') {
         applied.add(result.id);
-        if (result.log != null) {
+        final log = result.log;
+        // Our own dose already saved (reply lost on a bad network) is not a
+        // double dose — only someone else's log is.
+        if (log != null && log.id != sentLogIds[result.id]) {
           conflictMessage =
-              'Someone already logged this dose at ${result.log!.timeLabel}.';
+              'Someone already logged this dose at ${log.timeLabel}.';
+          conflictLog ??= log;
         }
       }
     }
-    for (final id in applied) {
-      await _outbox.remove(id);
-    }
+    await _outbox.removeAll(applied.toSet());
     AppLog.event('sync.batch.completed', {
       'applied': applied.length,
       'remaining': pending.length - applied.length,
     });
-    DoseRecord? conflictLog;
-    for (final result in response.results) {
-      if (result.status == 'conflict' && result.log != null) {
-        conflictLog = result.log;
-        break;
-      }
-    }
     return BatchFlushResult(
       applied: applied.length,
       household: response.household,
       conflictMessage: conflictMessage,
       conflictLog: conflictLog,
+      roleMessage: roleMessage,
     );
   }
 }
@@ -64,10 +80,15 @@ class BatchFlushResult {
     this.household,
     this.conflictMessage,
     this.conflictLog,
+    this.roleMessage,
   });
 
   final int applied;
   final HouseholdSnapshot? household;
   final String? conflictMessage;
   final DoseRecord? conflictLog;
+
+  /// Set when a queued change was refused because this member's role no
+  /// longer allows it (changed on another phone while offline).
+  final String? roleMessage;
 }

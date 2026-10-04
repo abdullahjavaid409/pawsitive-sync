@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pawsitive_sync/core/constants/pet_limits.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
+import 'package:pawsitive_sync/core/widgets/care_tab_builder.dart';
 import 'package:pawsitive_sync/core/widgets/care_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
+import 'package:pawsitive_sync/core/widgets/pro_lock.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
+import 'package:pawsitive_sync/data/vet_report_pdf.dart';
 import 'package:pawsitive_sync/domain/models.dart';
-import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 class VetReportScreen extends StatefulWidget {
@@ -23,14 +26,24 @@ class _VetReportScreenState extends State<VetReportScreen> {
   bool _sharing = false;
   String? _petId;
 
+  // Tab screen: rebuilds on data changes only while visible.
   @override
-  Widget build(BuildContext context) {
-    final care = context.watch<CareRepository>();
+  Widget build(BuildContext context) => CareTabBuilder(builder: _build);
+
+  Widget _build(BuildContext context, CareRepository care) {
     final pet = care.tryPetById(_petId ?? '') ?? care.primaryPet;
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     final report = pet == null ? null : care.reportFor(pet.id, _days);
     final hasReport = report != null && report.lines.isNotEmpty;
+    // Only built when shown; three newest in-range logs per medicine.
+    final recent = <String, List<ReportEntry>>{};
+    if (hasReport && _showWho) {
+      for (final entry in report.recent) {
+        final list = recent.putIfAbsent(entry.medicationId, () => []);
+        if (list.length < 3) list.add(entry);
+      }
+    }
 
     return Scaffold(
       body: SafeArea(
@@ -48,12 +61,16 @@ class _VetReportScreenState extends State<VetReportScreen> {
                 child: ListTile(
                   title: Text('Vet asked for a log?', style: text.titleSmall),
                   subtitle: const Text(
-                    'Pro exports week-by-week reports. You can still view dose history here for free.',
+                    'Pro exports week-by-week reports and shows 90 days. Free shows the last 30 days.',
                   ),
                   trailing: TextButton(
                     onPressed: () {
-                      AppLog.event('report.upgrade_tap');
-                      context.push(AppRoutes.paywall);
+                      context.push(
+                        AppRoutes.paywallWith(
+                          reason: 'vet_export',
+                          from: 'report_upgrade',
+                        ),
+                      );
                     },
                     child: const Text('Upgrade'),
                   ),
@@ -99,8 +116,27 @@ class _VetReportScreenState extends State<VetReportScreen> {
                       Expanded(
                         child: _RangeChip(
                           label: '$days days',
+                          locked:
+                              !care.isPro && days > PetLimits.freeHistoryDays,
                           selected: _days == days,
-                          onPressed: () => setState(() => _days = days),
+                          onPressed: () {
+                            if (_days == days) return;
+                            if (!care.isPro &&
+                                days > PetLimits.freeHistoryDays) {
+                              AppLog.event('report.range_locked', {
+                                'days': days,
+                              });
+                              context.push(
+                                AppRoutes.paywallWith(
+                                  reason: 'history',
+                                  from: 'report_range',
+                                ),
+                              );
+                              return;
+                            }
+                            AppLog.event('report.range', {'days': days});
+                            setState(() => _days = days);
+                          },
                         ),
                       ),
                   ],
@@ -143,8 +179,7 @@ class _VetReportScreenState extends State<VetReportScreen> {
                       children: [
                         Expanded(
                           child: CareMetric(
-                            value:
-                                '${report.lines.fold<int>(0, (sum, line) => sum + line.given)}',
+                            value: '${report.given}',
                             label: 'Doses given',
                           ),
                         ),
@@ -194,7 +229,7 @@ class _VetReportScreenState extends State<VetReportScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  line.medication.name,
+                                  line.medication.historyName,
                                   style: text.titleMedium,
                                 ),
                                 const SizedBox(height: 4),
@@ -216,7 +251,7 @@ class _VetReportScreenState extends State<VetReportScreen> {
                       ),
                       const SizedBox(height: 14),
                       Semantics(
-                        label: '${line.medication.name} doses given',
+                        label: '${line.medication.historyName} doses given',
                         value: '${line.given} of ${line.expected}',
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(5),
@@ -266,7 +301,10 @@ class _VetReportScreenState extends State<VetReportScreen> {
                 radius: 20,
                 child: SwitchListTile.adaptive(
                   value: _showWho,
-                  onChanged: (value) => setState(() => _showWho = value),
+                  onChanged: (value) {
+                    AppLog.event('report.show_caregivers', {'on': value});
+                    setState(() => _showWho = value);
+                  },
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 18,
                     vertical: 6,
@@ -283,16 +321,21 @@ class _VetReportScreenState extends State<VetReportScreen> {
                 const CareSectionHeader('Recent doses'),
                 const SizedBox(height: 12),
                 for (final line in report.lines)
-                  for (final log in care.historyFor(line.medication.id).take(3))
+                  for (final log
+                      in recent[line.medication.id] ?? const <ReportEntry>[])
                     Padding(
                       padding: const EdgeInsets.only(bottom: 14),
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           StrokeIcon(
-                            StrokeIconKind.check,
+                            log.outcome == LogOutcome.given
+                                ? StrokeIconKind.check
+                                : StrokeIconKind.file,
                             size: 18,
-                            color: context.paws.brandDark,
+                            color: log.outcome == LogOutcome.given
+                                ? context.paws.brandDark
+                                : scheme.onSurfaceVariant,
                           ),
                           const SizedBox(width: 12),
                           Expanded(
@@ -300,12 +343,17 @@ class _VetReportScreenState extends State<VetReportScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  line.medication.name,
+                                  line.medication.historyName,
                                   style: text.titleSmall,
                                 ),
                                 const SizedBox(height: 3),
                                 Text(
-                                  '${log.when} · ${log.who}',
+                                  [
+                                    '${care.dayLabel(log.day)} · ${log.timeLabel}',
+                                    log.who,
+                                    if (log.outcome != LogOutcome.given)
+                                      _outcomeLabel(log.outcome),
+                                  ].join(' · '),
                                   style: text.bodyMedium,
                                 ),
                               ],
@@ -323,8 +371,12 @@ class _VetReportScreenState extends State<VetReportScreen> {
                       : care.canShareVetReport
                       ? () => _share(buttonContext, care, pet, report)
                       : () {
-                          AppLog.event('report.share.blocked');
-                          context.push(AppRoutes.paywall);
+                          context.push(
+                            AppRoutes.paywallWith(
+                              reason: 'vet_export',
+                              from: 'report_share',
+                            ),
+                          );
                         },
                   style: FilledButton.styleFrom(
                     minimumSize: const Size.fromHeight(54),
@@ -334,8 +386,12 @@ class _VetReportScreenState extends State<VetReportScreen> {
                     size: 19,
                     color: scheme.onPrimary,
                   ),
-                  label: Text(
-                    _sharing ? 'Opening share options…' : 'Share with vet',
+                  label: WithProLock(
+                    locked: !care.canShareVetReport,
+                    onDark: true,
+                    child: Text(
+                      _sharing ? 'Opening share options…' : 'Share with vet',
+                    ),
                   ),
                 ),
               ),
@@ -360,18 +416,45 @@ class _VetReportScreenState extends State<VetReportScreen> {
   ) async {
     setState(() => _sharing = true);
     final box = buttonContext.findRenderObject() as RenderBox?;
+    final origin = box == null
+        ? null
+        : box.localToGlobal(Offset.zero) & box.size;
+    final days = _days;
+    final showWho = _showWho;
+    final summary = _plainReport(care, pet, report);
     try {
-      AppLog.event('report.shared', {'days': _days});
-      await SharePlus.instance.share(
+      final watch = Stopwatch()..start();
+      final pdf = await buildVetReportPdfInBackground(
+        pet: pet,
+        report: report,
+        showCaregivers: showWho,
+        generatedAt: care.now,
+      );
+      AppLog.event('report.pdf_built', {
+        'ms': watch.elapsedMilliseconds,
+        'pages': pdf.pages,
+        'bytes': pdf.bytes.length,
+        'days': days,
+      });
+      final name = vetReportFileName(pet, care.now);
+      final result = await SharePlus.instance.share(
         ShareParams(
           subject: '${pet.name} · care report',
-          text: _plainReport(care, pet, report),
-          sharePositionOrigin: box == null
-              ? null
-              : box.localToGlobal(Offset.zero) & box.size,
+          text: summary,
+          files: [
+            XFile.fromData(pdf.bytes, mimeType: 'application/pdf', name: name),
+          ],
+          fileNameOverrides: [name],
+          sharePositionOrigin: origin,
         ),
       );
-    } catch (_) {
+      AppLog.event('report.shared', {
+        'format': 'pdf',
+        'days': days,
+        'status': result.status.name,
+      });
+    } catch (error, stack) {
+      AppLog.error('report.share_failed', error, stack, {'days': days});
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -383,6 +466,12 @@ class _VetReportScreenState extends State<VetReportScreen> {
       if (mounted) setState(() => _sharing = false);
     }
   }
+
+  static String _outcomeLabel(LogOutcome outcome) => switch (outcome) {
+    LogOutcome.given => 'Given',
+    LogOutcome.skipped => 'Skipped',
+    LogOutcome.uncertain => 'Not sure',
+  };
 
   static const _months = [
     'Jan',
@@ -417,19 +506,21 @@ class _VetReportScreenState extends State<VetReportScreen> {
       '',
       'Doses given:',
       for (final line in report.lines)
-        '• ${line.medication.name}${line.medication.amount.isEmpty ? '' : ' ${line.medication.amount}'} (${line.medication.whenLabel.toLowerCase()}): ${line.given} of ${line.expected}',
+        '• ${line.medication.historyName}${line.medication.amount.isEmpty ? '' : ' ${line.medication.amount}'} (${line.medication.whenLabel.toLowerCase()}): ${line.given} of ${line.expected}',
       if (report.skipped > 0) 'Skipped on purpose: ${report.skipped}',
+      if (report.uncertain > 0) 'Not sure if given: ${report.uncertain}',
+      if (report.missed > 0) 'Missed (no log): ${report.missed}',
       '',
       'Symptom notes: ${report.notes.isEmpty ? 'none logged' : [for (final e in report.notes.entries) '${e.key} ×${e.value}'].join(', ')}',
       if (_showWho) ...[
         '',
         'Recent doses:',
-        for (final line in report.lines)
-          for (final log in care.historyFor(line.medication.id).take(5))
-            '• ${line.medication.name} · ${log.when} · ${log.who}',
+        for (final log in report.recent.take(10))
+          '• ${log.medicationName} · ${care.dayLabel(log.day)} · ${log.timeLabel} · ${log.who}'
+              '${log.outcome == LogOutcome.given ? '' : ' · ${_outcomeLabel(log.outcome)}'}',
       ],
       '',
-      'Sent from PawsitiveSync',
+      'Sent from Pawsitive',
     ];
     return lines.join('\n');
   }
@@ -440,9 +531,11 @@ class _RangeChip extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onPressed,
+    this.locked = false,
   });
   final String label;
   final bool selected;
+  final bool locked;
   final VoidCallback onPressed;
   @override
   Widget build(BuildContext context) {
@@ -458,11 +551,20 @@ class _RangeChip extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 13),
-            child: Text(
-              label,
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                color: selected ? scheme.onSurface : scheme.onSurfaceVariant,
+            // Scales down rather than overflow at large text on small phones.
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: WithProLock(
+                locked: locked,
+                child: Text(
+                  label,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: selected
+                        ? scheme.onSurface
+                        : scheme.onSurfaceVariant,
+                  ),
+                ),
               ),
             ),
           ),

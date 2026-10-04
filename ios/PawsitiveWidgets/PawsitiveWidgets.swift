@@ -74,9 +74,11 @@ struct CareProvider: TimelineProvider {
               let snapshot = try? JSONDecoder().decode(CareSnapshot.self, from: data), snapshot.version == 1 else { return .empty }
         return snapshot
     }
+    /// Widget-gallery preview and the redacted loading placeholder only
+    /// (Apple's pattern). Generic on purpose: never shown as real data.
     private func sample() -> CareEntry {
         let now = Date()
-        let dose = CareDose(id: "preview", pet: "Miso", medicine: "Daily medicine", amount: "1 tablet", dueAt: now.timeIntervalSince1970, scheduledAt: now.timeIntervalSince1970, state: "pending")
+        let dose = CareDose(id: "preview", pet: "Your pet", medicine: "Daily medicine", amount: "1 tablet", dueAt: now.timeIntervalSince1970, scheduledAt: now.timeIntervalSince1970, state: "pending")
         return CareEntry(date: now, snapshot: CareSnapshot(version: 1, updatedAt: now.timeIntervalSince1970, hasPets: true, days: [CareDay(startsAt: Calendar.current.startOfDay(for: now).timeIntervalSince1970, doses: [dose])]))
     }
 }
@@ -96,7 +98,7 @@ struct CareWidgetView: View {
                 } currentValueLabel: {
                     if entry.stale || !entry.snapshot.hasPets { Image(systemName: "pawprint.fill") }
                     else { Text("\(entry.remaining.count)") }
-                }.gaugeStyle(.accessoryCircular).accessibilityLabel("\(entry.remaining.count) doses remaining. Open PawsitiveSync to review.")
+                }.gaugeStyle(.accessoryCircular).accessibilityLabel("\(entry.remaining.count) doses remaining. Open Pawsitive to review.")
             } else if #available(iOSApplicationExtension 16.0, *), family == .accessoryInline {
                 Label(entry.next == nil || entry.stale ? entry.headline : "\(entry.next!.pet) · \(entry.next!.medicine)", systemImage: "pawprint.fill")
             } else if #available(iOSApplicationExtension 16.0, *), family == .accessoryRectangular {
@@ -105,7 +107,7 @@ struct CareWidgetView: View {
                     if let dose = entry.next, !entry.stale {
                         Text("\(dose.pet) · \(dose.medicine)").font(.headline).lineLimit(1)
                         Text(dose.uncertain ? "Open to review" : dose.amount).font(.caption).lineLimit(1)
-                    } else { Text("Open PawsitiveSync").font(.caption) }
+                    } else { Text("Open Pawsitive").font(.caption) }
                 }
             } else {
                 home

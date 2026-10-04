@@ -1,16 +1,20 @@
-import 'package:flutter/foundation.dart' show kDebugMode;
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pawsitive_sync/core/format/pet_names.dart';
 import 'package:pawsitive_sync/core/legal/app_links.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
+import 'package:pawsitive_sync/data/revenue_cat_service.dart';
 import 'package:pawsitive_sync/data/dose_reminders.dart';
-import 'package:pawsitive_sync/data/onboarding_state.dart';
 import 'package:pawsitive_sync/data/reminder_choice.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
+import 'package:pawsitive_sync/ui/settings/notification_settings.dart';
+import 'package:pawsitive_sync/ui/today/engagement_cards.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -29,19 +33,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   void initState() {
     super.initState();
+    // ReminderChoice.read logs and swallows its own failures.
     ReminderChoice.read().then((on) {
       if (mounted) setState(() => _remindersOn = on);
     });
   }
 
   Future<void> _open(Uri uri) async {
-    AppLog.event('settings.link', {'uri': uri.toString()});
-    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    if (!ok && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Could not open ${uri.path}.')),
-      );
+    // Scheme + host only: the support link is a mailto with an address.
+    final fields = {'scheme': uri.scheme, 'host': uri.host};
+    AppLog.event('settings.link', fields);
+    var ok = false;
+    try {
+      ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (error, stack) {
+      AppLog.error('settings.link_failed', error, stack, fields);
     }
+    if (!ok) AppLog.event('settings.link_unavailable', fields);
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Could not open ${uri.path}.')));
+    }
+  }
+
+  /// Customer Center keeps cancel, refund and retention offers in-app;
+  /// Apple's subscriptions page is the fallback when billing is off.
+  Future<void> _manageSubscription() async {
+    final shown = await RevenueCatService.presentCustomerCenter();
+    if (!shown) await _open(Uri.parse(AppLinks.manageAppleSubscriptions));
   }
 
   Future<void> _restorePurchases(CareRepository care) async {
@@ -74,7 +93,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
     final allowed = await DoseReminders.ask();
     await onboarding.saveReminders(allowed);
-    if (allowed) await DoseReminders.scheduleNext(care);
+    if (allowed) await DoseReminders.reschedule(care, reason: 'toggled');
     if (!mounted) return;
     setState(() => _remindersOn = allowed);
     if (!allowed) {
@@ -88,59 +107,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  void _loadDemoData(CareRepository care) {
-    AppLog.event('debug.demo_data.loaded');
-    care.loadSampleData();
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Demo data loaded — 2 pets, meds, today\'s doses.')),
-    );
-  }
-
-  Future<void> _clearDemoData(CareRepository care) async {
-    AppLog.event('debug.demo_data.cleared');
-    await care.reset();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Cleared. Back to empty.')),
-    );
-  }
-
+  /// Confirm → server delete (if shared) → local wipe → welcome. The
+  /// dialog owns the busy/slow/error states so a failed delete is explained
+  /// in place and nothing has been removed.
   Future<void> _deleteAccount() async {
     if (_busy) return;
     final care = context.read<CareRepository>();
-    final confirmed = await showDialog<bool>(
+    // Logged as nav.push to=delete_account; the scope is logged by
+    // account.delete_requested.
+    final deleted = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete account on this phone?'),
-        content: Text(
-          care.isConnected
-              ? 'This removes your pets, medicines, and dose history from this phone and signs you out of the household. Other caregivers keep their access. This cannot be undone.'
-              : 'This removes all pets, medicines, and dose history stored on this phone. This cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
-            ),
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+      routeSettings: const RouteSettings(name: 'delete_account'),
+      // Never dismissed by a stray tap while the request is running.
+      barrierDismissible: false,
+      builder: (_) => _DeleteAccountDialog(care: care),
     );
-    if (confirmed != true || !mounted) return;
-    setState(() => _busy = true);
-    AppLog.event('settings.account_deleted');
-    await DoseReminders.cancel();
-    await ReminderChoice.write(false);
-    await care.reset();
-    await OnboardingState.clear();
-    if (!mounted) return;
+    if (deleted != true || !mounted) return;
     context.read<OnboardingViewModel>().resetForSignOut();
+    maybeEngagement(context, listen: false)?.clear();
     context.go(AppRoutes.welcome);
   }
 
@@ -195,12 +179,17 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     subtitle: Text(
                       care.isPro
                           ? 'Every pet, invites, refill alerts, vet export'
-                          : 'One pet with full dose tracking · Pro for shared care',
+                          : 'One pet, one morning medicine · Pro for every dose and shared care',
                     ),
                     trailing: care.isPro
                         ? null
                         : TextButton(
-                            onPressed: () => context.push(AppRoutes.paywall),
+                            onPressed: () => context.push(
+                              AppRoutes.paywallWith(
+                                reason: 'settings',
+                                from: 'settings_plan',
+                              ),
+                            ),
                             child: const Text('Upgrade'),
                           ),
                   ),
@@ -220,7 +209,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       size: 18,
                       color: scheme.onSurfaceVariant,
                     ),
-                    onTap: () => _open(Uri.parse(AppLinks.manageAppleSubscriptions)),
+                    onTap: _manageSubscription,
                   ),
                 ],
               ),
@@ -228,17 +217,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 24),
             Text('NOTIFICATIONS', style: text.labelSmall),
             const SizedBox(height: 8),
-            SurfaceCard(
-              child: SwitchListTile(
-                title: const Text('Dose reminders'),
-                subtitle: const Text(
-                  'A nudge when medicine is due. You can change this anytime.',
-                ),
-                value: _remindersOn ?? false,
-                onChanged: _remindersOn == null
-                    ? null
-                    : (on) => _toggleReminders(on),
-              ),
+            NotificationSettings(
+              remindersOn: _remindersOn,
+              onToggleReminders: _toggleReminders,
+              care: care,
             ),
             const SizedBox(height: 24),
             Text('LEGAL', style: text.labelSmall),
@@ -304,8 +286,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       ),
                     );
                     if (leave != true || !context.mounted) return;
-                    await DoseReminders.cancel();
-                    await care.reset();
+                    final error = await care.leaveHousehold();
+                    if (!context.mounted) return;
+                    // household.left / leave_failed: logged by the repository.
+                    if (error != null) {
+                      ScaffoldMessenger.of(context)
+                          .showSnackBar(SnackBar(content: Text(error)));
+                      return;
+                    }
+                    // Pets and medicines stay on this phone, so do their
+                    // reminders; doses from the old household drop out.
+                    await DoseReminders.reschedule(
+                      care,
+                      reason: 'left_household',
+                    );
+                    if (!context.mounted) return;
                     context.go(AppRoutes.today);
                   },
                 ),
@@ -324,49 +319,163 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       height: 22,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Text('Delete account on this phone'),
+                  : Text(
+                      care.isConnected
+                          ? 'Delete account'
+                          : 'Delete account on this phone',
+                    ),
             ),
             const SizedBox(height: 8),
             Text(
-              'Required by Apple and Google: delete removes all app data from this device.',
+              care.isConnected
+                  ? 'Deletes your account on our server and all app data on this phone.'
+                  : 'Required by Apple and Google: delete removes all app data from this device.',
               style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
             ),
-            if (kDebugMode) ...[
-              const SizedBox(height: 24),
-              Text('DEBUG · SCREENSHOTS ONLY', style: text.labelSmall),
-              const SizedBox(height: 8),
-              SurfaceCard(
-                child: Column(
-                  children: [
-                    ListTile(
-                      title: const Text('Load demo data'),
-                      subtitle: const Text(
-                        '2 pets, 4 meds, and today\'s doses — for App Store screenshots.',
-                      ),
-                      onTap: () => _loadDemoData(care),
-                    ),
-                    Divider(height: 1, color: scheme.outlineVariant),
-                    ListTile(
-                      title: Text(
-                        'Clear demo data',
-                        style: TextStyle(color: scheme.error),
-                      ),
-                      subtitle: const Text('Wipes everything on this phone back to empty.'),
-                      onTap: () => _clearDemoData(care),
-                    ),
-                  ],
-                ),
-              ),
-            ],
             const SizedBox(height: 24),
             Center(
               child: Text(
-                'PawsitiveSync $version',
+                'Pawsitive $version',
                 style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
               ),
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Delete confirmation with the exact consequence for this person's role,
+/// a busy state, a "slow connection" note after 5 s, and inline errors.
+class _DeleteAccountDialog extends StatefulWidget {
+  const _DeleteAccountDialog({required this.care});
+
+  final CareRepository care;
+
+  @override
+  State<_DeleteAccountDialog> createState() => _DeleteAccountDialogState();
+}
+
+class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
+  static const _slowAfter = Duration(seconds: 5);
+
+  bool _busy = false;
+  bool _slow = false;
+  String? _error;
+  Timer? _slowTimer;
+
+  @override
+  void dispose() {
+    _slowTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _confirm() async {
+    if (_busy) return; // double tap: the first request is still running
+    setState(() {
+      _busy = true;
+      _slow = false;
+      _error = null;
+    });
+    _slowTimer = Timer(_slowAfter, () {
+      if (mounted) setState(() => _slow = true);
+      AppLog.event('account.delete_slow');
+    });
+    final error = await widget.care.deleteAccount();
+    _slowTimer?.cancel();
+    if (!mounted) return;
+    if (error == null) {
+      Navigator.of(context).pop(true);
+      return;
+    }
+    setState(() {
+      _busy = false;
+      _slow = false;
+      _error = error;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final care = widget.care;
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final (title, body) = switch (care.accountDeleteScope) {
+      AccountDeleteScope.household => (
+        'Delete your account and household?',
+        'This permanently deletes ${petNameList(care.pets)} and all medicines, doses and notes for everyone in this household. Other caregivers will lose access. This can\'t be undone.',
+      ),
+      AccountDeleteScope.member => (
+        'Delete your account?',
+        'You\'ll leave this household and your account is deleted. Doses you logged stay in the household\'s history.',
+      ),
+      AccountDeleteScope.local => (
+        'Delete everything on this phone?',
+        'This removes all pets, medicines, and dose history stored on this phone. This cannot be undone.',
+      ),
+    };
+    return PopScope(
+      canPop: !_busy,
+      child: AlertDialog(
+        title: Text(title),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(body),
+            if (_busy && _slow) ...[
+              const SizedBox(height: 16),
+              Text(
+                'Still working — slow connection. Keep this open; it finishes as soon as the server answers.',
+                style: text.bodyMedium?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+            if (_error != null) ...[
+              const SizedBox(height: 16),
+              Semantics(
+                liveRegion: true,
+                child: Text(
+                  _error!,
+                  style: text.bodyMedium?.copyWith(color: scheme.error),
+                ),
+              ),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: _busy ? null : () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: scheme.error,
+              foregroundColor: scheme.onError,
+              disabledBackgroundColor: scheme.error.withValues(alpha: 0.7),
+              disabledForegroundColor: scheme.onError,
+            ),
+            onPressed: _busy ? null : _confirm,
+            child: _busy
+                ? Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox.square(
+                        dimension: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: scheme.onError,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      const Text('Deleting…'),
+                    ],
+                  )
+                : Text(_error == null ? 'Delete' : 'Try again'),
+          ),
+        ],
       ),
     );
   }

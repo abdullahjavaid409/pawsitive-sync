@@ -12,6 +12,7 @@ import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'support/sample_household.dart';
 
 void main() {
   setUp(() {
@@ -23,7 +24,7 @@ void main() {
   testWidgets('pet filter updates daily progress and next dose together', (
     tester,
   ) async {
-    final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 14));
+    final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14));
     await _pump(tester, care);
     expect(find.text('2 doses left today'), findsOneWidget);
     expect(find.text('Log dose'), findsOneWidget);
@@ -39,7 +40,9 @@ void main() {
   testWidgets('a due dose inside a group opens confirmation without logging', (
     tester,
   ) async {
-    final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 14));
+    // Pro: the sample's Miso already has Free's medicine count.
+    final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14))
+      ..debugStorePro = true;
     await care.addMedication(
       petId: 'miso',
       name: 'Gabapentin',
@@ -69,7 +72,7 @@ void main() {
   testWidgets('upcoming doses offer details without a give-now action', (
     tester,
   ) async {
-    final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 7));
+    final care = sampleCare(clock: () => DateTime(2026, 10, 3, 7));
     await _pump(tester, care);
     expect(find.text('Later today'), findsOneWidget);
     expect(find.text('View medicine'), findsOneWidget);
@@ -79,16 +82,16 @@ void main() {
   testWidgets('a pet with no report can switch back to a pet with records', (
     tester,
   ) async {
-    final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 14));
-    await care.startTrial();
-    for (final medicine in care.medicationsFor('juniper')) {
-      await care.removeMedication(medicine.id);
-    }
+    final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14));
+    care.applyStoreEntitlement(true, BillingPlan.yearly);
+    // A removed medicine keeps its in-range history in the report, so the
+    // empty state needs a pet that never had a medicine.
+    await care.addPet(name: 'Pip', species: Species.rabbit);
     final router = await _pump(tester, care);
     router.go(AppRoutes.reports);
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('Juniper'));
-    await tester.tap(find.text('Juniper'));
+    await tester.ensureVisible(find.text('Pip'));
+    await tester.tap(find.text('Pip'));
     await tester.pumpAndSettle();
     expect(find.byType(CareEmptyState), findsOneWidget);
     expect(find.byType(CarePetPicker), findsOneWidget);
@@ -102,7 +105,9 @@ void main() {
   testWidgets('medicine form saves the selected pet, daily times and supply', (
     tester,
   ) async {
-    final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 14));
+    // Pro: Juniper already has Free's one medicine.
+    final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14))
+      ..debugStorePro = true;
     final router = await _pump(tester, care);
     router.go('${AppRoutes.schedule}?pet=juniper');
     await tester.pumpAndSettle();
@@ -136,10 +141,40 @@ void main() {
     );
   });
 
+  testWidgets('Free: evening dose time opens the paywall, not the schedule', (
+    tester,
+  ) async {
+    final care = CareRepository(clock: () => DateTime(2026, 10, 3, 14));
+    final petId = (await care.addPet(name: 'Pip', species: Species.cat))!;
+    final router = await _pump(tester, care);
+    router.go('${AppRoutes.schedule}?pet=$petId');
+    await tester.pumpAndSettle();
+    expect(
+      find.text(
+        'Free includes one morning dose (4 AM to noon) and its reminder. Pro adds afternoon, evening and any time.',
+      ),
+      findsOneWidget,
+    );
+    // Afternoon and evening say "Pro" before anyone taps them.
+    expect(find.bySemanticsLabel(RegExp(r'^Evening, .*, Pro$')), findsOneWidget);
+    expect(
+      find.bySemanticsLabel(RegExp(r'^Afternoon, .*, Pro$')),
+      findsOneWidget,
+    );
+    expect(find.bySemanticsLabel(RegExp(r'^Morning, .*, Pro$')), findsNothing);
+    await _reveal(tester, find.text('Evening'));
+    await tester.tap(find.text('Evening'));
+    await tester.pumpAndSettle();
+    expect(find.text('Morning and evening, both covered'), findsOneWidget);
+    expect(AppLog.logged('medication.add.blocked'), isTrue);
+    expect(care.medications, isEmpty);
+  });
+
   testWidgets(
     'medicine validation explains missing details and optional supply can be removed',
     (tester) async {
-      final care = CareRepository.sample();
+      // Pro: Free at its medicine cap opens the paywall instead (own test).
+      final care = sampleCare()..debugStorePro = true;
       final initialCount = care.medications.length;
       final router = await _pump(tester, care);
       router.go(AppRoutes.schedule);
@@ -178,7 +213,7 @@ void main() {
   );
 
   testWidgets('first care event is discoverable, saves notes and confirms removal', (tester) async {
-    final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 14));
+    final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14));
     await _pump(tester, care);
     await _reveal(tester, find.text('Add event'));
     await tester.tap(find.text('Add event'));
@@ -207,7 +242,7 @@ void main() {
   });
 
   testWidgets('uncertain doses are clearly marked for review', (tester) async {
-    final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 14));
+    final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14));
     final dose = care.nextDue!;
     await care.markDoseUncertain(dose.id);
     await _pump(tester, care);
@@ -220,7 +255,7 @@ void main() {
   });
 
   testWidgets('care event sheet supports large text with the keyboard open', (tester) async {
-    final care = CareRepository.sample();
+    final care = sampleCare();
     await _pump(tester, care, size: const Size(320, 640), scale: 1.6);
     await _reveal(tester, find.text('Add event'));
     await tester.tap(find.text('Add event'));
@@ -244,7 +279,7 @@ void main() {
     testWidgets('main tabs scroll without overflow at $scenario', (
       tester,
     ) async {
-      final care = CareRepository.sample(
+      final care = sampleCare(
         clock: () => DateTime(2026, 10, 3, 14),
       );
       final router = await _pump(
@@ -275,27 +310,16 @@ void main() {
     });
   }
 
-  testWidgets('settings debug section loads and clears demo data', (
-    tester,
-  ) async {
+  testWidgets('settings has no demo-data or debug controls', (tester) async {
     final care = CareRepository(clock: () => DateTime(2026, 10, 3, 14));
     final router = await _pump(tester, care);
     router.go(AppRoutes.settings);
     await tester.pumpAndSettle();
-
-    expect(care.pets, isEmpty);
-    await _reveal(tester, find.text('Load demo data'));
-    await tester.tap(find.text('Load demo data'));
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -2000));
     await tester.pumpAndSettle();
-    expect(care.pets, isNotEmpty);
-    expect(AppLog.logged('debug.demo_data.loaded'), isTrue);
-
-    await _reveal(tester, find.text('Clear demo data'));
-    await tester.tap(find.text('Clear demo data'));
-    await tester.pumpAndSettle();
+    expect(find.textContaining('demo', findRichText: true), findsNothing);
+    expect(find.textContaining('DEBUG'), findsNothing);
     expect(care.pets, isEmpty);
-    expect(AppLog.logged('debug.demo_data.cleared'), isTrue);
-    expect(AppLog.logged('household.reset'), isTrue);
   });
 }
 

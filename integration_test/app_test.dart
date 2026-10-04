@@ -9,6 +9,8 @@ import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/data/household_api.dart';
 import 'package:pawsitive_sync/data/household_store.dart';
+import 'package:pawsitive_sync/data/local_database.dart';
+import 'package:pawsitive_sync/data/secure_tokens.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/main.dart';
 import 'package:provider/provider.dart';
@@ -104,6 +106,18 @@ void main() {
       qa.noEvent('medication.add.completed');
     });
 
+    await qa.step('Pro gate: evening dose time opens paywall', () async {
+      await qa.see('Free includes one morning dose', partial: true);
+      await qa.tap(find.text('Evening'));
+      await qa.see('Morning and evening, both covered');
+      qa.event('billing.paywall.opened', {'reason': 'more_dose_times'});
+      qa.event('medication.add.blocked', {'reason': 'free_tier_times'});
+      await qa.tap(find.byTooltip('Close'));
+      // Back on the form, still morning only, nothing typed lost.
+      await qa.see('Apoquel');
+      qa.noEvent('medication.add.completed');
+    });
+
     await qa.step(
       'Add medicine with supply tracking (offline write)',
       () async {
@@ -121,9 +135,17 @@ void main() {
       },
     );
 
-    await qa.step('Log a dose from Today', () async {
+    await qa.step('Not sure if given marks a dose for a check', () async {
       await qa.tap(find.text('Log dose'));
       await qa.see('Log apoquel');
+      await qa.tap(find.text('Not sure if given'));
+      await qa.see('Needs a check');
+      await qa.see('Luna · You are not sure — check first');
+      qa.event('dose.uncertain.completed');
+    });
+
+    await qa.step('Review the unsure dose and log it', () async {
+      await qa.tap(find.text('Review dose'));
       await qa.tap(find.text('Log dose').last);
       await qa.see('All cared for.');
       qa.event('dose.log.completed');
@@ -147,26 +169,18 @@ void main() {
       expect(qa.count('dose.log.completed'), 1);
     });
 
-    await qa.step('Not sure if given marks a dose for a check', () async {
+    await qa.step('Pro gate: second medicine opens paywall', () async {
+      final care = _care(t);
+      final petId = care.pets.single.id;
+      expect(care.activeMedicationCount(petId), 1);
+      expect(care.canAddMedication(petId), isFalse);
       await qa.tap(find.text('Add'));
-      await qa.type(
-        find.widgetWithText(TextField, 'e.g. Apoquel'),
-        'Gabapentin',
-      );
-      await qa.tap(find.text('Save medicine'));
-      await qa.gone('Gabapentin is on Luna’s Today list.', seconds: 8);
-      await qa.tap(find.text('Log dose'));
-      await qa.tap(find.text('Not sure if given'));
-      await qa.see('Needs a check');
-      await qa.see('Luna · You are not sure — check first');
-      qa.event('dose.uncertain.completed');
-    });
-
-    await qa.step('Skip today removes the dose from Today', () async {
-      await qa.tap(find.text('Review dose'));
-      await qa.tap(find.text('Skip today'));
-      await qa.see('All cared for.');
-      qa.event('dose.skip.completed');
+      await qa.see('Every medicine, one schedule');
+      qa.event('billing.paywall.opened', {'reason': 'more_meds'});
+      await qa.tap(find.byTooltip('Close'));
+      expect(care.medications, hasLength(1));
+      // Logging what's already scheduled stays free at the cap.
+      expect(care.doses.where((d) => d.petId == petId), isNotEmpty);
     });
 
     await qa.step('Care event add and remove', () async {
@@ -194,6 +208,40 @@ void main() {
       await qa.gone('Luna Belle was updated.', seconds: 8);
     });
 
+    await qa.step('Edge: dismissing the time picker keeps the time', () async {
+      await qa.tap(find.text('Apoquel'));
+      await qa.see('Morning reminder');
+      await qa.see('8:00 AM');
+      await qa.tap(find.text('Morning reminder'));
+      await qa.tap(find.text('Cancel'));
+      qa.event('medication.time_pick_cancelled', {'part': 'morning'});
+      qa.noEvent('medication.times.completed');
+      expect(_apoquel(_care(t)).times, isEmpty);
+    });
+
+    await qa.step('Custom reminder time: 7:15 AM saved, shown everywhere', () async {
+      await qa.tap(find.text('Morning reminder'));
+      await qa.tap(find.byIcon(Icons.keyboard_outlined));
+      final fields = find.descendant(
+        of: find.byType(Dialog),
+        matching: find.byType(TextField),
+      );
+      await qa.type(fields.at(0), '7');
+      await qa.type(fields.at(1), '15');
+      await qa.tap(find.text('OK'));
+      await qa.see('Morning reminder set to 7:15 AM.');
+      qa.event('medication.times.completed', {'customTimes': 1});
+      expect(_apoquel(_care(t)).times, {DayPart.morning: 7 * 60 + 15});
+      // Survives a cold reload (SQLite v2 column).
+      final reloaded = CareRepository(store: HouseholdStore());
+      await reloaded.restore();
+      expect(_apoquel(reloaded).times, {DayPart.morning: 7 * 60 + 15});
+      await qa.tap(find.text('Back'));
+      await qa.tapLabel('Today');
+      await qa.see('7:15 AM', partial: true);
+      await qa.tapLabel('Pets');
+    });
+
     await qa.step('Pro gate: second pet opens paywall', () async {
       await qa.tap(find.byTooltip('Add pet'));
       await qa.see('Pro unlocks');
@@ -215,17 +263,16 @@ void main() {
       final care = _care(t);
       final report = care.reportFor(care.pets.single.id, 30);
       expect(report.lines.fold<int>(0, (sum, l) => sum + l.given), 1);
-      expect(report.skipped, 1);
+      expect(report.skipped, 0);
     });
 
-    await qa.step('Stop medicine and its SnackBar dismisses', () async {
-      await qa.tapLabel('Pets');
-      await qa.tap(find.text('Gabapentin'));
-      await qa.tap(find.text('Stop medicine'));
-      await qa.tap(find.text('Stop medicine').last);
-      await qa.see('Gabapentin was stopped.');
-      qa.event('medication.remove.completed');
-      await qa.gone('Gabapentin was stopped.', seconds: 8);
+    await qa.step('Pro gate: 90-day history opens paywall', () async {
+      await qa.tap(find.text('90 days'));
+      await qa.see('Their whole story, not just a month');
+      qa.event('report.range_locked', {'days': 90});
+      qa.event('billing.paywall.opened', {'reason': 'history'});
+      await qa.tap(find.byTooltip('Close'));
+      expect(_care(t).historyFromDay, isNotNull);
     });
 
     await qa.step('Offline data survives a cold reload', () async {
@@ -236,6 +283,21 @@ void main() {
       expect(reloaded.medications.single.dosesLeft, 3);
     });
 
+    await qa.step('Stop medicine and its SnackBar dismisses', () async {
+      await qa.tapLabel('Pets');
+      await qa.tap(find.text('Apoquel'));
+      await qa.tap(find.text('Stop medicine'));
+      await qa.tap(find.text('Stop medicine').last);
+      await qa.see('Apoquel was stopped.');
+      qa.event('medication.remove.completed');
+      await qa.gone('Apoquel was stopped.', seconds: 8);
+    });
+
+    await qa.step('Edge: a stopped medicine frees a slot under the cap', () async {
+      final care = _care(t);
+      expect(care.canAddMedication(care.pets.single.id), isTrue);
+    });
+
     await qa.step('Settings: restore purchases without a store', () async {
       await qa.tapLabel('Today');
       await qa.tap(find.byTooltip('Settings'));
@@ -243,11 +305,19 @@ void main() {
       qa.event('billing.restore.requested');
     });
 
+    await qa.step('Pro gate: weekly summary opens paywall', () async {
+      await qa.see('Weekly summary');
+      await qa.tap(find.text('See Pro').first);
+      await qa.see('Know the week went right');
+      qa.event('billing.paywall.opened', {'reason': 'weekly_summary'});
+      await qa.tap(find.byTooltip('Close'));
+    });
+
     await qa.step('Settings: delete account wipes the phone', () async {
       await qa.tap(find.text('Delete account on this phone'));
       await qa.tap(find.text('Delete'));
       await qa.see('Get started');
-      qa.event('settings.account_deleted');
+      qa.event('account.deleted');
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getString('household_v2'), isNull);
     });
@@ -270,9 +340,11 @@ void main() {
       await qa.tap(find.text('Continue with 1 selected'));
       await qa.tap(find.text('Continue'));
       await qa.tap(find.text('Not now'));
-      await qa.tap(find.text('Start 7-day free trial · Yearly'));
-      await qa.see('Pro');
-      qa.event('billing.trial.local_fallback');
+      await qa.tap(find.text('Continue free with 1 pet'));
+      // Pro only comes from RevenueCat; stand in for its entitlement listener.
+      _care(t).applyStoreEntitlement(true, BillingPlan.yearly);
+      await qa.settle(500);
+      qa.event('billing.store.entitlement_changed');
       expect(_care(t).isPro, isTrue);
     });
 
@@ -296,6 +368,14 @@ void main() {
       );
       expect(_care(t).isConnected, isTrue);
       expect(_care(t).isPro, isTrue, reason: 'trial must survive going online');
+      // The code shows as soon as the server answers; household.connected is
+      // logged after the follow-up steps (store identity, outbox, photos).
+      // Push registration never delays it (it runs in the background).
+      await qa.waitUntil(
+        () => qa.count('household.connected') > 0,
+        seconds: 20,
+        what: 'household.connected',
+      );
       qa.event('household.connected');
       await qa.tap(find.byTooltip('Back'));
     });
@@ -396,7 +476,23 @@ void main() {
         seconds: 15,
         what: 'partner sees refilled supply',
       );
-      await qa.tap(find.text('Back'));
+      // Refill opens from the medication page; back out until the tabs show
+      // (bottom tabs on phones, a side rail on tablets).
+      final petsTab = find.byWidgetPredicate(
+        (w) =>
+            w is Semantics &&
+            w.properties.button == true &&
+            w.properties.label == 'Pets',
+      );
+      bool tabsShown() =>
+          petsTab.evaluate().isNotEmpty ||
+          find.byType(NavigationRail).evaluate().isNotEmpty &&
+              find.text('Back').evaluate().isEmpty;
+      for (var i = 0;
+          i < 3 && !tabsShown() && find.text('Back').evaluate().isNotEmpty;
+          i++) {
+        await qa.tap(find.text('Back').last);
+      }
     });
 
     await qa.step('Pro: second pet allowed and synced', () async {
@@ -423,6 +519,12 @@ void main() {
       await qa.tap(find.byTooltip('Settings'));
       await qa.tap(find.text('Leave household'));
       await qa.tap(find.text('Leave'));
+      // Reset finishes after the store sign-out and local clears.
+      await qa.waitUntil(
+        () => qa.count('household.reset') > 0,
+        seconds: 20,
+        what: 'household.reset',
+      );
       qa.event('household.reset');
       expect(
         (await partner.fetchHousehold()).pets,
@@ -445,13 +547,21 @@ Qa _qa(WidgetTester t) => Qa(
   eventCount: AppLog.logCount,
 );
 
+/// A true first launch: since the move to SQLite and the Keychain, clearing
+/// preferences alone leaves the last run's household behind (e.g. after an
+/// interrupted run), so the database file and secure tokens go too.
 Future<void> _launchFresh(Qa qa) async {
   final prefs = await SharedPreferences.getInstance();
   await prefs.clear();
+  await LocalDatabase.shared.deleteFile();
+  await SecureTokens.deleteAll();
   AppLog.enableTestCapture();
   await qa.t.pumpWidget(await bootstrap());
   await qa.settle(1500);
 }
+
+Medication _apoquel(CareRepository care) =>
+    care.medications.singleWhere((m) => m.name == 'Apoquel');
 
 CareRepository _care(WidgetTester t) => Provider.of<CareRepository>(
   t.element(find.byType(Scaffold).first),

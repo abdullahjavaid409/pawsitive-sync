@@ -6,6 +6,9 @@ import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'test_log_helpers.dart';
+import 'support/sample_household.dart';
+
 /// End-to-end care journey: delete → fresh start → every feature → delete again.
 void main() {
   setUp(() {
@@ -16,8 +19,8 @@ void main() {
   tearDown(AppLog.disableTestCapture);
 
   test('complete delete → setup → features → delete logs every step', () async {
-    final clock = () => DateTime(2026, 10, 3, 14);
-    final care = CareRepository.sample(clock: clock);
+    DateTime clock() => DateTime(2026, 10, 3, 14);
+    final care = sampleCare(clock: clock);
     final onboarding = OnboardingViewModel();
 
     // --- 1. Delete / reset (Settings → Delete account) ---
@@ -45,7 +48,9 @@ void main() {
     await onboarding.finish(reminders: false);
     await OnboardingState.write(true);
     expect(onboarding.isComplete, isTrue);
-    expect(AppLog.logged('onboarding.finished'), isTrue);
+    // Setup's one log line is household.created_from_onboarding (below);
+    // finish() only counts the funnel step.
+    expectNotLogged('onboarding.finished');
 
     care.applyOnboarding(onboarding);
     final pet = care.primaryPet!;
@@ -55,6 +60,8 @@ void main() {
     expect(AppLog.logged('household.created_from_onboarding'), isTrue);
 
     // --- 3. Add medicine with course end ---
+    // Pro: Free schedules one morning medicine per pet.
+    care.debugStorePro = true;
     final medOk = await care.addMedication(
       petId: pet.id,
       name: 'Carprofen',
@@ -104,6 +111,7 @@ void main() {
       amount: '1 tablet',
       parts: [DayPart.afternoon],
     );
+    care.debugStorePro = false;
     final skipTarget = care.doses.firstWhere(
       (d) => d.name == 'Once daily' && d.status == DoseStatus.due,
     );
@@ -125,9 +133,9 @@ void main() {
 
     // --- 8. Pro unlock + second pet ---
     expect(care.canAddPet, isFalse);
-    await care.startTrial();
+    care.applyStoreEntitlement(true, BillingPlan.yearly);
     expect(care.isPro, isTrue);
-    expect(AppLog.logged('billing.pro.unlocked'), isTrue);
+    expect(AppLog.logged('billing.store.entitlement_changed'), isTrue);
     final secondId = await care.addPet(name: 'Miso', species: Species.cat);
     expect(secondId, isNotNull);
     expect(AppLog.logged('pet.add.completed'), isTrue);
@@ -170,14 +178,13 @@ void main() {
     // Every major feature emitted at least one log in this journey.
     for (final event in [
       'household.reset',
-      'onboarding.finished',
       'household.created_from_onboarding',
       'medication.add.completed',
       'dose.log.completed',
       'dose.uncertain.completed',
       'dose.skip.completed',
       'care_event.added',
-      'billing.pro.unlocked',
+      'billing.store.entitlement_changed',
       'pet.add.completed',
       'medication.refill.completed',
       'medication.remove.completed',
@@ -188,7 +195,7 @@ void main() {
   });
 
   test('reset clears persisted care events', () async {
-    final care = CareRepository.sample();
+    final care = sampleCare();
     await care.addCareEvent(
       petId: care.primaryPet!.id,
       title: 'Vaccine',
@@ -198,7 +205,7 @@ void main() {
     expect(care.careEvents, isNotEmpty);
     await care.reset();
     expect(care.careEvents, isEmpty);
-    final restored = CareRepository.sample();
+    final restored = sampleCare();
     await restored.restore();
     expect(restored.careEvents, isEmpty);
   });

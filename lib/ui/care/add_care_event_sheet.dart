@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/care_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/dismiss_keyboard.dart';
@@ -8,10 +7,11 @@ import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:provider/provider.dart';
 
+/// Named so the navigation log reads `nav.push to=add_care_event`.
 Future<void> showAddCareEventSheet(BuildContext context, {String? petId}) {
-  AppLog.event('care_event.sheet_opened');
   return showModalBottomSheet<void>(
     context: context,
+    routeSettings: const RouteSettings(name: 'add_care_event'),
     isScrollControlled: true,
     useSafeArea: true,
     useRootNavigator: true,
@@ -86,18 +86,14 @@ class _AddCareEventSheetState extends State<_AddCareEventSheet> {
       note: _note.text,
     );
     if (!mounted) return;
+    // care_event.added / rejected are logged by the repository.
     if (!ok) {
-      AppLog.event('care_event.save_failed', {
-        'kind': _kind.name,
-        'error': care.lastError ?? 'unknown',
-      });
       setState(() {
         _busy = false;
         _error = care.lastError ?? 'Could not save. Try again.';
       });
       return;
     }
-    AppLog.event('care_event.saved', {'kind': _kind.name, 'petId': petId});
     Navigator.of(context).pop();
     ScaffoldMessenger.of(
       context,

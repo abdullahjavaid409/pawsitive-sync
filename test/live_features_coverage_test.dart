@@ -3,6 +3,7 @@ import 'package:pawsitive_sync/core/constants/live_features.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/data/household_api.dart';
+import 'package:pawsitive_sync/data/household_store.dart';
 import 'package:pawsitive_sync/data/push_service.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
@@ -41,9 +42,11 @@ void main() {
 }
 
 Future<void> _exerciseAllLiveFeatures() async {
-  final clock = () => DateTime(2026, 10, 3, 14);
-  final care = CareRepository(clock: clock);
+  DateTime clock() => DateTime(2026, 10, 3, 14);
+  final care = CareRepository(clock: clock, store: HouseholdStore());
   await care.addPet(name: 'Milo', species: Species.cat);
+  await care.flushPersist();
+  await CareRepository(clock: clock, store: HouseholdStore()).restore();
   final petId = care.pets.first.id;
 
   // Pets
@@ -59,11 +62,7 @@ Future<void> _exerciseAllLiveFeatures() async {
     weightKg: pet.weightKg,
     conditions: pet.conditions,
   );
-  await care.updatePet(
-    petId: pet.id,
-    name: 'Milo Jr',
-    species: Species.cat,
-  );
+  await care.updatePet(petId: pet.id, name: 'Milo Jr', species: Species.cat);
 
   // Medications
   await care.addMedication(
@@ -72,6 +71,8 @@ Future<void> _exerciseAllLiveFeatures() async {
     amount: '1 tab',
     parts: [DayPart.morning],
   );
+  // Pro for setup only: Free schedules the morning dose only.
+  care.debugStorePro = true;
   await care.addMedication(
     petId: petId,
     name: 'Insulin',
@@ -79,6 +80,7 @@ Future<void> _exerciseAllLiveFeatures() async {
     parts: [DayPart.morning, DayPart.evening],
     supplyTotal: 30,
   );
+  care.debugStorePro = false;
   await care.addMedication(
     petId: 'missing',
     name: 'Test',
@@ -126,7 +128,7 @@ Future<void> _exerciseAllLiveFeatures() async {
 
   // Billing / Pro
   await care.setPlan(BillingPlan.monthly);
-  await care.startTrial();
+  care.applyStoreEntitlement(true, BillingPlan.yearly);
   await care.restoreBilling();
 
   // Onboarding (separate instance)
@@ -145,13 +147,7 @@ Future<void> _exerciseAllLiveFeatures() async {
 
   // Join household
   final joinAdapter = FakeHouseholdAdapter([
-    (
-      201,
-      {
-        ...connectHouseholdBody(),
-        'token': 'join-token',
-      },
-    ),
+    (201, {...connectHouseholdBody(), 'token': 'join-token'}),
     (200, {'ok': true}),
   ]);
   final joiner = CareRepository(
@@ -169,7 +165,7 @@ Future<void> _exerciseAllLiveFeatures() async {
       {
         'token': 'sitter-tok',
         'expiresAt': '2026-11-03T00:00:00.000Z',
-        'url': '/sitter?t=sitter-tok',
+        'url': '/sitter#t=sitter-tok',
       },
     ),
     (
@@ -190,32 +186,49 @@ Future<void> _exerciseAllLiveFeatures() async {
       ),
     ),
     (503, {'error': 'busy'}),
-    (403, {'error': 'Browser sitter links need PawsitiveSync Pro.'}),
+    (403, {'error': 'Browser sitter links need Pawsitive Pro.'}),
   ]);
   final connected = CareRepository(
     api: fakeHouseholdApi(adapter),
     clock: clock,
   );
   await connected.addPet(name: 'Miso', species: Species.cat);
-  await connected.startTrial();
+  connected.applyStoreEntitlement(true, BillingPlan.yearly);
   await connected.connect();
   await connected.ensureSitterWebLink();
   await connected.sync(force: true);
   await connected.sync(force: true);
+
+  // Subscriber shares Pro with a Free household
+  final shareAdapter = FakeHouseholdAdapter([
+    (201, connectHouseholdBody(isPro: false)),
+    (200, {'ok': true}),
+    (200, {'isPro': true, 'plan': 'yearly'}),
+  ]);
+  final sharer = CareRepository(
+    api: fakeHouseholdApi(shareAdapter),
+    clock: clock,
+  );
+  await sharer.addPet(name: 'Miso', species: Species.cat);
+  await sharer.connect();
+  sharer.applyStoreEntitlement(true, BillingPlan.yearly);
+  await sharer.startTrial();
 
   // Cached sitter link
   SharedPreferences.setMockInitialValues({
     'sitter_web_token_v1:ABC234': 'cached-sitter-token',
   });
   final cached = CareRepository(
-    api: fakeHouseholdApi(FakeHouseholdAdapter([
-      (201, connectHouseholdBody(inviteCode: 'ABC234')),
-      (200, {'ok': true}),
-    ])),
+    api: fakeHouseholdApi(
+      FakeHouseholdAdapter([
+        (201, connectHouseholdBody(inviteCode: 'ABC234')),
+        (200, {'ok': true}),
+      ]),
+    ),
     clock: clock,
   );
   await cached.addPet(name: 'Miso', species: Species.cat);
-  await cached.startTrial();
+  cached.applyStoreEntitlement(true, BillingPlan.yearly);
   await cached.connect();
   await cached.ensureSitterWebLink();
 
@@ -223,14 +236,14 @@ Future<void> _exerciseAllLiveFeatures() async {
   final failAdapter = FakeHouseholdAdapter([
     (201, connectHouseholdBody(inviteCode: 'FAIL01')),
     (200, {'ok': true}),
-    (403, {'error': 'Browser sitter links need PawsitiveSync Pro.'}),
+    (403, {'error': 'Browser sitter links need Pawsitive Pro.'}),
   ]);
   final failLink = CareRepository(
     api: fakeHouseholdApi(failAdapter),
     clock: clock,
   );
   await failLink.addPet(name: 'Miso', species: Species.cat);
-  await failLink.startTrial();
+  failLink.applyStoreEntitlement(true, BillingPlan.yearly);
   await failLink.connect();
   await failLink.ensureSitterWebLink(force: true);
 
@@ -241,7 +254,9 @@ Future<void> _exerciseAllLiveFeatures() async {
 
   // Push
   await PushService.registerIfConnected(null);
-  await PushService.registerIfConnected(HouseholdApi(Uri.parse('https://x.test')));
+  await PushService.registerIfConnected(
+    HouseholdApi(Uri.parse('https://x.test')),
+  );
   await PushService.setHouseholdPushEnabled(false);
   await PushService.notifyPartnerLogged(
     logId: '',

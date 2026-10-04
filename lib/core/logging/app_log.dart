@@ -1,13 +1,10 @@
-import 'dart:convert';
 import 'dart:developer' as developer;
 
-import 'package:flutter/foundation.dart' show debugPrint, kDebugMode;
+import 'package:flutter/foundation.dart'
+    show debugPrint, debugPrintStack, kDebugMode;
 import 'package:pawsitive_sync/data/analytics_service.dart';
 
-/// One structured line for the DevTools Logging view.
-///
-/// The message stays readable in the console. The JSON on `error` is the
-/// data object DevTools opens in the details pane. Call this from a
+/// One structured line: `[pawsitive.area] name key=value …`. Call this from a
 /// repository, a navigation change, or a tap handler. Never from `build`.
 class AppLogRecord {
   const AppLogRecord({
@@ -45,16 +42,14 @@ abstract final class AppLog {
   static void event(String name, [Map<String, Object?> fields = const {}]) {
     if (_captureForTests) {
       testRecords.add(
-        AppLogRecord(name: name, fields: Map.unmodifiable(fields), isError: false),
+        AppLogRecord(
+          name: name,
+          fields: Map.unmodifiable(fields),
+          isError: false,
+        ),
       );
     }
-    developer.log(
-      _line(name, fields),
-      name: 'pawsitive.${name.split('.').first}',
-      level: 800,
-      error: _json(fields),
-    );
-    if (kDebugMode) debugPrint('[applog] ${_line(name, fields)}');
+    _print(name, fields);
     AnalyticsService.track(name);
   }
 
@@ -66,17 +61,49 @@ abstract final class AppLog {
   ]) {
     if (_captureForTests) {
       testRecords.add(
-        AppLogRecord(name: name, fields: Map.unmodifiable(fields), isError: true),
+        AppLogRecord(
+          name: name,
+          fields: Map.unmodifiable(fields),
+          isError: true,
+        ),
       );
     }
-    developer.log(
-      _line(name, fields),
-      name: 'pawsitive.${name.split('.').first}',
-      level: 1000,
-      error: error,
-      stackTrace: stack,
-    );
-    if (kDebugMode) debugPrint('[applog:error] ${_line(name, fields)} — $error');
+    _print(name, fields, error: error);
+    if (kDebugMode && stack != null) {
+      debugPrintStack(stackTrace: stack, maxFrames: 8);
+    }
+  }
+
+  static final _jwt = RegExp(r'eyJ[A-Za-z0-9_\-]{8,}(?:\.[A-Za-z0-9_\-]*)*');
+  static final _rcAnon = RegExp(r'\$RCAnonymousID:[A-Za-z0-9]+');
+  static final _bearer = RegExp(r'Bearer\s+\S+', caseSensitive: false);
+  static final _email = RegExp(r'[\w.+-]+@[\w-]+\.[\w.]+');
+  static final _tokenParam = RegExp(r'([?#&]t=)[^&\s]+');
+
+  /// Strips anything that looks like a secret or personal id from free text
+  /// (SDK messages, exception text): JWS/JWT blobs, RevenueCat anonymous ids,
+  /// bearer tokens, emails and `t=` link tokens. Caps the result at [max].
+  static String redact(String text, {int max = 160}) {
+    var out = text
+        .replaceAll(_jwt, '<jwt>')
+        .replaceAll(_rcAnon, '<rc-anon-id>')
+        .replaceAll(_bearer, 'Bearer <redacted>')
+        .replaceAll(_email, '<email>')
+        .replaceAllMapped(_tokenParam, (m) => '${m[1]}<redacted>');
+    if (out.length > max) out = '${out.substring(0, max)}…';
+    return out;
+  }
+
+  /// Fire-and-forget [future]; a failure is logged as [name] instead of
+  /// escaping as an unhandled async error.
+  static void unawaitedLogged(
+    Future<void> future,
+    String name, [
+    Map<String, Object?> fields = const {},
+  ]) {
+    future.catchError((Object error, StackTrace stack) {
+      AppLog.error(name, error, stack, fields);
+    });
   }
 
   /// Marks one async case on the DevTools performance timeline.
@@ -85,9 +112,19 @@ abstract final class AppLog {
     return body().whenComplete(task.finish);
   }
 
-  static String? _json(Map<String, Object?> fields) {
-    if (fields.isEmpty) return null;
-    return jsonEncode(fields);
+  /// Exactly one console line per event, the same in a terminal
+  /// (`flutter run`), the IDE debug console and DevTools → Logging (filter by
+  /// `pawsitive`). developer.log is not used: the IDE shows it but a terminal
+  /// does not, so pairing it with print doubled every line.
+  static void _print(
+    String name,
+    Map<String, Object?> fields, {
+    Object? error,
+  }) {
+    if (!kDebugMode) return;
+    final channel = 'pawsitive.${name.split('.').first}';
+    final tail = error == null ? '' : ' — ERROR ${redact('$error', max: 300)}';
+    debugPrint('[$channel] ${redact(_line(name, fields), max: 600)}$tail');
   }
 
   static String _line(String name, Map<String, Object?> fields) {

@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
-import 'package:image_picker/image_picker.dart';
-import 'package:pawsitive_sync/core/layout/adaptive.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
-import 'package:pawsitive_sync/core/motion/app_motion.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
@@ -12,6 +9,7 @@ import 'package:pawsitive_sync/core/widgets/pet_mark.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_visuals.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
+import 'package:pawsitive_sync/ui/pets/widgets/pet_photo_sheet.dart';
 import 'package:provider/provider.dart';
 
 /// Optional details stay editable without slowing down the first step.
@@ -144,98 +142,24 @@ class PetDetailsScreen extends StatelessWidget {
   }
 }
 
-Future<void> _choosePhoto(BuildContext context, OnboardingViewModel model) {
-  final scheme = Theme.of(context).colorScheme;
-  return showModalBottomSheet<void>(
-    context: context,
-    sheetAnimationStyle: AppMotion.sheet(context),
-    constraints: AdaptiveLayout.sheetConstraints,
-    backgroundColor: scheme.surfaceContainerLowest,
-    shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-    ),
-    builder: (sheetContext) {
-      return SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Pet photo',
-                style: Theme.of(sheetContext).textTheme.headlineSmall,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                'People use this to know which pet they are looking at.',
-                style: Theme.of(sheetContext).textTheme.bodyLarge,
-              ),
-              const SizedBox(height: 16),
-              FilledButton(
-                onPressed: () =>
-                    _pick(context, sheetContext, ImageSource.camera),
-                child: const Text('Take a photo'),
-              ),
-              const SizedBox(height: 8),
-              OutlinedButton(
-                onPressed: () =>
-                    _pick(context, sheetContext, ImageSource.gallery),
-                child: const Text('Choose from photos'),
-              ),
-              if (model.photoBytes != null) ...[
-                const SizedBox(height: 8),
-                TextButton(
-                  onPressed: () {
-                    AppLog.event('pet.photo_removed');
-                    model.setPhoto(null);
-                    Navigator.of(sheetContext).pop();
-                  },
-                  child: const Text('Remove photo'),
-                ),
-              ],
-            ],
-          ),
-        ),
-      );
-    },
-  );
-}
-
-Future<void> _pick(
+/// The pet doesn't exist yet, so the compressed photo waits in the model and
+/// is saved to disk by `CareRepository.applyOnboarding` once it has an id.
+Future<void> _choosePhoto(
   BuildContext context,
-  BuildContext sheetContext,
-  ImageSource source,
+  OnboardingViewModel model,
 ) async {
-  Navigator.of(sheetContext).pop();
-  try {
-    final file = await ImagePicker().pickImage(
-      source: source,
-      maxWidth: 800,
-      imageQuality: 80,
-    );
-    if (file == null) {
-      AppLog.event('pet.photo_cancelled', {'source': source.name});
-      return;
-    }
-    if (!context.mounted) return;
-    final bytes = await file.readAsBytes();
-    if (!context.mounted) return;
-    context.read<OnboardingViewModel>().setPhoto(bytes);
-    AppLog.event('pet.photo_set', {
-      'source': source.name,
-      'bytes': bytes.length,
-    });
-  } on PlatformException {
-    AppLog.event('pet.photo_failed', {'source': source.name});
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Could not open the camera or photos. Try the other one.',
-        ),
-      ),
-    );
+  final choice = await showPetPhotoSheet(
+    context,
+    hasPhoto: model.photoBytes != null,
+  );
+  switch (choice) {
+    case PetPhotoPicked(:final bytes):
+      model.setPhoto(bytes);
+    case PetPhotoRemoved():
+      AppLog.event('pet.photo_removed', {'stage': 'onboarding'});
+      model.setPhoto(null);
+    case null:
+      break;
   }
 }
 

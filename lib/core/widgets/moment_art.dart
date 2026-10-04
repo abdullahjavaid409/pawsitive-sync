@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:pawsitive_sync/core/routing/app_route_observer.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:lottie/lottie.dart';
 import 'package:pawsitive_sync/core/motion/app_motion.dart';
@@ -69,6 +70,9 @@ Future<void> showMoment(
 }) {
   return showDialog<void>(
     context: context,
+    // A self-closing confirmation, not navigation: the route observer
+    // leaves it out of the log (the action it confirms is logged already).
+    routeSettings: const RouteSettings(name: AppRouteObserver.moment),
     builder: (context) => _MomentDialog(name: name, message: message),
   );
 }

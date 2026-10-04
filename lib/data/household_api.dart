@@ -2,6 +2,7 @@ import 'package:characters/characters.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
+import 'package:pawsitive_sync/data/api/api_interceptors.dart';
 import 'package:pawsitive_sync/data/sync_outbox.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 
@@ -18,7 +19,23 @@ class HouseholdSnapshot {
     required this.logs,
     this.careEvents = const [],
     this.householdId = '',
+    this.archivedMedications = const [],
+    this.role,
+    this.inviteExpiresAt,
+    this.proUntil,
   });
+
+  /// When household Pro ends (latest payer expiry). Null for a lifetime
+  /// purchase, when Free, or from servers older than v8 — then [isPro]
+  /// alone decides, as before.
+  final DateTime? proUntil;
+
+  /// This member's role as the server sees it right now. Null from servers
+  /// older than v5 (then the member list's own entry is the answer).
+  final MemberRole? role;
+
+  /// When [inviteCode] stops working. Only the owner gets a code and expiry.
+  final DateTime? inviteExpiresAt;
 
   /// Server id for the household. Opaque and globally unique.
   final String householdId;
@@ -31,6 +48,10 @@ class HouseholdSnapshot {
   final List<Medication> medications;
   final List<DoseRecord> logs;
   final List<CareEvent> careEvents;
+
+  /// Medicines removed from the household that still have logs in the
+  /// returned window, each with [Medication.archivedAt]. History only.
+  final List<Medication> archivedMedications;
 }
 
 class BatchOpResult {
@@ -39,22 +60,55 @@ class BatchOpResult {
     required this.status,
     this.log,
     this.message,
+    this.code,
   });
 
   final String id;
   final String status;
   final DoseRecord? log;
   final String? message;
+
+  /// Machine-readable reason for an `error` op, e.g. `role_forbidden`.
+  final String? code;
+}
+
+/// One working browser sitter link, as the owner sees it (GET /v1/sitter-links).
+class SitterLinkInfo {
+  const SitterLinkInfo({
+    required this.id,
+    required this.label,
+    required this.expiresAt,
+    this.createdAt,
+    this.lastUsedAt,
+  });
+
+  final String id;
+  final String label;
+  final DateTime expiresAt;
+  final DateTime? createdAt;
+
+  /// Roughly when the sitter last opened it (stamped at most hourly).
+  final DateTime? lastUsedAt;
 }
 
 class BatchSyncResponse {
-  const BatchSyncResponse({
-    required this.results,
-    this.household,
-  });
+  const BatchSyncResponse({required this.results, this.household});
 
   final List<BatchOpResult> results;
   final HouseholdSnapshot? household;
+}
+
+/// A presigned bucket upload: PUT exactly these headers, then attach the key.
+class PhotoUploadTicket {
+  const PhotoUploadTicket({
+    required this.photoKey,
+    required this.url,
+    required this.headers,
+  });
+
+  final String photoKey;
+  final String url;
+  final Map<String, String> headers;
 }
 
 /// This device's link to one household (stored privately on the phone).
@@ -76,10 +130,38 @@ enum HouseholdErrorKind {
 }
 
 class HouseholdException implements Exception {
-  const HouseholdException(this.message, {required this.kind, this.existing});
+  const HouseholdException(
+    this.message, {
+    required this.kind,
+    this.existing,
+    this.status,
+    this.timedOut = false,
+    this.code,
+  });
 
   final String message;
   final HouseholdErrorKind kind;
+
+  /// The server's machine-readable reason (`role_forbidden`, `pro_required`,
+  /// `invite_expired`, `member_removed`, `member_gone`). Null from older servers.
+  final String? code;
+
+  /// 403 because this member's role can't do it (the role may have changed on
+  /// another phone) — not a Pro problem.
+  bool get isRoleForbidden => code == 'role_forbidden';
+
+  /// 401 because the owner removed this member.
+  bool get isMemberRemoved => code == 'member_removed';
+
+  /// 404 because the invite code is past its 7 days.
+  bool get isInviteExpired => code == 'invite_expired';
+
+  /// [HouseholdErrorKind.offline] because the call ran out of time (slow
+  /// link) rather than never connecting: the server may have acted on it.
+  final bool timedOut;
+
+  /// HTTP status when the server answered (e.g. 403 = needs household Pro).
+  final int? status;
 
   /// For [HouseholdErrorKind.conflict]: the dose someone already logged.
   final DoseRecord? existing;
@@ -90,8 +172,7 @@ class HouseholdException implements Exception {
 
 /// Talks to the household API on Railway. No polling: fetch once, write on an action.
 class HouseholdApi {
-  HouseholdApi(Uri base, {Dio? dio, int retries = 2})
-    : _dio = dio ?? Dio() {
+  HouseholdApi(Uri base, {Dio? dio, int retries = 2}) : _dio = dio ?? Dio() {
     _dio.options
       ..baseUrl = base.toString().replaceFirst(RegExp(r'/$'), '')
       ..connectTimeout = const Duration(seconds: 8)
@@ -100,21 +181,9 @@ class HouseholdApi {
       ..contentType = Headers.jsonContentType
       ..responseType = ResponseType.json;
     _dio.interceptors.addAll([
-      InterceptorsWrapper(
-        onRequest: (options, handler) {
-          final value = token;
-          if (value != null) options.headers['authorization'] = 'Bearer $value';
-          handler.next(options);
-        },
-      ),
-      _RetryReads(_dio, retries),
-      if (kDebugMode)
-        LogInterceptor(
-          requestHeader: false,
-          responseHeader: false,
-          responseBody: false,
-          logPrint: (line) => debugPrint('[api] $line'),
-        ),
+      ApiAuthInterceptor(() => token),
+      ApiRetryReadsInterceptor(_dio, retries),
+      if (kDebugMode) ApiLogInterceptor(),
     ]);
   }
 
@@ -174,6 +243,20 @@ class HouseholdApi {
     return _medication(_map(body['medication']));
   }
 
+  /// Changes a medicine's reminder times. Only `times` is sent: the server
+  /// changes nothing else, so this can't undo a partner's edits.
+  Future<Medication> updateMedicationTimes(
+    String id,
+    Map<DayPart, int> times,
+  ) async {
+    final body = await _send(
+      'PATCH',
+      '/v1/medications/${Uri.encodeComponent(id)}',
+      {'times': DoseTimes.encode(times)},
+    );
+    return _medication(_map(body['medication']));
+  }
+
   Future<void> removeMedication(String id) async {
     await _send('DELETE', '/v1/medications/${Uri.encodeComponent(id)}');
   }
@@ -205,9 +288,14 @@ class HouseholdApi {
     return _plan(body['plan']);
   }
 
-  Future<({bool isPro, BillingPlan plan})> startTrial() async {
+  Future<({bool isPro, BillingPlan plan, DateTime? proUntil})>
+  startTrial() async {
     final body = await _send('POST', '/v1/billing/trial');
-    return (isPro: body['isPro'] == true, plan: _plan(body['plan']));
+    return (
+      isPro: body['isPro'] == true,
+      plan: _plan(body['plan']),
+      proUntil: _date(body['proUntil']),
+    );
   }
 
   Future<BatchSyncResponse> syncBatch(List<SyncBatchOp> operations) async {
@@ -218,7 +306,8 @@ class HouseholdApi {
       ],
     });
     final results = [
-      for (final item in body['results'] is List ? body['results'] as List : const [])
+      for (final item
+          in body['results'] is List ? body['results'] as List : const [])
         if (item is Map<String, dynamic>)
           BatchOpResult(
             id: '${item['id']}',
@@ -227,6 +316,7 @@ class HouseholdApi {
                 ? _log(_map(item['log']))
                 : null,
             message: item['message'] as String?,
+            code: item['code'] as String?,
           ),
     ];
     final house = body['household'];
@@ -245,20 +335,76 @@ class HouseholdApi {
     await _send('DELETE', '/v1/care-events/${Uri.encodeComponent(eventId)}');
   }
 
-  Future<void> registerDevice({
+  /// Registers this phone's push token. Returns whether the server can
+  /// actually deliver to it (`delivery`; false from older servers).
+  Future<bool> registerDevice({
     required String platform,
     required String token,
     required bool pushEnabled,
+    String? environment,
   }) async {
-    await _send('POST', '/v1/devices/register', {
+    final body = await _send('POST', '/v1/devices/register', {
       'platform': platform,
       'token': token,
       'pushEnabled': pushEnabled,
+      'environment': ?environment,
     });
+    return body['delivery'] == true;
+  }
+
+  /// Owner: replaces the invite code; the old one stops working at once.
+  Future<({String inviteCode, DateTime? expiresAt})> rotateInvite() async {
+    final body = await _send('POST', '/v1/invite/rotate');
+    final code = _nonEmpty(body['inviteCode']);
+    if (code == null) {
+      throw const HouseholdException(
+        'The household answer was not usable.',
+        kind: HouseholdErrorKind.server,
+      );
+    }
+    return (inviteCode: code, expiresAt: _date(body['inviteExpiresAt']));
+  }
+
+  /// Owner: the household's working sitter links.
+  Future<List<SitterLinkInfo>> listSitterLinks() async {
+    final body = await _send('GET', '/v1/sitter-links');
+    return [
+      for (final item in body['links'] is List ? body['links'] as List : const [])
+        if (item is Map<String, dynamic> && _nonEmpty(item['id']) != null)
+          SitterLinkInfo(
+            id: '${item['id']}',
+            label: '${item['label'] ?? ''}',
+            expiresAt: _date(item['expiresAt']) ?? DateTime.now(),
+            createdAt: _date(item['createdAt']),
+            lastUsedAt: _date(item['lastUsedAt']),
+          ),
+    ];
+  }
+
+  /// Owner: revokes a sitter link. Already-gone counts as done.
+  Future<void> revokeSitterLink(String id) async {
+    await _send('DELETE', '/v1/sitter-links/${Uri.encodeComponent(id)}');
+  }
+
+  /// Owner: makes another member a caregiver or sitter.
+  Future<Member> setMemberRole(String memberId, MemberRole role) async {
+    final body = await _send(
+      'PATCH',
+      '/v1/members/${Uri.encodeComponent(memberId)}',
+      {'role': role.name},
+    );
+    return memberFromJson(_map(body['member']));
+  }
+
+  /// Owner: removes another member (their past logs stay).
+  Future<void> removeMember(String memberId) async {
+    await _send('DELETE', '/v1/members/${Uri.encodeComponent(memberId)}');
   }
 
   /// Creates a time-limited browser link for sitters (Pro households).
-  Future<({String token, String url, DateTime expiresAt})> createSitterLink({
+  /// [id] is empty from servers older than v5.
+  Future<({String token, String url, DateTime expiresAt, String id})>
+  createSitterLink({
     String? label,
   }) async {
     final body = await _send('POST', '/v1/sitter-links', {
@@ -278,7 +424,72 @@ class HouseholdApi {
       expiresAt: expiresRaw is String
           ? DateTime.tryParse(expiresRaw) ?? DateTime.now()
           : DateTime.now(),
+      id: '${body['id'] ?? ''}',
     );
+  }
+
+  /// Step 1 of a photo upload: reserves a bucket key and returns a 5-minute
+  /// presigned PUT. The bytes go straight to the bucket (see PetPhotoTransfer).
+  Future<PhotoUploadTicket> startPetPhotoUpload(String petId, int bytes) async {
+    final body = await _send(
+      'POST',
+      '/v1/pets/${Uri.encodeComponent(petId)}/photo/upload',
+      {'bytes': bytes},
+    );
+    final upload = _map(body['upload']);
+    final key = _nonEmpty(body['photoKey']);
+    final url = _nonEmpty(upload['url']);
+    if (key == null || url == null) {
+      throw const HouseholdException(
+        'The photo upload answer was incomplete.',
+        kind: HouseholdErrorKind.server,
+      );
+    }
+    final headers = upload['headers'];
+    return PhotoUploadTicket(
+      photoKey: key,
+      url: url,
+      headers: {
+        if (headers is Map)
+          for (final entry in headers.entries) '${entry.key}': '${entry.value}',
+      },
+    );
+  }
+
+  /// Step 3: points the pet at the uploaded object (the server checks it is
+  /// there and deletes the previous photo).
+  Future<({String photoKey, String? photoUrl})> attachPetPhoto(
+    String petId,
+    String photoKey,
+  ) async {
+    final body = await _send(
+      'PUT',
+      '/v1/pets/${Uri.encodeComponent(petId)}/photo',
+      {'photoKey': photoKey},
+    );
+    return (
+      photoKey: _nonEmpty(body['photoKey']) ?? photoKey,
+      photoUrl: _nonEmpty(body['photoUrl']),
+    );
+  }
+
+  Future<void> removePetPhoto(String petId) async {
+    await _send('DELETE', '/v1/pets/${Uri.encodeComponent(petId)}/photo');
+  }
+
+  /// Deletes this member's account. Returns the server scope: `household`
+  /// (owner: everything) or `member` (caregiver/sitter: only them).
+  ///
+  /// Longer wait than other calls: an owner delete removes every photo from
+  /// the bucket before answering, and a slow link must not read as failed.
+  Future<String> deleteAccount() async {
+    final body = await _send(
+      'DELETE',
+      '/v1/account',
+      null,
+      const Duration(seconds: 45),
+    );
+    return '${body['scope'] ?? 'member'}';
   }
 
   Future<void> leaveHousehold() async {
@@ -293,12 +504,13 @@ class HouseholdApi {
     String method,
     String path, [
     Map<String, Object?>? data,
+    Duration? receiveTimeout,
   ]) async {
     try {
       final response = await _dio.request<Object?>(
         path,
         data: data,
-        options: Options(method: method),
+        options: Options(method: method, receiveTimeout: receiveTimeout),
       );
       return _map(response.data);
     } on DioException catch (error) {
@@ -312,18 +524,43 @@ class HouseholdApi {
     final serverMessage = data is Map && data['error'] is String
         ? data['error'] as String
         : null;
-    AppLog.event('api.failed', {
-      'path': error.requestOptions.path,
-      'status': status ?? 0,
-      'type': error.type.name,
-    });
+    final code = data is Map && data['code'] is String
+        ? data['code'] as String
+        : null;
+    // The one log line for a failed call (success lines: ApiLogInterceptor).
+    AppLog.event(
+      'api.failed',
+      apiCallFields(error.requestOptions, {
+        'status': status ?? 0,
+        'type': error.type.name,
+        'error': ?serverMessage,
+      }),
+    );
     switch (error.type) {
-      case DioExceptionType.connectionTimeout:
+      // Sent (or partly sent) but no answer in time: outcome unknown.
       case DioExceptionType.sendTimeout:
       case DioExceptionType.receiveTimeout:
-      case DioExceptionType.connectionError:
         return const HouseholdException(
           "Can't reach the household. Check your internet and try again.",
+          kind: HouseholdErrorKind.offline,
+          timedOut: true,
+        );
+      case DioExceptionType.connectionTimeout:
+      case DioExceptionType.connectionError:
+      case DioExceptionType.cancel:
+        return const HouseholdException(
+          "Can't reach the household. Check your internet and try again.",
+          kind: HouseholdErrorKind.offline,
+        );
+      // No response at all (socket closed, DNS) reads as offline too.
+      case DioExceptionType.unknown when status == null:
+        return const HouseholdException(
+          "Can't reach the household. Check your internet and try again.",
+          kind: HouseholdErrorKind.offline,
+        );
+      case DioExceptionType.badCertificate:
+        return const HouseholdException(
+          "Couldn't make a secure connection. Check your network and try again.",
           kind: HouseholdErrorKind.offline,
         );
       default:
@@ -333,14 +570,25 @@ class HouseholdApi {
       401 => HouseholdException(
         serverMessage ?? 'This phone is no longer in the household.',
         kind: HouseholdErrorKind.unauthorized,
+        status: status,
+        code: code,
+      ),
+      403 => HouseholdException(
+        serverMessage ?? 'That needs Pawsitive Pro.',
+        kind: HouseholdErrorKind.invalid,
+        status: status,
+        code: code,
       ),
       404 => HouseholdException(
         serverMessage ?? 'That was not found.',
         kind: HouseholdErrorKind.notFound,
+        status: status,
+        code: code,
       ),
       409 => HouseholdException(
         serverMessage ?? 'Someone already logged this dose.',
         kind: HouseholdErrorKind.conflict,
+        status: status,
         existing: data is Map<String, dynamic> && data['log'] is Map
             ? _log(_map(data['log']))
             : null,
@@ -348,51 +596,18 @@ class HouseholdApi {
       400 || 413 => HouseholdException(
         serverMessage ?? 'Something in that form was not right.',
         kind: HouseholdErrorKind.invalid,
+        status: status,
       ),
       429 => HouseholdException(
         serverMessage ?? 'Too many tries. Wait a minute and try again.',
         kind: HouseholdErrorKind.invalid,
+        status: status,
       ),
       _ => const HouseholdException(
         'The household server had a problem. Try again in a moment.',
         kind: HouseholdErrorKind.server,
       ),
     };
-  }
-}
-
-/// Retries reads after a dropped connection or a gateway error. Writes are never retried.
-class _RetryReads extends Interceptor {
-  _RetryReads(this._dio, this._retries);
-
-  final Dio _dio;
-  final int _retries;
-
-  @override
-  Future<void> onError(
-    DioException err,
-    ErrorInterceptorHandler handler,
-  ) async {
-    final options = err.requestOptions;
-    final attempt = (options.extra['attempt'] as int?) ?? 0;
-    final status = err.response?.statusCode ?? 0;
-    final transient =
-        err.type == DioExceptionType.connectionError ||
-        err.type == DioExceptionType.connectionTimeout ||
-        err.type == DioExceptionType.receiveTimeout ||
-        status == 502 ||
-        status == 503 ||
-        status == 504;
-    if (options.method != 'GET' || !transient || attempt >= _retries) {
-      return handler.next(err);
-    }
-    await Future<void>.delayed(Duration(milliseconds: 400 * (attempt + 1)));
-    options.extra['attempt'] = attempt + 1;
-    try {
-      handler.resolve(await _dio.fetch<Object?>(options));
-    } on DioException catch (next) {
-      handler.next(next);
-    }
   }
 }
 
@@ -414,7 +629,10 @@ HouseholdSnapshot _snapshot(Map<String, dynamic> body) {
   return HouseholdSnapshot(
     householdId: '${house['id'] ?? ''}',
     inviteCode: '${house['inviteCode'] ?? ''}',
+    inviteExpiresAt: _date(house['inviteExpiresAt']),
+    role: _enumOrNull(MemberRole.values, body['role']),
     isPro: house['isPro'] == true,
+    proUntil: _date(house['proUntil']),
     plan: _plan(house['plan']),
     memberId: '${body['memberId'] ?? ''}',
     members: _list(body['members'], memberFromJson),
@@ -422,6 +640,11 @@ HouseholdSnapshot _snapshot(Map<String, dynamic> body) {
     medications: _list(body['medications'], _medication),
     logs: _list(body['logs'], _log),
     careEvents: _list(body['careEvents'], CareEvent.fromJson),
+    archivedMedications: [
+      for (final m in _list(body['archivedMedications'], _medication))
+        // Stopped before the server kept a stop time: still stopped.
+        m.isArchived ? m : m.copyWith(archivedAt: m.endDay),
+    ],
   );
 }
 
@@ -459,6 +682,7 @@ Member memberFromJson(Map<String, dynamic> json) {
     status: json['joined'] == false ? 'Not joined yet' : null,
     isYou: isYou,
     joined: json['joined'] != false,
+    paysForPro: json['paysForPro'] == true,
   );
 }
 
@@ -480,8 +704,19 @@ Pet _pet(Map<String, dynamic> json) {
     weightKg: _double(json['weightKg']),
     onTimePercent: 0,
     dailyMeds: 0,
+    photoKey: _nonEmpty(json['photoKey']),
+    photoUrl: _nonEmpty(json['photoUrl']),
+    // Local-store fields; absent in server answers and older saved households.
+    photoVersion: _int(json['photoVersion']),
+    photoSync: _enum(PhotoSync.values, json['photoSync'], PhotoSync.none),
   );
 }
+
+DateTime? _date(Object? value) =>
+    value is String && value.isNotEmpty ? DateTime.tryParse(value) : null;
+
+String? _nonEmpty(Object? value) =>
+    value is String && value.isNotEmpty ? value : null;
 
 Medication medicationFromJson(Map<String, dynamic> json) => _medication(json);
 
@@ -500,8 +735,33 @@ Medication _medication(Map<String, dynamic> json) {
     dosesLeft: _int(json['dosesLeft']),
     startDay: '${json['startDay'] ?? ''}',
     endDay: '${json['endDay'] ?? ''}',
+    archivedAt: _nonEmpty(json['archivedAt']),
+    // Absent from old servers and old saved data: default times.
+    times: _times(json, parts),
+    // Absent unless set (old servers never set it).
+    needsPro: json['needsPro'] == true,
   );
 }
+
+/// Custom times; junk is dropped (default times) and logged once per
+/// medicine id so a bad row is visible without flooding launch logs.
+Map<DayPart, int> _times(Map<String, dynamic> json, List<DayPart> parts) {
+  final raw = json['times'];
+  final parsed = DoseTimes.parse(raw);
+  final junk = raw != null &&
+      (raw is! Map ||
+          raw.entries.any(
+            (e) =>
+                DayPart.values.any((p) => p.name == e.key) &&
+                DoseTimes.parseClock(e.value) == null,
+          ));
+  if (junk && _junkTimesLogged.add('${json['id']}')) {
+    AppLog.event('medication.times_ignored', {'medicationId': '${json['id']}'});
+  }
+  return DoseTimes.normalize(parsed, parts);
+}
+
+final Set<String> _junkTimesLogged = {};
 
 DoseRecord doseRecordFromJson(Map<String, dynamic> json) => _log(json);
 

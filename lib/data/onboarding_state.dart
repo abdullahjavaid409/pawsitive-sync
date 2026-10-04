@@ -1,3 +1,4 @@
+import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/data/onboarding_profile.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -9,7 +10,10 @@ class OnboardingState {
     try {
       final prefs = await SharedPreferences.getInstance();
       return prefs.getBool(_key) ?? false;
-    } catch (_) {
+    } catch (error, stack) {
+      AppLog.error('store.onboarding_state_failed', error, stack, {
+        'op': 'read',
+      });
       return false;
     }
   }
@@ -18,7 +22,11 @@ class OnboardingState {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_key, complete);
-    } catch (_) {}
+    } catch (error, stack) {
+      AppLog.error('store.onboarding_state_failed', error, stack, {
+        'op': 'write',
+      });
+    }
   }
 
   static Future<void> clear() async {
@@ -26,6 +34,10 @@ class OnboardingState {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_key);
       await OnboardingProfile.clear();
-    } catch (_) {}
+    } catch (error, stack) {
+      AppLog.error('store.onboarding_state_failed', error, stack, {
+        'op': 'clear',
+      });
+    }
   }
 }

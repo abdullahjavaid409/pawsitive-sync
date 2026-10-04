@@ -52,7 +52,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                 child: FittedBox(
                   fit: BoxFit.scaleDown,
                   child: Text(
-                    'PawsitiveSync',
+                    'Pawsitive',
                     style: text.headlineSmall?.copyWith(
                       fontSize: 22,
                       letterSpacing: -0.6,

@@ -573,7 +573,7 @@ class AppWordmark extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     return Text(
-      compact ? 'PAWSITIVESYNC' : 'PawsitiveSync',
+      compact ? 'PAWSITIVE' : 'Pawsitive',
       style: text.headlineSmall?.copyWith(
         fontSize: compact ? 13 : 26,
         height: 1.1,

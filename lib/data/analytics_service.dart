@@ -1,6 +1,5 @@
-import 'dart:async';
-
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:pawsitive_sync/core/config/app_config.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 
@@ -9,6 +8,7 @@ abstract final class AnalyticsService {
   static const _enabled = AppConfig.analyticsEnabled;
 
   static final _buffer = <String>[];
+  static const _maxBuffered = 200;
   static final _dio = Dio(
     BaseOptions(
       baseUrl: AppConfig.apiBaseUrl.replaceFirst(RegExp(r'/$'), ''),
@@ -31,9 +31,19 @@ abstract final class AnalyticsService {
     if (!_enabled || !AppConfig.hasApi || !_funnelEvents.contains(name)) return;
     _buffer.add(name);
     if (_buffer.length >= 8) {
-      unawaited(flush());
+      AppLog.unawaitedLogged(flush(), 'analytics.flush_failed');
     }
   }
+
+  @visibleForTesting
+  static int get bufferedCount => _buffer.length;
+
+  /// Seeds the buffer in tests (tracking is off without a compiled-in API).
+  @visibleForTesting
+  static void debugAdd(String name) => _buffer.add(name);
+
+  /// Drops unsent counts (account deletion).
+  static void clear() => _buffer.clear();
 
   static Future<void> flush() async {
     if (!_enabled || !AppConfig.hasApi || _buffer.isEmpty) return;
@@ -43,13 +53,22 @@ abstract final class AnalyticsService {
       await _dio.post<void>(
         '/v1/analytics/batch',
         data: {
-          'events': [for (final name in events) {'name': name}],
+          'events': [
+            for (final name in events) {'name': name},
+          ],
         },
       );
       AppLog.event('analytics.flushed', {'count': events.length});
-    } catch (_) {
+    } catch (error, stack) {
+      // Keep the counts for the next flush, capped so a long offline stretch
+      // can't grow the buffer without bound.
       _buffer.insertAll(0, events);
-      AppLog.event('analytics.flush_failed', {'count': events.length});
+      if (_buffer.length > _maxBuffered) {
+        _buffer.removeRange(0, _buffer.length - _maxBuffered);
+      }
+      AppLog.error('analytics.flush_failed', error, stack, {
+        'count': events.length,
+      });
     }
   }
 }

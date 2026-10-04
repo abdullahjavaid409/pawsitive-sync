@@ -1,4 +1,5 @@
-import 'package:flutter/foundation.dart' show kReleaseMode;
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/legal/app_links.dart';
@@ -14,15 +15,17 @@ import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/domain/paywall_reason.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
-import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// Compares Free and Pro. Free solves solo care; Pro solves shared / multi-pet pain.
 class PaywallScreen extends StatefulWidget {
-  const PaywallScreen({super.key, this.reason});
+  const PaywallScreen({super.key, this.reason, this.from});
 
   /// Query param from [AppRoutes.paywallWith] — contextual upgrade moment.
   final String? reason;
+
+  /// The button that opened the paywall (e.g. `pro_badge`), for the log.
+  final String? from;
 
   @override
   State<PaywallScreen> createState() => _PaywallScreenState();
@@ -45,31 +48,49 @@ class _PaywallScreenState extends State<PaywallScreen> {
     ),
   ];
 
-  /// Pain → solution. Pro gates only — multi-pet, household, export, supply.
+  /// Pain → solution. Pro gates only — multi-pet/meds, history, household,
+  /// export, supply, weekly summary.
   static const _proFeatures = [
     (
-      'We have more than one pet on meds',
-      'Track up to 10 pets — cats, dogs, rabbits, and more — in one household.',
+      'Every pet, every medicine',
+      'Up to 10 pets, every medicine and dose time with reminders, plus full history.',
     ),
     (
-      'Did my partner or sitter already dose?',
-      'Invite with a code. Everyone sees the same list and who logged each dose.',
+      'No more “did you give it?” texts',
+      'Invite your partner or sitter. Everyone sees who gave each dose, and when.',
     ),
     (
-      'The vet asked for a clear log',
-      'Export a week-by-week report to share at checkups or send ahead to the clinic.',
+      'Answers ready for the vet',
+      'Export a clear week-by-week report to share at checkups.',
     ),
     (
-      'We almost ran out without noticing',
-      'Running-low alerts before the bottle is empty so refills do not slip by.',
+      'Never run out by surprise',
+      'Running-low alerts before the bottle is empty, while there’s time to refill.',
+    ),
+    (
+      'A Sunday check-in',
+      'A weekly summary of every dose given, so you know the week went right.',
     ),
   ];
 
   bool _busy = false;
   bool _restoring = false;
   String? _error;
-  List<Package> _packages = const [];
-  late final PaywallReason? _moment = PaywallReasonQuery.fromQuery(widget.reason);
+  PaywallOffer? _offer;
+
+  /// True until RevenueCat answers. Prices and trials are never guessed:
+  /// the paywall shows them only once the store has sent them.
+  bool _loadingOffer = true;
+  late final PaywallReason? _moment = PaywallReasonQuery.fromQuery(
+    widget.reason,
+  );
+
+  /// RevenueCat placement id — one per upgrade moment, so Targeting can serve
+  /// each moment its own offering (price or copy test) without a release.
+  /// No reason: first-run setup is `onboarding`; anything after (e.g. the
+  /// Today Pro badge) is a generic `upgrade`.
+  String get _placement =>
+      _moment?.queryValue ?? (_isUpgradeFlow ? 'upgrade' : 'onboarding');
 
   bool get _isUpgradeFlow {
     final model = context.read<OnboardingViewModel>();
@@ -81,8 +102,11 @@ class _PaywallScreenState extends State<PaywallScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       AppLog.event('billing.paywall.opened', {
         'reason': widget.reason ?? 'default',
+        'placement': _placement,
+        'from': ?widget.from,
       });
       _bootstrap();
     });
@@ -91,21 +115,72 @@ class _PaywallScreenState extends State<PaywallScreen> {
   Future<void> _bootstrap() async {
     if (!mounted) return;
     final care = context.read<CareRepository>();
-    if (care.plan != BillingPlan.yearly) {
-      care.setPlan(BillingPlan.yearly);
+    // Subscribers keep their real plan; resetting it would overwrite the
+    // household's billing plan on the server.
+    if (!care.isPro && care.plan != BillingPlan.yearly) {
+      AppLog.unawaitedLogged(
+        care.setPlan(BillingPlan.yearly),
+        'billing.plan.failed',
+      );
     }
-    if (RevenueCatService.isReady) {
-      AppLog.event('billing.paywall.rc_ready');
-      final packages = await RevenueCatService.loadPackages();
-      if (mounted) setState(() => _packages = packages);
-    } else {
-      AppLog.event('billing.paywall.rc_fallback', {'reason': 'not_configured'});
-    }
+    await _loadOffer();
   }
 
-  String _priceFor(BillingPlan plan, String fallback) {
-    final package = RevenueCatService.packageForPlan(plan, _packages);
-    return package?.storeProduct.priceString ?? fallback;
+  Future<void> _loadOffer() async {
+    setState(() {
+      _loadingOffer = true;
+      _error = null;
+    });
+    if (RevenueCatService.isReady) {
+      AppLog.event('billing.paywall.rc_ready', {'placement': _placement});
+      AppLog.unawaitedLogged(
+        RevenueCatService.syncAttributes({'last_paywall': _placement}),
+        'billing.rc.attributes_failed',
+      );
+    }
+    final offer = await RevenueCatService.loadOffer(_placement);
+    if (!mounted) return;
+    setState(() {
+      _offer = offer;
+      _loadingOffer = false;
+    });
+    AppLog.event(
+      offer == null
+          ? 'billing.paywall.offer_unavailable'
+          : 'billing.paywall.offer_shown',
+      {
+        'placement': _placement,
+        'rcReady': RevenueCatService.isReady,
+        if (offer != null) 'offering': offer.offeringId,
+      },
+    );
+  }
+
+  /// The store's localized price, or a placeholder until RevenueCat answers.
+  String _price(BillingPlan plan) =>
+      _offer?.forPlan(plan)?.priceString ?? (_loadingOffer ? '…' : '—');
+
+  /// Trial days RevenueCat says this user gets on [plan]; null = no trial.
+  int? _trialDays(BillingPlan plan) => _offer?.forPlan(plan)?.trialDays;
+
+  bool get _canBuy =>
+      _offer?.forPlan(context.read<CareRepository>().plan) != null;
+
+  String get _yearlyPerMonth =>
+      _offer?.yearly?.perMonthString ?? _price(BillingPlan.yearly);
+
+  String? get _yearlyBadge {
+    final pct = _offer?.yearlySavingsPercent;
+    return pct == null ? null : 'Save $pct%';
+  }
+
+  String _ctaLabel(BillingPlan plan) {
+    if (_loadingOffer) return 'Loading prices…';
+    if (_offer?.forPlan(plan) == null) return 'Try again';
+    final name = plan == BillingPlan.yearly ? 'Yearly' : 'Monthly';
+    final days = _trialDays(plan);
+    if (days != null) return 'Start $days-day free trial · $name';
+    return 'Subscribe · ${_price(plan)}/${SubscriptionDisclosure.period(plan)}';
   }
 
   Future<void> _restore() async {
@@ -118,8 +193,8 @@ class _PaywallScreenState extends State<PaywallScreen> {
     final ok = await care.restoreBilling();
     if (!mounted) return;
     setState(() => _restoring = false);
+    // billing.restore.completed / failed are logged by the repository.
     if (ok) {
-      AppLog.event('billing.restore.paywall_success');
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Pro restored on this account.')),
       );
@@ -135,10 +210,25 @@ class _PaywallScreenState extends State<PaywallScreen> {
       _error = null;
     });
     final care = context.read<CareRepository>();
+    if (!_canBuy) {
+      AppLog.event('billing.paywall.offer_retry', {'placement': _placement});
+      setState(() => _busy = false);
+      await _loadOffer();
+      if (mounted && _offer == null) {
+        setState(
+          () => _error =
+              'Couldn’t load prices from the App Store. '
+              'Check your connection and try again.',
+        );
+      }
+      return;
+    }
     AppLog.event('billing.trial.tap', {'plan': care.plan.name});
 
     if (RevenueCatService.isReady) {
-      final result = await care.purchasePlan();
+      final result = await care.purchasePlan(
+        package: _offer?.forPlan(care.plan)?.package,
+      );
       if (!mounted) return;
       if (!result.success) {
         setState(() {
@@ -149,15 +239,11 @@ class _PaywallScreenState extends State<PaywallScreen> {
         });
         return;
       }
-    } else if (!kReleaseMode) {
-      AppLog.event('billing.trial.local_fallback');
-      await care.startTrial();
     } else {
       AppLog.event('billing.trial.store_unavailable');
       setState(() {
         _busy = false;
-        _error = 'Purchases are not available right now. '
-            'Check your connection and try again.';
+        _error = 'Purchases aren’t available right now. Try again later.';
       });
       return;
     }
@@ -192,9 +278,15 @@ class _PaywallScreenState extends State<PaywallScreen> {
       await model.finish(reminders: model.remindersOn);
       if (!mounted) return;
       if (model.remindersOn) {
-        DoseReminders.scheduleNext(care);
+        AppLog.unawaitedLogged(
+          DoseReminders.reschedule(care, reason: 'onboarding'),
+          'reminders.schedule_failed',
+        );
       } else {
-        DoseReminders.cancel();
+        AppLog.unawaitedLogged(
+          DoseReminders.cancel(),
+          'reminders.cancel_failed',
+        );
       }
     }
     if (!mounted) return;
@@ -218,7 +310,12 @@ class _PaywallScreenState extends State<PaywallScreen> {
     final yearly = care.plan == BillingPlan.yearly;
     final locked = _busy || _restoring;
     final upgradeFlow = _isUpgradeFlow;
-    final copy = (_moment ?? PaywallReason.onboarding).copy;
+    final fallbackCopy = (_moment ?? PaywallReason.onboarding).copy;
+    // Offering metadata wins so headline tests run from RevenueCat.
+    final copy = (
+      _offer?.text('headline') ?? fallbackCopy.$1,
+      _offer?.text('subline') ?? fallbackCopy.$2,
+    );
 
     return PopScope(
       canPop: !locked,
@@ -233,7 +330,8 @@ class _PaywallScreenState extends State<PaywallScreen> {
                     tooltip: upgradeFlow ? 'Close' : 'Continue free',
                     onPressed: locked
                         ? null
-                        : () => upgradeFlow ? _dismissPaywall() : _continueFree(),
+                        : () =>
+                              upgradeFlow ? _dismissPaywall() : _continueFree(),
                     icon: StrokeIcon(
                       StrokeIconKind.close,
                       color: scheme.onSurfaceVariant,
@@ -263,7 +361,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
                     ],
                     const SizedBox(height: 8),
                     Text(
-                      'Pick a plan — yearly saves the most.',
+                      'Yearly saves the most. Cancel anytime in the App Store.',
                       style: text.bodyMedium?.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),
@@ -272,28 +370,63 @@ class _PaywallScreenState extends State<PaywallScreen> {
                     _PlanTile(
                       selected: yearly,
                       title: 'Yearly',
-                      subtitle: _priceFor(BillingPlan.yearly, '\$29.99 per year'),
-                      price: '\$2.50/mo',
-                      badge: 'Save 50%',
+                      subtitle: '${_price(BillingPlan.yearly)} per year',
+                      price: '$_yearlyPerMonth/mo',
+                      badge: _yearlyBadge,
                       onPressed: locked
                           ? null
-                          : () => care.setPlan(BillingPlan.yearly),
+                          : () => AppLog.unawaitedLogged(
+                              care.setPlan(BillingPlan.yearly),
+                              'billing.plan.failed',
+                            ),
                     ),
                     const SizedBox(height: 8),
                     _PlanTile(
                       selected: !yearly,
                       title: 'Monthly',
-                      subtitle: _priceFor(BillingPlan.monthly, '\$4.99/mo'),
-                      price: '\$4.99/mo',
+                      subtitle: '${_price(BillingPlan.monthly)} per month',
+                      price: '${_price(BillingPlan.monthly)}/mo',
                       onPressed: locked
                           ? null
-                          : () => care.setPlan(BillingPlan.monthly),
+                          : () => AppLog.unawaitedLogged(
+                              care.setPlan(BillingPlan.monthly),
+                              'billing.plan.failed',
+                            ),
+                    ),
+                    const SizedBox(height: 24),
+                    Text('Pro unlocks', style: text.titleMedium),
+                    const SizedBox(height: 4),
+                    Text(
+                      'For homes with more than one pet, or more than one caregiver',
+                      style: text.bodyMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    _FeatureCard(
+                      hairline: scheme.primary.withValues(alpha: 0.35),
+                      background: scheme.primaryContainer.withValues(
+                        alpha: 0.25,
+                      ),
+                      children: [
+                        for (final (index, feature) in _proFeatures.indexed)
+                          Padding(
+                            padding: EdgeInsets.only(
+                              bottom: index == _proFeatures.length - 1 ? 0 : 16,
+                            ),
+                            child: _FeatureRow(
+                              title: feature.$1,
+                              detail: feature.$2,
+                              accent: scheme.primary,
+                            ),
+                          ),
+                      ],
                     ),
                     const SizedBox(height: 24),
                     Text('Always free', style: text.titleMedium),
                     const SizedBox(height: 4),
                     Text(
-                      'One pet · dose logging · double-dose safety · reminders',
+                      'Dose safety is never behind a paywall.',
                       style: text.bodyMedium?.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),
@@ -305,39 +438,14 @@ class _PaywallScreenState extends State<PaywallScreen> {
                         for (final (index, feature) in _freeFeatures.indexed)
                           Padding(
                             padding: EdgeInsets.only(
-                              bottom: index == _freeFeatures.length - 1 ? 0 : 16,
+                              bottom: index == _freeFeatures.length - 1
+                                  ? 0
+                                  : 16,
                             ),
                             child: _FeatureRow(
                               title: feature.$1,
                               detail: feature.$2,
                               accent: scheme.onSurfaceVariant,
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-                    Text('Pro unlocks', style: text.titleMedium),
-                    const SizedBox(height: 4),
-                    Text(
-                      'When care is shared or you have multiple pets',
-                      style: text.bodyMedium?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    _FeatureCard(
-                      hairline: scheme.primary.withValues(alpha: 0.35),
-                      background: scheme.primaryContainer.withValues(alpha: 0.25),
-                      children: [
-                        for (final (index, feature) in _proFeatures.indexed)
-                          Padding(
-                            padding: EdgeInsets.only(
-                              bottom: index == _proFeatures.length - 1 ? 0 : 16,
-                            ),
-                            child: _FeatureRow(
-                              title: feature.$1,
-                              detail: feature.$2,
-                              accent: scheme.primary,
                             ),
                           ),
                       ],
@@ -358,26 +466,28 @@ class _PaywallScreenState extends State<PaywallScreen> {
                       const SizedBox(height: 8),
                     ],
                     FilledButton(
-                      onPressed: locked ? null : _startTrial,
+                      onPressed: locked || _loadingOffer ? null : _startTrial,
                       child: _busy
                           ? const SizedBox.square(
                               dimension: 20,
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
-                          : Text(
-                              yearly
-                                  ? 'Start 7-day free trial · Yearly'
-                                  : 'Start 7-day free trial · Monthly',
-                            ),
+                          : Text(_ctaLabel(care.plan)),
                     ),
                     const SizedBox(height: 8),
-                    Text(
-                      SubscriptionDisclosure.compactLine(care.plan),
-                      style: text.bodySmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
+                    // Apple 3.1.2 terms, only with the store's real price.
+                    if (_offer?.forPlan(care.plan) != null)
+                      Text(
+                        SubscriptionDisclosure.compactLine(
+                          care.plan,
+                          price: _price(care.plan),
+                          trialDays: _trialDays(care.plan),
+                        ),
+                        style: text.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                        textAlign: TextAlign.center,
                       ),
-                      textAlign: TextAlign.center,
-                    ),
                     if (!upgradeFlow)
                       TextButton(
                         onPressed: locked ? null : _continueFree,
@@ -468,11 +578,7 @@ class _FeatureRow extends StatelessWidget {
       children: [
         Padding(
           padding: const EdgeInsets.only(top: 2),
-          child: StrokeIcon(
-            StrokeIconKind.check,
-            size: 18,
-            color: accent,
-          ),
+          child: StrokeIcon(StrokeIconKind.check, size: 18, color: accent),
         ),
         const SizedBox(width: 12),
         Expanded(

@@ -3,7 +3,7 @@
  * Backend smoke test — run against local or Railway API.
  * Usage: node scripts/smoke_backend.mjs [baseUrl]
  */
-const base = (process.argv[2] ?? process.env.API_BASE_URL ?? 'https://pawsitive-api-production.up.railway.app').replace(/\/$/, '');
+const base = (process.argv[2] ?? process.env.API_BASE_URL ?? 'http://127.0.0.1:3100').replace(/\/$/, '');
 
 const results = [];
 
@@ -169,14 +169,19 @@ async function main() {
     fail('POST /v1/logs (partner)', `status ${partnerLog.status}`);
   }
 
-  // 9. Sitter link (Pro required — enable trial on household)
-  await json('POST', '/v1/billing/trial', null, ownerToken);
+  // 9. Billing: the server never grants its own trial — Pro only via RevenueCat.
+  const refresh = await json('POST', '/v1/billing/trial', null, ownerToken);
+  if (refresh.status === 200 && refresh.data.isPro === false) {
+    pass('POST /v1/billing/trial', 'no store purchase → still Free');
+  } else {
+    fail('POST /v1/billing/trial', `status ${refresh.status} isPro=${refresh.data?.isPro}`);
+  }
   const sitterLink = await json('POST', '/v1/sitter-links', { label: 'Smoke sitter' }, ownerToken);
   const sitterToken = sitterLink.data.token;
-  if (sitterLink.status === 201 && sitterToken) {
-    pass('POST /v1/sitter-links', 'browser sitter token created');
+  if (sitterLink.status === 403) {
+    pass('POST /v1/sitter-links', 'Free household blocked (Pro only, 403)');
   } else {
-    fail('POST /v1/sitter-links', `status ${sitterLink.status} — needs backend v4`);
+    fail('POST /v1/sitter-links', `status ${sitterLink.status} — expected 403 for Free`);
   }
 
   // 10. Sitter view + log

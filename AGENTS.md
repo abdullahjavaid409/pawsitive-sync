@@ -20,7 +20,7 @@ Local-first pet care ledger + optional household sync. Own **“did anyone give 
 - **No login wall** — first dose before any sign-in; Apple Sign-In is Phase 2 for owner recovery only
 - **Safety is free** — never paywall dose logging or double-dose checks
 - **Best UX on core paths** — one-tap dose log, clear errors, dismiss keyboard, honest paywall
-- **Pro gates** — multi-pet (2+), household invite, vet export, low-supply alerts
+- **Pro gates** — multi-pet (2+), 2+ active medicines per pet, afternoon/evening dose times on a new medicine (Free = morning only), history older than 30 days, household invite, vet export, low-supply alerts, weekly summary
 
 ## Before you ship
 

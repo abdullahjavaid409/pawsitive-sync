@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/format/pet_names.dart';
-import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
+import 'package:pawsitive_sync/core/widgets/care_tab_builder.dart';
 import 'package:pawsitive_sync/core/widgets/care_widgets.dart';
+import 'package:pawsitive_sync/core/widgets/pro_lock.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/domain/models.dart';
@@ -16,9 +17,13 @@ import 'package:provider/provider.dart';
 class HouseholdScreen extends StatelessWidget {
   const HouseholdScreen({super.key});
 
+  // Tab screen: rebuilds on data changes only while visible.
   @override
-  Widget build(BuildContext context) {
-    final care = context.watch<CareRepository>();
+  Widget build(BuildContext context) => CareTabBuilder(builder: _build);
+
+  Widget _build(BuildContext context, CareRepository care) {
+    // Built once per frame: each call formats up to 40 log rows.
+    final activity = care.activity;
     final scheme = Theme.of(context).colorScheme;
     final tokens = context.paws;
     final text = Theme.of(context).textTheme;
@@ -46,6 +51,38 @@ class HouseholdScreen extends StatelessWidget {
                 ),
               ),
             ),
+            if (care.pets.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              // Whose care this household shares — photos when set.
+              Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                children: [
+                  for (final pet in care.pets)
+                    Semantics(
+                      label: pet.name,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          PetPortrait(pet, size: 44),
+                          const SizedBox(height: 4),
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 64),
+                            child: ExcludeSemantics(
+                              child: Text(
+                                pet.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: text.labelMedium,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ],
             const SizedBox(height: 24),
             Container(
               padding: const EdgeInsets.all(22),
@@ -72,19 +109,23 @@ class HouseholdScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 20),
                   FilledButton.icon(
-                    onPressed: () {
-                      if (care.canInviteHousehold) {
-                        AppLog.event('invite.opened');
-                        context.push(AppRoutes.invite);
-                      } else {
-                        AppLog.event('invite.blocked');
-                        context.push(
-                          AppRoutes.paywallWith(
-                            reason: PaywallReason.invite.queryValue,
-                          ),
-                        );
-                      }
-                    },
+                    // Only the owner invites; others see why instead of a
+                    // button that would fail.
+                    onPressed: !care.canManageHousehold
+                        ? null
+                        : () {
+                            if (care.canInviteHousehold) {
+                              // Logged as nav.push to=/invite.
+                              context.push(AppRoutes.invite);
+                            } else {
+                              context.push(
+                                AppRoutes.paywallWith(
+                                  reason: PaywallReason.invite.queryValue,
+                                  from: 'invite',
+                                ),
+                              );
+                            }
+                          },
                     style: FilledButton.styleFrom(
                       minimumSize: const Size.fromHeight(52),
                     ),
@@ -93,8 +134,23 @@ class HouseholdScreen extends StatelessWidget {
                       size: 18,
                       color: scheme.onPrimary,
                     ),
-                    label: const Text('Invite someone'),
+                    label: WithProLock(
+                      locked:
+                          care.canManageHousehold && !care.canInviteHousehold,
+                      onDark: true,
+                      child: const Text('Invite someone'),
+                    ),
                   ),
+                  if (!care.canManageHousehold) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Ask the owner to invite people.',
+                      textAlign: TextAlign.center,
+                      style: text.bodyMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -114,6 +170,14 @@ class HouseholdScreen extends StatelessWidget {
                       _MemberRow(
                         member: care.members[i],
                         showDivider: i != care.members.length - 1,
+                        onManage:
+                            care.canManageHousehold &&
+                                care.isConnected &&
+                                !care.members[i].isYou &&
+                                care.members[i].role != MemberRole.owner
+                            ? () =>
+                                  _manageMember(context, care, care.members[i])
+                            : null,
                       ),
                   ],
                 ),
@@ -128,7 +192,7 @@ class HouseholdScreen extends StatelessWidget {
             const SizedBox(height: 24),
             const CareSectionHeader('Recent activity'),
             const SizedBox(height: 16),
-            if (care.activity.isEmpty)
+            if (activity.isEmpty)
               SurfaceCard(
                 radius: 20,
                 padding: const EdgeInsets.all(20),
@@ -161,7 +225,7 @@ class HouseholdScreen extends StatelessWidget {
                 ),
               )
             else
-              for (final item in care.activity) _ActivityRow(item: item),
+              for (final item in activity) _ActivityRow(item: item),
           ],
         ),
       ),
@@ -169,11 +233,110 @@ class HouseholdScreen extends StatelessWidget {
   }
 }
 
+/// Owner: change a member's role or remove them. Each step confirms and
+/// reports the result in plain words.
+Future<void> _manageMember(
+  BuildContext context,
+  CareRepository care,
+  Member member,
+) async {
+  // A browser sitter link has no app: it can be removed, not re-roled.
+  final browserSitter = member.role == MemberRole.sitter && !member.joined;
+  final target = member.role == MemberRole.sitter
+      ? MemberRole.caregiver
+      : MemberRole.sitter;
+  final choice = await showModalBottomSheet<String>(
+    context: context,
+    showDragHandle: true,
+    routeSettings: const RouteSettings(name: 'member_actions'),
+    builder: (sheet) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
+            child: Text(
+              '${member.name} · ${member.roleLabel}',
+              style: Theme.of(sheet).textTheme.titleMedium,
+            ),
+          ),
+          if (!browserSitter)
+            ListTile(
+              title: Text(
+                target == MemberRole.caregiver
+                    ? 'Make caregiver'
+                    : 'Make sitter',
+              ),
+              subtitle: Text(
+                target == MemberRole.caregiver
+                    ? 'Can log doses, refill, and edit pets and medicines.'
+                    : 'Can only see and log doses.',
+              ),
+              onTap: () => Navigator.of(sheet).pop('role'),
+            ),
+          ListTile(
+            title: Text(
+              'Remove from household',
+              style: TextStyle(color: Theme.of(sheet).colorScheme.error),
+            ),
+            subtitle: const Text('Their past doses stay in the history.'),
+            onTap: () => Navigator.of(sheet).pop('remove'),
+          ),
+        ],
+      ),
+    ),
+  );
+  if (choice == null || !context.mounted) return;
+  String? error;
+  String done;
+  if (choice == 'role') {
+    error = await care.changeMemberRole(member.id, target);
+    done =
+        '${member.name} is now a ${target == MemberRole.caregiver ? 'caregiver' : 'sitter'}.';
+  } else {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text('Remove ${member.name}?'),
+        content: Text(
+          member.paysForPro
+              ? '${member.name} pays for Pro. If no one else does, the household goes back to Free. They lose access right away; their past doses stay.'
+              : 'They lose access right away. Their past doses stay in the history.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialog).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialog).pop(true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+    error = await care.removeMember(member.id);
+    done = '${member.name} was removed.';
+  }
+  if (!context.mounted) return;
+  ScaffoldMessenger.of(context)
+      .showSnackBar(SnackBar(content: Text(error ?? done)));
+}
+
 class _MemberRow extends StatelessWidget {
-  const _MemberRow({required this.member, required this.showDivider});
+  const _MemberRow({
+    required this.member,
+    required this.showDivider,
+    this.onManage,
+  });
 
   final Member member;
   final bool showDivider;
+
+  /// Owner-only "Change role / Remove"; null hides the control.
+  final VoidCallback? onManage;
 
   @override
   Widget build(BuildContext context) {
@@ -243,6 +406,12 @@ class _MemberRow extends StatelessWidget {
             )
           else
             Text(member.roleLabel, style: text.bodyMedium),
+          if (onManage != null)
+            IconButton(
+              tooltip: 'Manage ${member.name}',
+              onPressed: onManage,
+              icon: Icon(Icons.more_horiz, color: scheme.onSurfaceVariant),
+            ),
         ],
       ),
     );

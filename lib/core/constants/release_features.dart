@@ -8,32 +8,27 @@ abstract final class ReleaseFeatures {
     ReleaseFeature(
       icon: StrokeIconKind.people,
       title: 'Check before you give',
-      description:
-          'When doses are due and others help care, Today reminds you to confirm before logging — so nothing is given twice.',
+      description: 'When doses are due and others help care, Today reminds you to confirm before logging — so nothing is given twice.',
     ),
     ReleaseFeature(
       icon: StrokeIconKind.alert,
       title: 'Not sure if given',
-      description:
-          'Mark a dose as uncertain when someone may have already given it. Your household sees it before the next person acts.',
+      description: 'Mark a dose as uncertain when someone may have already given it. Your household sees it before the next person acts.',
     ),
     ReleaseFeature(
       icon: StrokeIconKind.link,
       title: 'Sitter browser link',
-      description:
-          'Share a browser link from Invite — sitters log doses without installing the app. Partners can still join with the app invite.',
+      description: 'Share a browser link from Invite — sitters log doses without installing the app. Partners can still join with the app invite.',
     ),
     ReleaseFeature(
       icon: StrokeIconKind.calendar,
       title: 'Course length & coming up',
-      description:
-          'Set 7, 14, or 30 days for short-term meds. Vet visits, vaccines, and refills appear on Today under Coming up.',
+      description: 'Set 7, 14, or 30 days for short-term meds. Vet visits, vaccines, and refills appear on Today under Coming up.',
     ),
     ReleaseFeature(
       icon: StrokeIconKind.paw,
       title: 'Free vs Pro — honest split',
-      description:
-          'Free: one pet, dose logging, double-dose safety, reminders. Pro: up to 10 pets, household invites, low-supply alerts, vet export.',
+      description: 'Free: one pet, dose logging, double-dose safety, reminders. Pro: up to 10 pets, household invites, low-supply alerts, vet export.',
     ),
   ];
 }

@@ -1,16 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pawsitive_sync/core/format/clock_format.dart';
 import 'package:pawsitive_sync/core/layout/app_art_size.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/care_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/post_frame.dart';
+import 'package:pawsitive_sync/core/widgets/paws_widgets.dart' show SurfaceCard;
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart'
     show CareRepository, dayKey;
 import 'package:pawsitive_sync/domain/models.dart';
+import 'package:pawsitive_sync/ui/meds/dose_time_picker.dart';
 import 'package:provider/provider.dart';
 
 /// A daily medicine routine, with optional tracking of complete doses left.
@@ -31,6 +34,67 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   final _amount = TextEditingController();
   final _supply = TextEditingController();
   final _parts = <DayPart>{DayPart.morning};
+
+  /// Times the person picked (minute of day); other parts use defaults.
+  /// Kept for unselected parts too, so toggling a part off and on again
+  /// doesn't lose the pick.
+  final _times = <DayPart, int>{};
+
+  int _minuteFor(DayPart part) => _times[part] ?? part.defaultMinute;
+
+  Future<void> _pickTime(DayPart part) async {
+    final minute = await pickDoseTime(context, part, _minuteFor(part));
+    if (minute == null || !mounted) return;
+    final care = context.read<CareRepository>();
+    if (!care.canUseDoseTime(part, minute)) {
+      // Free keeps the morning reminder in the morning; the old time stays.
+      AppLog.event('medication.add.blocked', {
+        'reason': 'free_tier_time_window',
+        'part': part.name,
+        'from': 'schedule_time',
+      });
+      await context.push(
+        AppRoutes.paywallWith(reason: 'more_dose_times', from: 'schedule_time'),
+      );
+      if (!mounted || !care.canUseDoseTime(part, minute)) return;
+    }
+    setState(() {
+      _error = null;
+      _times[part] = minute;
+    });
+    AppLog.event('medication.time_picked', {
+      'part': part.name,
+      'custom': minute != part.defaultMinute,
+    });
+  }
+
+  /// Free schedules the morning dose only; picking another part opens the
+  /// paywall and keeps the pick if they upgrade. Removing is always free.
+  Future<void> _togglePart(CareRepository care, DayPart part) async {
+    if (_parts.contains(part)) {
+      setState(() {
+        _error = null;
+        _parts.remove(part);
+      });
+      return;
+    }
+    if (!care.canScheduleDoseParts({..._parts, part})) {
+      AppLog.event('medication.add.blocked', {
+        'reason': 'free_tier_times',
+        'part': part.name,
+        'from': 'schedule_part',
+      });
+      await context.push(
+        AppRoutes.paywallWith(reason: 'more_dose_times', from: 'schedule_part'),
+      );
+      if (!mounted || !care.canScheduleDoseParts({..._parts, part})) return;
+    }
+    setState(() {
+      _error = null;
+      _parts.add(part);
+    });
+  }
+
   String? _petId;
   int? _courseDays;
   bool _trackSupply = false;
@@ -44,6 +108,17 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
     _petId = widget.petId;
     _name.addListener(_refresh);
     _amount.addListener(_refresh);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final care = context.read<CareRepository>();
+      final petId = _petId ?? care.primaryPet?.id;
+      if (petId != null && !care.canAddMedication(petId)) {
+        // billing.paywall.opened reason=more_meds from=schedule_open.
+        context.pushReplacement(
+          AppRoutes.paywallWith(reason: 'more_meds', from: 'schedule_open'),
+        );
+      }
+    });
   }
 
   void _refresh() => setState(() => _error = null);
@@ -69,15 +144,49 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
   Future<void> _save(CareRepository care, Pet pet) async {
     if (_busy) return;
+    // Another pet picked on this screen may already be at the Free cap.
+    // The form stays filled, so saving after upgrading needs no retyping.
+    if (!care.canAddMedication(pet.id)) {
+      AppLog.event('medication.add.blocked', {
+        'reason': 'free_tier',
+        'petId': pet.id,
+        'from': 'schedule_save',
+      });
+      await context.push(
+        AppRoutes.paywallWith(reason: 'more_meds', from: 'schedule_save'),
+      );
+      return;
+    }
+    // Pro can end while the form is open (expiry, refund): a schedule
+    // picked on Pro then needs Pro again, not a silent failed save.
+    final morning = _times[DayPart.morning];
+    if (!care.canScheduleDoseParts(_parts) ||
+        (_parts.contains(DayPart.morning) &&
+            morning != null &&
+            !care.canUseDoseTime(DayPart.morning, morning))) {
+      AppLog.event('medication.add.blocked', {
+        'reason': 'free_tier_times',
+        'petId': pet.id,
+        'from': 'schedule_save',
+      });
+      await context.push(
+        AppRoutes.paywallWith(reason: 'more_dose_times', from: 'schedule_save'),
+      );
+      return;
+    }
     setState(() => _attemptedSave = true);
     final validFields = _form.currentState!.validate();
     if (!validFields || _parts.isEmpty) {
+      AppLog.event('medication.form_invalid', {
+        'fields': !validFields,
+        'missingParts': _parts.isEmpty,
+      });
       final target = _nameField.currentState?.hasError == true
           ? _nameField.currentContext
           : _parts.isEmpty
           ? _scheduleKey.currentContext
           : _supplyField.currentContext;
-      if (target != null) {
+      if (target != null && target.mounted) {
         await Scrollable.ensureVisible(target, alignment: 0.2);
       }
       return;
@@ -97,6 +206,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       parts: _parts.toList(),
       supplyTotal: _trackSupply ? int.parse(_supply.text.trim()) : 0,
       endDay: endDay,
+      times: _times,
     );
     if (!mounted) return;
     if (!ok) {
@@ -106,11 +216,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
       });
       return;
     }
-    AppLog.event('medication.saved', {
-      'parts': _parts.length,
-      'courseDays': _courseDays ?? 'ongoing',
-      'tracksSupply': _trackSupply,
-    });
+    // medication.add.completed (parts, endDay, tracksSupply) is the log line.
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('${_name.text.trim()} is on ${pet.name}’s Today list.'),
@@ -180,16 +286,16 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                                 24,
                                 24,
                               ),
-                               children: [
-                                 CarePageHeader(
-                                   title: 'Add medicine',
-                                   subtitle: 'A simple routine for ${pet.name}.',
-                                   leading: CareBackButton(
-                                     fallbackRoute: AppRoutes.today,
-                                     enabled: !_busy,
-                                   ),
-                                   action: PetPortrait(pet, size: 58),
-                                 ),
+                              children: [
+                                CarePageHeader(
+                                  title: 'Add medicine',
+                                  subtitle: 'A simple routine for ${pet.name}.',
+                                  leading: CareBackButton(
+                                    fallbackRoute: AppRoutes.today,
+                                    enabled: !_busy,
+                                  ),
+                                  action: PetPortrait(pet, size: 58),
+                                ),
                                 if (care.pets.length > 1) ...[
                                   const SizedBox(height: 20),
                                   CarePetPicker(
@@ -270,14 +376,18 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                                       for (final part in DayPart.values)
                                         _PartTile(
                                           part: part,
+                                          timeLabel: ClockFormat.label(
+                                            _minuteFor(part),
+                                          ),
                                           selected: _parts.contains(part),
-                                          horizontal: stacked,
-                                          onPressed: () => setState(() {
-                                            _error = null;
-                                            if (!_parts.remove(part)) {
-                                              _parts.add(part);
-                                            }
+                                          locked: !care.canScheduleDoseParts({
+                                            part,
                                           }),
+                                          horizontal: stacked,
+                                          onPressed: () => _togglePart(
+                                            care,
+                                            part,
+                                          ),
                                         ),
                                     ];
                                     return stacked
@@ -308,6 +418,44 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                                           );
                                   },
                                 ),
+                                if (!care.isPro) ...[
+                                  const SizedBox(height: 10),
+                                  Text(
+                                    'Free includes one morning dose (4 AM to noon) and its reminder. Pro adds afternoon, evening and any time.',
+                                    style: text.bodyMedium?.copyWith(
+                                      color: scheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                ],
+                                if (_parts.isNotEmpty) ...[
+                                  const SizedBox(height: 14),
+                                  Text(
+                                    'Reminder times — tap to change.',
+                                    style: text.bodyMedium?.copyWith(
+                                      color: scheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  SurfaceCard(
+                                    child: Column(
+                                      children: [
+                                        for (final (i, part) in [
+                                          for (final p in DayPart.values)
+                                            if (_parts.contains(p)) p,
+                                        ].indexed)
+                                          DoseTimeRow(
+                                            key: ValueKey('time-${part.name}'),
+                                            part: part,
+                                            minute: _minuteFor(part),
+                                            divider: i < _parts.length - 1,
+                                            onTap: _busy
+                                                ? null
+                                                : () => _pickTime(part),
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
                                 if (_attemptedSave && _parts.isEmpty) ...[
                                   const SizedBox(height: 8),
                                   Semantics(
@@ -504,7 +652,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                                               const SizedBox(height: 5),
                                               Text(
                                                 '${pet.name} · ${[for (final part in DayPart.values)
-                                                  if (_parts.contains(part)) part.label].join(' & ')}',
+                                                  if (_parts.contains(part)) '${part.label} ${ClockFormat.label(_minuteFor(part))}'].join(' & ')}',
                                                 style: text.bodyMedium,
                                               ),
                                               const SizedBox(height: 5),
@@ -598,11 +746,19 @@ class _FieldLabel extends StatelessWidget {
 class _PartTile extends StatelessWidget {
   const _PartTile({
     required this.part,
+    required this.timeLabel,
     required this.selected,
     required this.onPressed,
     required this.horizontal,
+    this.locked = false,
   });
   final DayPart part;
+
+  /// Free can't pick this part at all: shows a lock and says "Pro".
+  final bool locked;
+
+  /// The reminder time for this part (custom pick or default).
+  final String timeLabel;
   final bool selected;
   final bool horizontal;
   final VoidCallback onPressed;
@@ -633,6 +789,9 @@ class _PartTile extends StatelessWidget {
           ? StrokeIcon(StrokeIconKind.check, size: 13, color: scheme.onPrimary)
           : null,
     );
+    final indicator = locked
+        ? StrokeIcon(StrokeIconKind.lock, size: 17, color: color)
+        : check;
     final label = Column(
       crossAxisAlignment: horizontal
           ? CrossAxisAlignment.start
@@ -640,13 +799,13 @@ class _PartTile extends StatelessWidget {
       children: [
         Text(part.label, style: text.titleSmall?.copyWith(color: color)),
         const SizedBox(height: 5),
-        Text(part.timeLabel, style: text.bodySmall?.copyWith(color: color)),
+        Text(timeLabel, style: text.bodySmall?.copyWith(color: color)),
       ],
     );
     return Semantics(
       button: true,
       selected: selected,
-      label: '${part.label}, ${part.timeLabel}',
+      label: '${part.label}, $timeLabel${locked ? ', Pro' : ''}',
       excludeSemantics: true,
       child: Material(
         color: selected
@@ -674,14 +833,14 @@ class _PartTile extends StatelessWidget {
                       const SizedBox(width: 14),
                       Expanded(child: label),
                       const SizedBox(width: 8),
-                      check,
+                      indicator,
                     ],
                   )
                 : Column(
                     children: [
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [icon, check],
+                        children: [icon, indicator],
                       ),
                       const SizedBox(height: 14),
                       label,

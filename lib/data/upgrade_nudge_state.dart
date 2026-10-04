@@ -1,3 +1,4 @@
+import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Persists dismiss for the post-value Pro nudge on Today.
@@ -9,7 +10,10 @@ abstract final class UpgradeNudgeState {
     try {
       final prefs = await SharedPreferences.getInstance();
       return prefs.getBool(_dismissedKey) ?? false;
-    } catch (_) {
+    } catch (error, stack) {
+      AppLog.error('store.upgrade_nudge_failed', error, stack, {
+        'op': 'isDismissed',
+      });
       return false;
     }
   }
@@ -18,13 +22,19 @@ abstract final class UpgradeNudgeState {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool(_dismissedKey, true);
-    } catch (_) {}
+    } catch (error, stack) {
+      AppLog.error('store.upgrade_nudge_failed', error, stack, {
+        'op': 'dismiss',
+      });
+    }
   }
 
   static Future<void> clear() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_dismissedKey);
-    } catch (_) {}
+    } catch (error, stack) {
+      AppLog.error('store.upgrade_nudge_failed', error, stack, {'op': 'clear'});
+    }
   }
 }

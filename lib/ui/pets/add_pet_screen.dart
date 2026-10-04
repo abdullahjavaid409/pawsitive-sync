@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/constants/pet_limits.dart';
-import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/widgets/post_frame.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
@@ -34,8 +33,10 @@ class _AddPetScreenState extends State<AddPetScreen> {
       if (!mounted) return;
       final care = context.read<CareRepository>();
       if (!care.canAddPet) {
-        AppLog.event('pet.add.blocked', {'source': 'add_pet_screen'});
-        context.go(AppRoutes.paywall);
+        // billing.paywall.opened from=add_pet_screen.
+        context.go(
+          AppRoutes.paywallWith(reason: 'second_pet', from: 'add_pet_screen'),
+        );
       }
     });
   }
@@ -65,17 +66,14 @@ class _AddPetScreenState extends State<AddPetScreen> {
       weightKg: PetLimits.parseWeightKg(_weight.text) ?? 0,
     );
     if (!mounted) return;
+    // pet.add.completed / rejected / blocked are logged by the repository.
     if (id == null) {
-      AppLog.event('pet.add.ui_failed', {
-        'error': care.lastError ?? 'unknown',
-      });
       setState(() {
         _busy = false;
         _error = care.lastError ?? 'Could not save. Try again.';
       });
       return;
     }
-    AppLog.event('pet.add.ui_success', {'petId': id, 'species': _species.name});
     final messenger = ScaffoldMessenger.of(context);
     final router = GoRouter.of(context);
     messenger.showSnackBar(

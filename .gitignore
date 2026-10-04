@@ -46,3 +46,13 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Local secrets — never commit
+config/secrets.local.env
+*.local.env
+.env
+.env.*
+!config/secrets.example.env
+*.pem
+*.p8
+id_ed25519*

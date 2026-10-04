@@ -101,6 +101,7 @@ GoRouter createRouter(OnboardingViewModel onboarding) {
         builder: (context, state) => AdaptivePage(
           child: PaywallScreen(
             reason: state.uri.queryParameters['reason'],
+            from: state.uri.queryParameters['from'],
           ),
         ),
       ),
@@ -113,8 +114,12 @@ GoRouter createRouter(OnboardingViewModel onboarding) {
         )),
       ),
       StatefulShellRoute.indexedStack(
-        builder: (context, state, navigationShell) =>
-            AppShell(navigationShell: navigationShell),
+        // Named so navigation logs say "shell" instead of an anonymous page.
+        pageBuilder: (context, state, navigationShell) => MaterialPage(
+          key: state.pageKey,
+          name: 'shell',
+          child: AppShell(navigationShell: navigationShell),
+        ),
         branches: [
           StatefulShellBranch(
             routes: [

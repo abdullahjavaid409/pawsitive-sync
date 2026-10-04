@@ -107,7 +107,9 @@ void main() {
     await qa.tap(find.text('Continue'));
     await qa.tap(find.text('Not now'));
     await shot('paywall');
-    await qa.tap(find.text('Start 7-day free trial · Yearly'));
+    await qa.tap(find.text('Continue free with 1 pet'));
+    // Pro only comes from RevenueCat; stand in for its entitlement listener.
+    care().applyStoreEntitlement(true, BillingPlan.yearly);
     await qa.settle(1500);
 
     // Miso: insulin twice a day, supply running low.

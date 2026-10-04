@@ -27,6 +27,7 @@ enum StrokeIconKind {
   eye,
   link,
   share,
+  lock,
 }
 
 /// Paints a bundled stroke icon in one color.

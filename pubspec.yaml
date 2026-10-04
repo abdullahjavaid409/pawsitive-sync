@@ -41,6 +41,7 @@ dependencies:
   shared_preferences: ^2.5.3
   flutter_local_notifications: ^19.4.2
   timezone: ^0.10.1
+  flutter_timezone: ^5.1.0
   lottie: ^3.3.1
   dio: ^5.11.1
   characters: ^1.4.1
@@ -48,6 +49,16 @@ dependencies:
   url_launcher: ^6.3.3
   purchases_flutter: ^10.0.0
   pdf: ^3.11.3
+  purchases_ui_flutter: ^10.7.0
+  flutter_secure_storage: ^11.2.0
+  # Pet photos: pure-Dart resize/JPEG (no native plugin) + documents folder.
+  image: ^4.10.1
+  path_provider: ^2.1.6
+  sqflite: ^2.4.4
+  path: ^1.9.1
+  # Background re-plan of dose reminders (Android WorkManager / iOS
+  # BGAppRefreshTask), so reminders don't stop after the 7-day window.
+  workmanager: ^0.10.10
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -60,6 +71,7 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  sqflite_common_ffi: ^2.4.3
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
@@ -76,6 +88,7 @@ flutter:
     - assets/marks/
     - assets/art/
     - assets/lottie/
+    - assets/fonts/pdf/
   fonts:
     - family: Geist
       fonts:

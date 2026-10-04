@@ -12,6 +12,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'fake_household_api.dart';
 import 'test_log_helpers.dart';
+import 'support/sample_household.dart';
 
 /// Every repository feature: happy path, edge case, and structured log.
 void main() {
@@ -35,7 +36,7 @@ void main() {
     });
 
     test('add rejected empty name logs pet.add_rejected', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       expect(await care.addPet(name: '  ', species: Species.cat), isNull);
       expectLogged('pet.add_rejected', fields: {'reason': 'missing_name'});
     });
@@ -47,8 +48,8 @@ void main() {
     });
 
     test('add blocked at household cap logs household_limit', () async {
-      final care = CareRepository.sample();
-      await care.startTrial();
+      final care = sampleCare();
+      care.applyStoreEntitlement(true, BillingPlan.yearly);
       for (var i = care.pets.length; i < PetLimits.maxPetsPerHousehold; i++) {
         await care.addPet(name: 'Pet $i', species: Species.cat);
       }
@@ -72,7 +73,7 @@ void main() {
     });
 
     test('update missing pet logs pet.update.missing', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       expect(
         await care.updatePet(
           petId: 'ghost',
@@ -85,7 +86,7 @@ void main() {
     });
 
     test('update noop logs pet.update.noop', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       final pet = care.primaryPet!;
       expect(
         await care.updatePet(
@@ -119,7 +120,7 @@ void main() {
     });
 
     test('add rejected missing name logs medication.add_rejected', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       expect(
         await care.addMedication(
           petId: 'miso',
@@ -133,7 +134,7 @@ void main() {
     });
 
     test('add rejected empty schedule logs missing_parts', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       expect(
         await care.addMedication(
           petId: 'miso',
@@ -147,7 +148,7 @@ void main() {
     });
 
     test('add rejected missing pet logs missing_pet', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       expect(
         await care.addMedication(
           petId: 'missing',
@@ -161,14 +162,14 @@ void main() {
     });
 
     test('refill logs medication.refill.completed', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       final med = care.medications.firstWhere((m) => m.tracksSupply);
       expect(await care.refill(med.id), isTrue);
       expectLogged('medication.refill.completed');
     });
 
     test('remove logs medication.remove.completed', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       final med = care.medications.first;
       expect(await care.removeMedication(med.id), isTrue);
       expectLogged('medication.remove.completed');
@@ -177,7 +178,7 @@ void main() {
 
   group('Doses', () {
     test('log success logs dose.log.completed', () async {
-      final care = CareRepository.sample(
+      final care = sampleCare(
         clock: () => DateTime(2026, 10, 3, 14),
       );
       final dose = care.doses.firstWhere((d) => d.status == DoseStatus.due);
@@ -194,7 +195,7 @@ void main() {
     });
 
     test('double log rejected logs dose.log.rejected', () async {
-      final care = CareRepository.sample(
+      final care = sampleCare(
         clock: () => DateTime(2026, 10, 3, 14),
       );
       final dose = care.doses.firstWhere((d) => d.status == DoseStatus.due);
@@ -217,7 +218,7 @@ void main() {
     });
 
     test('uncertain logs dose.uncertain.completed', () async {
-      final care = CareRepository.sample(
+      final care = sampleCare(
         clock: () => DateTime(2026, 10, 3, 14),
       );
       final dose = care.doses.firstWhere((d) => d.status == DoseStatus.due);
@@ -226,7 +227,7 @@ void main() {
     });
 
     test('skip logs dose.skip.completed', () async {
-      final care = CareRepository.sample(
+      final care = sampleCare(
         clock: () => DateTime(2026, 10, 3, 14),
       );
       final dose = care.doses.firstWhere((d) => d.status == DoseStatus.due);
@@ -235,7 +236,7 @@ void main() {
     });
 
     test('uncertain dose can be resolved as skipped', () async {
-      final care = CareRepository.sample(
+      final care = sampleCare(
         clock: () => DateTime(2026, 10, 3, 14),
       );
       final dose = care.doses.firstWhere((d) => d.status == DoseStatus.due);
@@ -246,7 +247,7 @@ void main() {
     });
 
     test('log on removed medication logs dose.log.rejected', () async {
-      final care = CareRepository.sample(
+      final care = sampleCare(
         clock: () => DateTime(2026, 10, 3, 14),
       );
       final dose = care.doses.firstWhere((d) => d.status == DoseStatus.due);
@@ -267,7 +268,7 @@ void main() {
 
   group('Care events', () {
     test('add logs care_event.added', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       expect(
         await care.addCareEvent(
           petId: 'miso',
@@ -281,7 +282,7 @@ void main() {
     });
 
     test('rejected missing pet logs care_event.rejected', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       expect(
         await care.addCareEvent(
           petId: 'missing',
@@ -295,7 +296,7 @@ void main() {
     });
 
     test('rejected empty title logs care_event.rejected', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       expect(
         await care.addCareEvent(
           petId: 'miso',
@@ -309,7 +310,7 @@ void main() {
     });
 
     test('remove logs care_event.removed', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       await care.addCareEvent(
         petId: 'miso',
         title: 'Checkup',
@@ -331,15 +332,15 @@ void main() {
       expect(care.canAddPet, isFalse);
     });
 
-    test('startTrial unlocks all gates and logs billing.pro.unlocked', () async {
+    test('RevenueCat entitlement unlocks all gates', () async {
       final care = await freshCare();
-      await care.startTrial();
+      care.applyStoreEntitlement(true, BillingPlan.yearly);
       expect(care.isPro, isTrue);
       expect(care.canInviteHousehold, isTrue);
       expect(care.canShareVetReport, isTrue);
       expect(care.canShowLowSupplyAlerts, isTrue);
       expect(care.canAddPet, isTrue);
-      expectLogged('billing.pro.unlocked', fields: {'source': 'trial'});
+      expectLogged('billing.store.entitlement_changed', fields: {'active': true});
     });
 
     test('trial started before sharing survives going online', () async {
@@ -353,10 +354,90 @@ void main() {
         clock: () => DateTime(2026, 10, 3, 14),
       );
       await care.addPet(name: 'Milo', species: Species.cat);
-      await care.startTrial();
+      care.applyStoreEntitlement(true, BillingPlan.yearly);
       expect(await care.connect(), isNull);
       expect(care.isPro, isTrue);
       expectLogged('billing.pro.carried_online');
+    });
+
+    test('paying subscriber keeps Pro when the server lags behind', () async {
+      // Webhook not processed yet: server still says Free on every refresh.
+      final care = CareRepository(
+        api: fakeHouseholdApi(FakeHouseholdAdapter([
+          (201, connectHouseholdBody(isPro: false)),
+          (200, {'ok': true}), // push device register
+          (200, connectHouseholdBody(isPro: false)), // sync refresh
+        ])),
+        clock: () => DateTime(2026, 10, 3, 14),
+      );
+      await care.addPet(name: 'Milo', species: Species.cat);
+      await care.connect();
+      expect(care.isPro, isFalse);
+      care.debugStorePro = true; // App Store says this phone paid
+      await care.sync();
+      expect(care.isPro, isTrue);
+      expect(care.canInviteHousehold, isTrue);
+      expect(care.canAddPet, isTrue);
+    });
+
+    test('partner gets Pro from the server without their own subscription', () async {
+      final care = CareRepository(
+        api: fakeHouseholdApi(FakeHouseholdAdapter([
+          (201, connectHouseholdBody(isPro: true)),
+          (200, {'ok': true}),
+        ])),
+        clock: () => DateTime(2026, 10, 3, 14),
+      );
+      await care.addPet(name: 'Milo', species: Species.cat);
+      await care.connect();
+      care.debugStorePro = false;
+      expect(care.isPro, isTrue);
+    });
+
+    test('live store update: purchase lands late, then expires (solo)', () async {
+      final care = CareRepository(clock: () => DateTime(2026, 10, 3, 14));
+      await care.addPet(name: 'Milo', species: Species.cat);
+      expect(care.isPro, isFalse);
+      care.applyStoreEntitlement(true, BillingPlan.yearly);
+      expect(care.isPro, isTrue);
+      expectLogged(
+        'billing.store.entitlement_changed',
+        fields: {'active': true},
+      );
+      care.applyStoreEntitlement(false, null);
+      expect(care.isPro, isFalse, reason: 'own subscription ended');
+      expect(care.canAddPet, isFalse);
+    });
+
+    test('store expiry keeps household Pro a partner pays for', () async {
+      final care = CareRepository(
+        api: fakeHouseholdApi(FakeHouseholdAdapter([
+          (201, connectHouseholdBody(isPro: true)),
+          (200, {'ok': true}),
+        ])),
+        clock: () => DateTime(2026, 10, 3, 14),
+      );
+      await care.addPet(name: 'Milo', species: Species.cat);
+      await care.connect();
+      care.applyStoreEntitlement(true, BillingPlan.monthly);
+      care.applyStoreEntitlement(false, null);
+      expect(care.isPro, isTrue, reason: 'server still says household is Pro');
+    });
+
+    // RevenueCat's SDK caches the subscription for offline launches; the app
+    // never keeps its own copy, so a solo phone can't be Pro without it.
+    test('solo Pro is never restored from local storage', () async {
+      final care = CareRepository(
+        store: HouseholdStore(),
+        clock: () => DateTime(2026, 10, 3, 14),
+      );
+      await care.addPet(name: 'Milo', species: Species.cat);
+      care.applyStoreEntitlement(true, BillingPlan.yearly);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      final reloaded = CareRepository(store: HouseholdStore());
+      await reloaded.restore();
+      expect(reloaded.isPro, isFalse);
+      expect(reloaded.pets.single.name, 'Milo');
     });
 
     test('store account id is per household, never the shared "you"', () async {
@@ -394,7 +475,7 @@ void main() {
 
     test('reset revokes Pro and logs household.reset', () async {
       final care = await freshCare();
-      await care.startTrial();
+      care.applyStoreEntitlement(true, BillingPlan.yearly);
       await care.reset();
       expect(care.isPro, isFalse);
       expect(care.canInviteHousehold, isFalse);
@@ -402,13 +483,13 @@ void main() {
     });
 
     test('setPlan logs billing.plan.changed', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       await care.setPlan(BillingPlan.monthly);
       expectLogged('billing.plan.changed', fields: {'plan': 'monthly'});
     });
 
     test('restore without RevenueCat logs billing.restore.skipped', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       expect(await care.restoreBilling(), isFalse);
       expectLogged('billing.restore.requested');
       expectLogged('billing.restore.skipped', fields: {'reason': 'not_configured'});
@@ -417,7 +498,7 @@ void main() {
 
   group('Household & sync', () {
     test('join short code logs household.join_rejected', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       expect(await care.join(code: 'ABC', name: 'Alex'), isNotNull);
       expectLogged('household.join_rejected', fields: {'reason': 'short_code'});
     });
@@ -431,19 +512,19 @@ void main() {
     });
 
     test('join without API logs household.join_skipped', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       expect(await care.join(code: 'ABCDEF', name: 'Alex'), isNotNull);
       expectLogged('household.join_skipped', fields: {'reason': 'no_api'});
     });
 
     test('connect without API logs household.connect_skipped', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       expect(await care.connect(), isNotNull);
       expectLogged('household.connect_skipped', fields: {'reason': 'no_api'});
     });
 
     test('sync offline logs household.sync_skipped', () async {
-      final care = CareRepository.sample();
+      final care = sampleCare();
       await care.sync();
       expectLogged('household.sync_skipped', fields: {'reason': 'no_api'});
     });
@@ -471,12 +552,12 @@ void main() {
         clock: () => DateTime(2026, 10, 3, 14),
       );
       await care.addPet(name: 'Milo', species: Species.cat);
-      await care.startTrial();
+      care.applyStoreEntitlement(true, BillingPlan.yearly);
       expect(await care.ensureSitterWebLink(), isNull);
       expectLogged('sitter.link_skipped', fields: {'reason': 'not_connected'});
     });
 
-    test('creates link and logs sitter.link_ready', () async {
+    test('creates link and logs sitter.link_created', () async {
       final adapter = FakeHouseholdAdapter([
         (201, connectHouseholdBody()),
         (200, {'ok': true}), // push device register
@@ -485,7 +566,7 @@ void main() {
           {
             'token': 'sitter-secret-token',
             'expiresAt': '2026-11-03T00:00:00.000Z',
-            'url': '/sitter?t=sitter-secret-token',
+            'url': '/sitter#t=sitter-secret-token',
           },
         ),
       ]);
@@ -495,13 +576,13 @@ void main() {
         clock: () => DateTime(2026, 10, 3, 14),
       );
       await care.addPet(name: 'Milo', species: Species.cat);
-      await care.startTrial();
+      care.applyStoreEntitlement(true, BillingPlan.yearly);
       expect(await care.connect(), isNull);
       AppLog.testRecords.clear();
 
       final link = await care.ensureSitterWebLink();
       expect(link, contains('sitter-secret-token'));
-      expectLogged('sitter.link_ready');
+      expectLogged('sitter.link_created');
     });
 
     test('cached token logs sitter.link_cached', () async {
@@ -516,28 +597,28 @@ void main() {
         clock: () => DateTime(2026, 10, 3, 14),
       );
       await connected.addPet(name: 'Milo', species: Species.cat);
-      await connected.startTrial();
+      connected.applyStoreEntitlement(true, BillingPlan.yearly);
       await connected.connect();
       AppLog.testRecords.clear();
 
       final link = await connected.ensureSitterWebLink();
       expect(link, contains('cached-sitter-token'));
       expectLogged('sitter.link_cached');
-      expectNotLogged('sitter.link_ready');
+      expectNotLogged('sitter.link_created');
     });
 
     test('API failure logs sitter.link_failed', () async {
       final adapter = FakeHouseholdAdapter([
         (201, connectHouseholdBody()),
         (200, {'ok': true}), // push device register
-        (403, {'error': 'Browser sitter links need PawsitiveSync Pro.'}),
+        (403, {'error': 'Browser sitter links need Pawsitive Pro.'}),
       ]);
       final care = CareRepository(
         api: fakeHouseholdApi(adapter),
         clock: () => DateTime(2026, 10, 3, 14),
       );
       await care.addPet(name: 'Milo', species: Species.cat);
-      await care.startTrial();
+      care.applyStoreEntitlement(true, BillingPlan.yearly);
       await care.connect();
       AppLog.testRecords.clear();
 
@@ -574,7 +655,7 @@ void main() {
         clock: () => DateTime(2026, 10, 3, 14),
       );
       await care.addPet(name: 'Miso', species: Species.cat);
-      await care.startTrial();
+      care.applyStoreEntitlement(true, BillingPlan.yearly);
       await care.connect();
       AppLog.testRecords.clear();
 
@@ -610,7 +691,7 @@ void main() {
         clock: () => DateTime(2026, 10, 3, 14),
       );
       await care.addPet(name: 'Miso', species: Species.cat);
-      await care.startTrial();
+      care.applyStoreEntitlement(true, BillingPlan.yearly);
       await care.connect();
       AppLog.testRecords.clear();
 
@@ -663,12 +744,21 @@ void main() {
   group('App links', () {
     test('sitterWebLink encodes token safely', () {
       final link = AppLinks.sitterWebLink('abc+def/token');
-      expect(link, contains('t=abc%2Bdef%2Ftoken'));
+      expect(link, endsWith('/sitter#t=abc%2Bdef%2Ftoken'));
+      expect(link, isNot(contains('?t=')), reason: 'token must stay out of server logs');
     });
 
-    test('householdJoinLink encodes invite code', () {
-      final link = AppLinks.householdJoinLink('ABC 123');
-      expect(link, contains('code=ABC%20123'));
+    test('no invite link until the App Store ID is set (never a dead URL)', () {
+      expect(AppLinks.householdJoinLink('ABC123'), isNull);
+    });
+
+    test('legal links point at live pages, support is a real inbox', () {
+      expect(AppLinks.privacy, 'https://sites.google.com/view/pawasitive/home');
+      expect(AppLinks.terms, contains('apple.com/legal'));
+      expect(AppLinks.support, 'mailto:workplace0331@gmail.com');
+      for (final link in [AppLinks.privacy, AppLinks.terms, AppLinks.support]) {
+        expect(link, isNot(contains('pawsitivesync.app')));
+      }
     });
   });
 

@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/constants/pet_limits.dart';
+import 'package:pawsitive_sync/data/analytics_service.dart';
 import 'package:pawsitive_sync/data/onboarding_profile.dart';
 import 'package:pawsitive_sync/data/onboarding_state.dart';
 import 'package:pawsitive_sync/data/reminder_choice.dart';
@@ -174,7 +175,10 @@ class OnboardingViewModel extends ChangeNotifier {
       OnboardingState.write(true),
       OnboardingProfile.write(this),
     ]);
-    AppLog.event('onboarding.finished', {'reminders': reminders});
+    // Counted for the funnel, but no log line of its own:
+    // household.created_from_onboarding (with reminders) or household.joined
+    // already says how setup ended.
+    AnalyticsService.track('onboarding.finished');
   }
 
   /// Clears setup state after account deletion so welcome shows again.

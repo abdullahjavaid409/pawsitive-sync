@@ -1,3 +1,5 @@
+import 'package:pawsitive_sync/core/logging/app_log.dart';
+
 import 'dart:convert';
 
 import 'package:pawsitive_sync/domain/models.dart';
@@ -23,7 +25,11 @@ class OnboardingProfile {
           'caregivers': model.caregivers.toList(),
         }),
       );
-    } catch (_) {}
+    } catch (error, stack) {
+      AppLog.error('store.onboarding_profile_failed', error, stack, {
+        'op': 'write',
+      });
+    }
   }
 
   static Future<void> applyTo(OnboardingViewModel model) async {
@@ -42,7 +48,11 @@ class OnboardingProfile {
       model.caregivers
         ..clear()
         ..addAll((map['caregivers'] as List?)?.cast<String>() ?? const []);
-    } catch (_) {}
+    } catch (error, stack) {
+      AppLog.error('store.onboarding_profile_failed', error, stack, {
+        'op': 'applyTo',
+      });
+    }
   }
 
   /// Keeps the saved setup profile aligned when the first pet is edited.
@@ -63,14 +73,22 @@ class OnboardingProfile {
           'conditions': pet.conditions,
         }),
       );
-    } catch (_) {}
+    } catch (error, stack) {
+      AppLog.error('store.onboarding_profile_failed', error, stack, {
+        'op': 'syncFromPet',
+      });
+    }
   }
 
   static Future<void> clear() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_key);
-    } catch (_) {}
+    } catch (error, stack) {
+      AppLog.error('store.onboarding_profile_failed', error, stack, {
+        'op': 'clear',
+      });
+    }
   }
 
   static Species _species(String? name) {
