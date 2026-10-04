@@ -49,6 +49,7 @@ dependencies:
   purchases_flutter: ^10.0.0
   pdf: ^3.11.3
   purchases_ui_flutter: ^10.7.0
+  flutter_secure_storage: ^11.2.0
 dev_dependencies:
   flutter_test:
     sdk: flutter
