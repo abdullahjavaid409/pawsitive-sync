@@ -264,6 +264,7 @@ class Medication {
     required this.dosesLeft,
     required this.startDay,
     this.endDay = '',
+    this.archivedAt,
   });
 
   final String id;
@@ -281,6 +282,44 @@ class Medication {
 
   /// Last day to give this medicine, or empty when ongoing.
   final String endDay;
+
+  /// When the medicine was stopped (removed from the household), as an ISO
+  /// timestamp or YYYY-MM-DD; null while it is on the schedule. Stopped
+  /// medicines are kept only to label their dose history.
+  final String? archivedAt;
+
+  bool get isArchived => archivedAt != null;
+
+  /// "Oct 2" — the local day it was stopped, or empty while active.
+  String get stoppedDayLabel {
+    final raw = archivedAt;
+    if (raw == null) return '';
+    final at = (DateTime.tryParse(raw) ?? DateTime.tryParse(endDay))?.toLocal();
+    if (at == null) return '';
+    return '${_months[at.month - 1]} ${at.day}';
+  }
+
+  /// The name as history shows it: "Antibiotic (stopped Oct 2)" once stopped.
+  String get historyName {
+    if (!isArchived) return name;
+    final day = stoppedDayLabel;
+    return day.isEmpty ? '$name (stopped)' : '$name (stopped $day)';
+  }
+
+  static const _months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
 
   bool isActiveOn(String day) =>
       startDay.compareTo(day) <= 0 &&
@@ -339,7 +378,7 @@ class Medication {
     return '${weekdays[end.weekday - 1]}, ${months[end.month - 1]} ${end.day}';
   }
 
-  Medication copyWith({int? dosesLeft, String? endDay}) {
+  Medication copyWith({int? dosesLeft, String? endDay, String? archivedAt}) {
     return Medication(
       id: id,
       petId: petId,
@@ -350,6 +389,7 @@ class Medication {
       dosesLeft: dosesLeft ?? this.dosesLeft,
       startDay: startDay,
       endDay: endDay ?? this.endDay,
+      archivedAt: archivedAt ?? this.archivedAt,
     );
   }
 
