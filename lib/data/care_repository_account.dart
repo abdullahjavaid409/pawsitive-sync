@@ -88,8 +88,8 @@ extension CareAccount on CareRepository {
     }
   }
 
-  /// Removes everything this app stored on the phone: household, tokens,
-  /// queue, events, photos, setup answers, reminders, widget, analytics.
+  /// Removes everything this app stored on the phone: household database,
+  /// tokens, queue, events, photos, setup answers, reminders, widget, analytics.
   /// Each step is isolated so one failure (Keychain locked, RevenueCat
   /// offline) never leaves the rest behind.
   Future<void> wipeDevice() async {
@@ -105,6 +105,9 @@ extension CareAccount on CareRepository {
     // Household, tokens, outbox, events, photos, RevenueCat logOut (which
     // swallows its own failures and times out on a slow link).
     await step('household', reset);
+    // The rows are gone after reset; remove the file itself (and any damaged
+    // copy set aside) so nothing of the household stays on the phone.
+    await step('database', LocalDatabase.shared.deleteFile);
     await step('secure_tokens', SecureTokens.deleteAll);
     await step('reminder_choice', ReminderChoice.clear);
     await step('onboarding', OnboardingState.clear);

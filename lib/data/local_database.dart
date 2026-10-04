@@ -23,9 +23,8 @@ import 'package:sqflite/sqflite.dart';
 /// couldn't be migrated, disk full while creating it, …). Callers then fall
 /// back to [LegacyPrefsStore] so the app keeps working on the old data.
 class LocalDatabase {
-  LocalDatabase({DatabaseFactory? factory, Future<String> Function()? path})
-    : _factory = factory,
-      _path = path ?? _defaultPath;
+  LocalDatabase({this._factory, Future<String> Function()? path})
+    : _path = path ?? _defaultPath;
 
   /// The app's database. Tests swap it (see `flutter_test_config.dart`).
   static LocalDatabase shared = LocalDatabase();

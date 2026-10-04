@@ -1,4 +1,4 @@
-import 'package:collection/collection.dart';
+import 'package:flutter/foundation.dart' show mapEquals;
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/data/legacy_prefs_store.dart';
 import 'package:pawsitive_sync/data/local_database.dart';
@@ -21,6 +21,7 @@ class StoredHousehold {
     this.householdId = '',
     this.archivedMedications = const [],
     this.deletedLogIds = const {},
+    this.replaceLogs = false,
   });
 
   final String householdId;
@@ -44,6 +45,10 @@ class StoredHousehold {
   /// Logs to remove from disk on this write. Logs are never deleted just for
   /// being absent from [logs]: memory holds only a window of the history.
   final Set<String> deletedLogIds;
+
+  /// Drop every saved log first (joined another household: the old one's
+  /// history must not mix in), then save [logs].
+  final bool replaceLogs;
 }
 
 /// Saves the household in [LocalDatabase], one row per record. The bearer
@@ -57,7 +62,7 @@ class StoredHousehold {
 /// Use one store per database: the row cache assumes nothing else writes
 /// these tables.
 class HouseholdStore {
-  HouseholdStore({LocalDatabase? database}) : _database = database;
+  HouseholdStore({this._database});
 
   final LocalDatabase? _database;
   LocalDatabase get _db => _database ?? LocalDatabase.shared;
@@ -85,11 +90,6 @@ class HouseholdStore {
   bool _primed = false;
   int _generation = -1;
   int _maxSeq = 0;
-
-  /// Deletes that failed to commit, retried with the next write.
-  final Set<String> _pendingLogDeletes = {};
-
-  static const _rowEquality = MapEquality<String, Object?>();
 
   void _syncGeneration() {
     if (_generation == _db.generation) return;
@@ -227,7 +227,8 @@ class HouseholdStore {
 
   /// Saves [house]: changed rows are upserted, removed ones deleted, all in
   /// one transaction. On failure nothing is half-saved, `store.write_failed`
-  /// is logged and the error rethrown; the next write retries the same rows.
+  /// is logged and the error rethrown; the next write retries the same rows
+  /// (the caller re-sends [StoredHousehold.deletedLogIds]).
   Future<void> write(StoredHousehold house) async {
     final db = await _db.open();
     await _writeToken(house.token);
@@ -249,34 +250,37 @@ class HouseholdStore {
     final pets = _diff('pets', [
       for (final (i, pet) in house.pets.indexed) LocalRows.pet(pet, i),
     ]);
-    final archived = {for (final m in house.medications) m.id};
+    final activeIds = {for (final m in house.medications) m.id};
     final medications = _diff('medications', [
       for (final (i, m) in house.medications.indexed)
         LocalRows.medication(m, i),
       for (final (i, m) in house.archivedMedications.indexed)
-        if (!archived.contains(m.id)) LocalRows.medication(m, i),
+        if (!activeIds.contains(m.id)) LocalRows.medication(m, i),
     ]);
 
     // Logs: upsert new/changed only. New rows get increasing seq from the
     // oldest to the newest so same-minute order survives a restart.
-    final logCache = _rows['dose_logs'] ??= {};
+    final logCache = house.replaceLogs
+        ? <String, Map<String, Object?>>{}
+        : (_rows['dose_logs'] ??= {});
     final logUpserts = <Map<String, Object?>>[];
     var seq = _maxSeq;
     for (final log in house.logs.reversed) {
       final cached = logCache[log.id];
       final row = LocalRows.log(log, cached == null ? ++seq : cached['seq']! as int);
-      if (cached == null || !_rowEquality.equals(cached, row)) {
+      if (cached == null || !mapEquals(cached, row)) {
         logUpserts.add(row);
       }
     }
-    final logDeletes = {..._pendingLogDeletes, ...house.deletedLogIds};
+    final logDeletes = house.deletedLogIds;
 
     if (metaChanges.isEmpty &&
         members.isEmpty &&
         pets.isEmpty &&
         medications.isEmpty &&
         logUpserts.isEmpty &&
-        logDeletes.isEmpty) {
+        logDeletes.isEmpty &&
+        !house.replaceLogs) {
       return;
     }
 
@@ -302,6 +306,7 @@ class HouseholdStore {
           await run(change.table, (batch) => change.apply(batch, _primed));
         }
         await run('dose_logs', (batch) {
+          if (house.replaceLogs) batch.delete('dose_logs');
           for (final row in logUpserts) {
             batch.insert(
               'dose_logs',
@@ -315,7 +320,6 @@ class HouseholdStore {
         });
       });
     } on Object catch (error, stack) {
-      _pendingLogDeletes.addAll(logDeletes);
       AppLog.error('store.write_failed', error, stack, {
         'table': table,
         'rows': logUpserts.length + logDeletes.length,
@@ -324,6 +328,7 @@ class HouseholdStore {
     }
 
     // Committed: the cache now describes the disk.
+    _rows['dose_logs'] = logCache;
     _meta = {..._meta, ...metaChanges};
     for (final change in [members, pets, medications]) {
       _rows[change.table] = change.after;
@@ -340,7 +345,6 @@ class HouseholdStore {
       logCache.removeWhere((id, _) => !live.contains(id));
     }
     _maxSeq = seq;
-    _pendingLogDeletes.removeAll(logDeletes);
     _primed = true;
   }
 
@@ -353,7 +357,7 @@ class HouseholdStore {
       upserts: [
         for (final row in rows)
           if (!_primed ||
-              !_rowEquality.equals(before['${row['id']}'], row))
+              !mapEquals(before['${row['id']}'], row))
             row,
       ],
       deletes: [
@@ -393,7 +397,6 @@ class HouseholdStore {
       _meta = {};
       _primed = true;
       _maxSeq = 0;
-      _pendingLogDeletes.clear();
     }
     await _writeToken(null, force: true);
   }

@@ -15,6 +15,7 @@ import 'package:pawsitive_sync/data/care_events_store.dart';
 import 'package:pawsitive_sync/data/dose_reminders.dart';
 import 'package:pawsitive_sync/data/household_api.dart';
 import 'package:pawsitive_sync/data/household_store.dart';
+import 'package:pawsitive_sync/data/local_database.dart';
 import 'package:pawsitive_sync/data/push_service.dart';
 import 'package:pawsitive_sync/data/sync_engine.dart';
 import 'package:pawsitive_sync/data/sync_outbox.dart';
@@ -281,25 +282,63 @@ class CareRepository extends ChangeNotifier {
   final List<DoseRecord> _logs = [];
   final List<CareEvent> _careEvents = [];
 
-  /// Medicines removed from the schedule, kept on this phone so their
-  /// history still shows in vet reports. Local only (not synced).
+  /// Stopped medicines (each with [Medication.archivedAt]): never on Today,
+  /// reminders, the widget or any schedule — only used to label their dose
+  /// history (activity, vet report). Filled from the server's
+  /// `archivedMedications` and from medicines stopped on this phone.
   final List<Medication> _archivedMedications = [];
+
+  /// Log ids to delete from disk on the next save (see [StoredHousehold]).
+  final Set<String> _deletedLogIds = {};
+
+  /// Set by a join: the next save drops every saved log first.
+  bool _replaceSavedLogs = false;
+
+  /// The server's snapshot cap (`loadHousehold` LIMIT): also how many logs
+  /// a new household uploads.
+  static const _serverLogCap = 3000;
 
   void _archive(Iterable<Medication> removed) {
     final today = dayKey(now);
+    final at = now.toUtc().toIso8601String();
     for (final m in removed) {
       _archivedMedications
         ..removeWhere((a) => a.id == m.id)
         ..add(
-          m.endDay.isEmpty || m.endDay.compareTo(today) > 0
-              ? m.copyWith(endDay: today)
-              : m,
+          m.copyWith(
+            endDay: m.endDay.isEmpty || m.endDay.compareTo(today) > 0
+                ? today
+                : null,
+            archivedAt: m.archivedAt ?? at,
+          ),
         );
     }
-    // Bounded: older courses beyond this fall back to "Removed medicine".
-    if (_archivedMedications.length > 200) {
-      _archivedMedications.removeRange(0, _archivedMedications.length - 200);
+  }
+
+  /// Stopped medicines after a server snapshot: the server's list (real
+  /// names and stop times, including medicines stopped before this phone
+  /// joined) plus ones this phone stopped whose logs are older than the
+  /// server's window. A medicine that is active again is never archived.
+  void _mergeArchived(List<Medication> remote, List<Medication> active) {
+    final activeIds = {for (final m in active) m.id};
+    final byId = {for (final m in _archivedMedications) m.id: m};
+    for (final m in remote) {
+      byId[m.id] = m;
     }
+    byId.removeWhere((id, _) => activeIds.contains(id));
+    _archivedMedications
+      ..clear()
+      ..addAll(byId.values);
+  }
+
+  /// Active or stopped medicine by id, for history only.
+  Medication? _historyMedication(String id) {
+    final active = medicationById(id);
+    if (active != null) return active;
+    for (final m in _archivedMedications) {
+      if (m.id == id) return m;
+    }
+    return null;
   }
 
   /// Household Pro from the server, set only by the RevenueCat webhook —
@@ -557,10 +596,10 @@ class CareRepository extends ChangeNotifier {
     return [
       for (final log in _logs.take(40))
         () {
-          final medication = medicationById(log.medicationId);
+          final medication = _historyMedication(log.medicationId);
           final pet = medication == null ? null : tryPetById(medication.petId);
           final petName = pet?.name ?? 'your pet';
-          final name = medication?.name ?? 'A medicine';
+          final name = medication?.historyName ?? 'A medicine';
           final amount = log.amount.isNotEmpty
               ? log.amount
               : medication?.amount ?? '';
@@ -619,32 +658,13 @@ class CareRepository extends ChangeNotifier {
         if (m.petId == petId) (m, false),
     ];
     final known = {for (final m in _medications) m.id};
+    // Stopped medicines with logs in range keep their real name and pet:
+    // the server sends them (`archivedMedications`) even to a phone that
+    // joined after they were stopped.
     for (final m in _archivedMedications) {
       if (m.petId == petId && !known.contains(m.id) && inRange[m.id] != null) {
         meds.add((m, true));
         known.add(m.id);
-      }
-    }
-    // Logs for a medicine this phone never saw (e.g. removed before joining):
-    // attributable only when the household has a single pet.
-    if (_pets.length == 1 && _pets.first.id == petId) {
-      for (final id in inRange.keys) {
-        if (known.contains(id)) continue;
-        final logs = inRange[id]!;
-        meds.add((
-          Medication(
-            id: id,
-            petId: petId,
-            name: 'Removed medicine',
-            amount: logs.first.amount,
-            parts: const [],
-            supplyTotal: 0,
-            dosesLeft: 0,
-            startDay: logs.last.day,
-            endDay: logs.first.day,
-          ),
-          true,
-        ));
       }
     }
 
@@ -695,7 +715,7 @@ class CareRepository extends ChangeNotifier {
         recent.add(
           ReportEntry(
             medicationId: medication.id,
-            medicationName: medication.name,
+            medicationName: medication.historyName,
             day: log.day,
             timeLabel: log.timeLabel,
             who: _who(log.memberId),
@@ -773,7 +793,11 @@ class CareRepository extends ChangeNotifier {
     } on Object catch (error, stack) {
       AppLog.error('pet.photo_store_failed', error, stack);
     }
-    final saved = await _store?.read();
+    final saved = await _store?.read(
+      sinceDay: dayKey(
+        now.subtract(const Duration(days: HouseholdStore.recentDays)),
+      ),
+    );
     if (saved == null) return;
     _apply(
       householdId: saved.householdId,
@@ -835,10 +859,19 @@ class CareRepository extends ChangeNotifier {
     _resolvePhotoPaths();
   }
 
-  void _applySession(HouseholdSession session) {
+  /// [joined]: this phone switched to someone else's household, so nothing
+  /// of its own history may stay (in memory or on disk). Creating a
+  /// household keeps it: the server now holds the same logs.
+  void _applySession(HouseholdSession session, {required bool joined}) {
     final house = session.snapshot;
     // A create/join answer is a fresh server snapshot, same as a sync.
     _lastSyncedAt = now;
+    if (joined) {
+      _replaceSavedLogs = true;
+      _deletedLogIds.clear();
+      _archivedMedications.clear();
+    }
+    _mergeArchived(house.archivedMedications, house.medications);
     _apply(
       householdId: house.householdId,
       token: session.token,
@@ -849,14 +882,23 @@ class CareRepository extends ChangeNotifier {
       members: house.members,
       pets: _mergePhotoState(house.pets),
       medications: house.medications,
-      logs: house.logs,
+      logs: joined ? house.logs : _mergeLogs(house.logs),
     );
     _mergeCareEvents(house.careEvents);
   }
 
   void _mergeSnapshot(HouseholdSnapshot house) {
-    final remoteMedIds = {for (final m in house.medications) m.id};
+    final pending = _syncEngine.outbox.pendingPayloadIds;
+    // Added offline and still queued: the server hasn't seen it yet.
+    final medications = _keepPending(
+      house.medications,
+      _medications,
+      pending['addMedication'],
+    );
+    final pets = _keepPending(house.pets, _pets, pending['addPet']);
+    final remoteMedIds = {for (final m in medications) m.id};
     _archive(_medications.where((m) => !remoteMedIds.contains(m.id)));
+    _mergeArchived(house.archivedMedications, medications);
     final knownLogIds = {for (final log in _logs) log.id};
     _notifyPartnerLogs(house, knownLogIds);
     _apply(
@@ -869,11 +911,76 @@ class CareRepository extends ChangeNotifier {
       // server copy must never overwrite it.
       plan: _storePro ? _plan : house.plan,
       members: house.members,
-      pets: _mergePhotoState(house.pets),
-      medications: house.medications,
-      logs: house.logs,
+      pets: _mergePhotoState(pets),
+      medications: medications,
+      logs: _mergeLogs(house.logs, pending['logDose']),
     );
     _mergeCareEvents(house.careEvents);
+  }
+
+  /// [remote] plus local items whose create is still in the outbox.
+  static List<T> _keepPending<T>(
+    List<T> remote,
+    List<T> local,
+    Set<String>? pendingIds,
+  ) {
+    if (pendingIds == null || pendingIds.isEmpty) return remote;
+    String id(T item) => switch (item) {
+      Medication(:final id) => id,
+      Pet(:final id) => id,
+      _ => '',
+    };
+    final remoteIds = {for (final item in remote) id(item)};
+    return [
+      ...remote,
+      for (final item in local)
+        if (pendingIds.contains(id(item)) && !remoteIds.contains(id(item)))
+          item,
+    ];
+  }
+
+  /// Logs after a server snapshot. The server is the truth for the window
+  /// it returns; a local log missing from it was removed there (e.g. a "not
+  /// sure" resolved on another phone) and is deleted here too. Outside that
+  /// window (older history, or past the server's cap) this phone's copy
+  /// stays, and so does a dose still queued offline.
+  List<DoseRecord> _mergeLogs(
+    List<DoseRecord> remote, [
+    Set<String>? pendingIds,
+  ]) {
+    final remoteIds = {for (final log in remote) log.id};
+    final coveredFrom = _snapshotCoveredFrom(remote);
+    final queued = <DoseRecord>[];
+    final older = <DoseRecord>[];
+    for (final log in _logs) {
+      if (remoteIds.contains(log.id)) continue;
+      if (pendingIds?.contains(log.id) ?? false) {
+        queued.add(log);
+      } else if (log.day.compareTo(coveredFrom) < 0) {
+        older.add(log);
+      } else {
+        _deletedLogIds.add(log.id);
+      }
+    }
+    return [...queued, ...remote, ...older];
+  }
+
+  /// First day a snapshot's logs are complete for. The server returns logs
+  /// created in the last 100 days, capped at [_serverLogCap]: below the cap
+  /// that is every day from 100 days ago (98 here, for clock and time-zone
+  /// skew); at the cap only the days after the oldest one returned.
+  String _snapshotCoveredFrom(List<DoseRecord> remote) {
+    if (remote.length < _serverLogCap) {
+      return dayKey(now.subtract(const Duration(days: 98)));
+    }
+    var oldest = remote.first.day;
+    for (final log in remote) {
+      if (log.day.compareTo(oldest) < 0) oldest = log.day;
+    }
+    final parsed = DateTime.tryParse(oldest);
+    return parsed == null
+        ? oldest
+        : dayKey(DateTime(parsed.year, parsed.month, parsed.day + 1));
   }
 
   void _notifyPartnerLogs(HouseholdSnapshot house, Set<String> knownLogIds) {
@@ -1156,6 +1263,10 @@ class CareRepository extends ChangeNotifier {
     _persistQueued = false;
     final store = _store;
     if (store == null) return;
+    final deleted = Set.of(_deletedLogIds);
+    final replaceLogs = _replaceSavedLogs;
+    _deletedLogIds.clear();
+    _replaceSavedLogs = false;
     try {
       await store.write(
         StoredHousehold(
@@ -1171,13 +1282,17 @@ class CareRepository extends ChangeNotifier {
           pets: List.of(_pets),
           medications: List.of(_medications),
           archivedMedications: List.of(_archivedMedications),
-          logs: List.of(_logs.take(3000)),
+          logs: List.of(_logs),
+          deletedLogIds: deleted,
+          replaceLogs: replaceLogs,
         ),
       );
-    } catch (error, stack) {
-      AppLog.error('store.household_write_failed', error, stack, {
-        'logs': _logs.length,
-      });
+    } catch (_) {
+      // Logged by the store (`store.write_failed`). Memory still has every
+      // change and the store's row cache didn't move, so the next save
+      // (next change, or [flushPersist] on pause) writes the same rows.
+      _deletedLogIds.addAll(deleted);
+      _replaceSavedLogs |= replaceLogs;
     }
   }
 
@@ -1216,6 +1331,7 @@ class CareRepository extends ChangeNotifier {
       return 'Set up your pet first.';
     }
     try {
+      final logs = await _logsForUpload();
       final session = await AppLog.trace(
         'household.create',
         () => api.createHousehold(
@@ -1226,10 +1342,10 @@ class CareRepository extends ChangeNotifier {
           ],
           pets: _pets,
           medications: _medications,
-          logs: _logs,
+          logs: logs,
         ),
       );
-      _applySession(session);
+      _applySession(session, joined: false);
       // The server checks RevenueCat for `household:member` — that customer
       // must exist (logIn) before we ask it to carry Pro, or it reads Free.
       await RevenueCatService.identifyMember(billingUserId);
@@ -1242,6 +1358,28 @@ class CareRepository extends ChangeNotifier {
       AppLog.event('household.connect_failed', {'kind': error.kind.name});
       return error.message;
     }
+  }
+
+  /// The newest [_serverLogCap] logs, from disk as well as memory (memory
+  /// holds only the recent window), for a household being put online.
+  Future<List<DoseRecord>> _logsForUpload() async {
+    final store = _store;
+    if (store == null) return List.of(_logs);
+    List<DoseRecord> saved;
+    try {
+      await flushPersist();
+      saved = await store.readLogs(limit: _serverLogCap);
+    } on Object catch (error, stack) {
+      AppLog.error('store.read_failed', error, stack, {'table': 'dose_logs'});
+      saved = const [];
+    }
+    // Memory first: it has anything a failed save didn't get to disk.
+    final ids = {for (final log in _logs) log.id};
+    return [
+      ..._logs,
+      for (final log in saved)
+        if (!ids.contains(log.id)) log,
+    ].take(_serverLogCap).toList();
   }
 
   /// Joins someone else's household with their invite code.
@@ -1265,7 +1403,7 @@ class CareRepository extends ChangeNotifier {
         'household.join',
         () => api.join(code: cleanCode, name: name.trim()),
       );
-      _applySession(session);
+      _applySession(session, joined: true);
       await RevenueCatService.identifyMember(billingUserId);
       // A subscriber joining a Free household brings Pro with them.
       if (_storePro && !_isPro) await _carryProOnline(api);
@@ -1514,10 +1652,13 @@ class CareRepository extends ChangeNotifier {
       return Future.value(false);
     }
     final existing = _logFor(medicationId, part, today);
+    // A "not sure" is replaced by the confirmed outcome — only once the new
+    // log is actually kept, so a failed save leaves the warning in place.
+    DoseRecord? replaces;
     if (existing != null) {
       if (existing.outcome == LogOutcome.uncertain &&
           outcome != LogOutcome.uncertain) {
-        _logs.remove(existing);
+        replaces = existing;
       } else {
         lastError =
             '${_who(existing.memberId)} already logged this at ${existing.timeLabel}.';
@@ -1548,6 +1689,9 @@ class CareRepository extends ChangeNotifier {
     );
 
     void keep(DoseRecord saved, Medication? updated) {
+      if (replaces != null && _logs.remove(replaces)) {
+        _deletedLogIds.add(replaces.id);
+      }
       _logs.insert(0, saved);
       if (updated != null) _replaceMedication(updated);
     }
@@ -2273,6 +2417,8 @@ class CareRepository extends ChangeNotifier {
     _lastSyncedAt = null;
     _sitterLink = null;
     _archivedMedications.clear();
+    _deletedLogIds.clear();
+    _replaceSavedLogs = false;
     await _clearPhotos();
     AppLog.event('household.reset');
     notifyListeners();

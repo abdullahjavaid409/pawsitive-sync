@@ -19,6 +19,7 @@ class HouseholdSnapshot {
     required this.logs,
     this.careEvents = const [],
     this.householdId = '',
+    this.archivedMedications = const [],
   });
 
   /// Server id for the household. Opaque and globally unique.
@@ -32,6 +33,10 @@ class HouseholdSnapshot {
   final List<Medication> medications;
   final List<DoseRecord> logs;
   final List<CareEvent> careEvents;
+
+  /// Medicines removed from the household that still have logs in the
+  /// returned window, each with [Medication.archivedAt]. History only.
+  final List<Medication> archivedMedications;
 }
 
 class BatchOpResult {
@@ -496,6 +501,11 @@ HouseholdSnapshot _snapshot(Map<String, dynamic> body) {
     medications: _list(body['medications'], _medication),
     logs: _list(body['logs'], _log),
     careEvents: _list(body['careEvents'], CareEvent.fromJson),
+    archivedMedications: [
+      for (final m in _list(body['archivedMedications'], _medication))
+        // Stopped before the server kept a stop time: still stopped.
+        m.isArchived ? m : m.copyWith(archivedAt: m.endDay),
+    ],
   );
 }
 
@@ -582,6 +592,7 @@ Medication _medication(Map<String, dynamic> json) {
     dosesLeft: _int(json['dosesLeft']),
     startDay: '${json['startDay'] ?? ''}',
     endDay: '${json['endDay'] ?? ''}',
+    archivedAt: _nonEmpty(json['archivedAt']),
   );
 }
 
