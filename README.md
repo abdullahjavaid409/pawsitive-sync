@@ -17,6 +17,6 @@ flutter run
 
 Optional store billing and online sync: [docs/CONFIG.md](docs/CONFIG.md).
 
-The schedule is stored in memory for this build. Completing onboarding, or choosing “I was invited,” opens the sample household (Miso and Juniper).
+The app always starts empty: no demo data ships. Everything you enter is saved on the phone (SQLite) and works offline; a shared household syncs it. Test fixtures live in `test/support/`.
 
 Geist Sans is included under the SIL Open Font License (`assets/fonts/OFL.txt`).
