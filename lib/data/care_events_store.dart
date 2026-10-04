@@ -52,7 +52,7 @@ class CareEventsStore {
         event.id: LocalRows.careEvent(event, i),
     };
     try {
-      await db.transaction((txn) async {
+      await db.guardedTransaction((txn) async {
         final batch = txn.batch();
         if (before == null) batch.delete('care_events');
         for (final row in after.values) {

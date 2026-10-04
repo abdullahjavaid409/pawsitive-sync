@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/constants/pet_limits.dart';
-import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/widgets/post_frame.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
@@ -34,8 +33,8 @@ class _AddPetScreenState extends State<AddPetScreen> {
       if (!mounted) return;
       final care = context.read<CareRepository>();
       if (!care.canAddPet) {
-        AppLog.event('pet.add.blocked', {'source': 'add_pet_screen'});
-        context.go(AppRoutes.paywall);
+        // billing.paywall.opened from=add_pet_screen.
+        context.go(AppRoutes.paywallWith(from: 'add_pet_screen'));
       }
     });
   }

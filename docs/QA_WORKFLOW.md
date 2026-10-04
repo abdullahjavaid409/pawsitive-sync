@@ -10,7 +10,7 @@ Use this after a **Delete account** (Settings) or on a fresh install. Filter Dev
 | **Connected household** | Writes sync to server; pull-to-refresh fetches latest |
 | **API calls** | Only on: Invite (connect), Join, dose/med writes when connected, manual refresh, billing resume — **not** on every app open |
 
-Logs: `store.opened ms=…` + `data.restored` on launch (first launch after the SQLite update also `store.migrated pets=… logs=… ms=…`, or `store.migrate_failed` — the app then keeps using the old data and retries next launch) · `household.sync_skipped` when no unnecessary fetch · a failed save logs `store.write_failed table=…`
+Logs: `store.opened ms=…` + `data.restored` on launch (last 14 days), then `data.history_loaded logs=… ms=…` (rest of the 100 days) right after the first frame (first launch after the SQLite update also `store.migrated pets=… logs=… ms=…`, or `store.migrate_failed` — the app then keeps using the old data and retries next launch; if the database can't open on a later launch: `store.open_retry`, `store.open_failed`, changes saved aside and merged back next launch as `store.recovered`) · `household.sync_skipped` when no unnecessary fetch · a failed save logs `store.write_failed table=…`
 
 One line per action: the repository logs the outcome (`*.completed` / `*.rejected` / `*.failed`); screens don't add a second "saved" line. Opening a screen, sheet or dialog is one `nav.push to=…` (sheets and dialogs are named: `log_dose`, `add_care_event`, `stop_medicine`, `delete_account`, `sitter_label`).
 
@@ -83,7 +83,7 @@ One line per action: the repository logs the outcome (`*.completed` / `*.rejecte
 
 | Step | Action | Expected log |
 |------|--------|--------------|
-| 5.1 | Add pet (Free, already 1 pet) | `pet.add.blocked` → paywall |
+| 5.1 | Add pet (Free, already 1 pet) | `billing.paywall.opened from=add_pet_…` |
 | 5.2 | Add pet (Pro) | `pet.add.completed` |
 | 5.3 | Edit pet → save | `pet.update.completed` |
 | 5.4 | 3+ pets → vertical list | (UI only) |
@@ -100,7 +100,7 @@ One line per action: the repository logs the outcome (`*.completed` / `*.rejecte
 | 6.2c | Open browser link on phone (no app) | Server: `dose.logged` source=sitter |
 | 6.2d | Partner logs dose → your phone | `push.partner_detected`, `push.partner_logged` |
 | 6.3 | Share | `invite.share_tapped` |
-| 6.4 | Invite (Free) | `invite.blocked` |
+| 6.4 | Invite (Free) | `billing.paywall.opened reason=invite from=invite` |
 | 6.5 | Join with code | `household.joined` |
 | 6.6 | Bad code | `household.join_rejected` or `household.join_failed` |
 
@@ -122,7 +122,7 @@ One line per action: the repository logs the outcome (`*.completed` / `*.rejecte
 |------|--------|--------------|
 | 8.1 | Change pet filter | `report.pet_filter` |
 | 8.2 | Share (Pro) | `report.shared` |
-| 8.3 | Share (Free) | `report.share.blocked` |
+| 8.3 | Share (Free) | `billing.paywall.opened from=report_share` |
 
 ---
 

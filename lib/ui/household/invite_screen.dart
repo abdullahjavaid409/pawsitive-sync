@@ -8,6 +8,7 @@ import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
+import 'package:pawsitive_sync/data/household_api.dart' show SitterLinkInfo;
 import 'package:pawsitive_sync/domain/paywall_reason.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -61,6 +62,103 @@ class _InviteScreenState extends State<InviteScreen> {
   Future<void> _loadWebLink() async {
     if (!mounted) return;
     await context.read<CareRepository>().loadSitterLink();
+  }
+
+  bool _loadingLinks = false;
+  bool _linksShown = false;
+
+  /// Owner: fetches the working links on request (no call on screen open).
+  Future<void> _showLinks() async {
+    if (_loadingLinks) return;
+    setState(() => _loadingLinks = true);
+    final error = await context.read<CareRepository>().loadSitterLinks();
+    if (!mounted) return;
+    setState(() {
+      _loadingLinks = false;
+      _linksShown = error == null;
+    });
+    if (error != null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error)));
+    }
+  }
+
+  bool _rotating = false;
+
+  /// Owner: confirm, then swap the code. The old code stops working.
+  Future<void> _newCode() async {
+    if (_rotating) return;
+    final care = context.read<CareRepository>();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: const Text('Make a new code?'),
+        content: const Text(
+          'The current code stops working right away. People already in the household stay in.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialog).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialog).pop(true),
+            child: const Text('New code'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() => _rotating = true);
+    final error = await care.rotateInvite();
+    if (!mounted) return;
+    setState(() {
+      _rotating = false;
+      _copied = false;
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(error ?? 'New code ready. The old one no longer works.'),
+      ),
+    );
+  }
+
+  Future<void> _revoke(SitterLinkInfo link) async {
+    final care = context.read<CareRepository>();
+    final label = link.label.isEmpty ? 'this link' : link.label;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialog) => AlertDialog(
+        title: Text('Revoke $label?'),
+        content: const Text(
+          'It stops working right away. Doses already logged with it stay.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialog).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialog).pop(true),
+            child: const Text('Revoke'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    final error = await care.revokeSitterLink(link.id);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(error ?? 'Link revoked.')));
+  }
+
+  /// "Expires in 5 days" under the code; null when unknown.
+  static String? _expiryText(CareRepository care) {
+    if (care.inviteExpiresAt == null) return null;
+    if (care.inviteExpired) return 'This code expired. Make a new one.';
+    final days = care.inviteDaysLeft ?? 0;
+    if (days <= 1) return 'Expires within a day';
+    return 'Expires in $days days';
   }
 
   Future<void> _createWebLink() async {
@@ -273,12 +371,25 @@ class _InviteScreenState extends State<InviteScreen> {
                               )
                             else
                               Text(
-                                _error ?? 'Getting your code…',
+                                care.isConnected && !care.canManageHousehold
+                                    ? 'Only the owner can invite people. Ask them for the code.'
+                                    : _error ?? 'Getting your code…',
                                 textAlign: TextAlign.center,
                                 style: text.bodyLarge?.copyWith(
                                   color: scheme.error,
                                 ),
                               ),
+                            if (ready && _expiryText(care) != null) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                _expiryText(care)!,
+                                style: text.bodyMedium?.copyWith(
+                                  color: care.inviteExpired
+                                      ? scheme.error
+                                      : tokens.brandDark,
+                                ),
+                              ),
+                            ],
                             const SizedBox(height: 12),
                             if (ready)
                               OutlinedButton.icon(
@@ -298,10 +409,17 @@ class _InviteScreenState extends State<InviteScreen> {
                                 ),
                                 label: Text(_copied ? 'Copied' : 'Copy code'),
                               )
-                            else if (!_connecting)
+                            else if (!_connecting && care.canManageHousehold)
                               OutlinedButton(
                                 onPressed: _ensureShared,
                                 child: const Text('Try again'),
+                              ),
+                            if (ready && care.canManageHousehold)
+                              TextButton(
+                                onPressed: _rotating ? null : _newCode,
+                                child: Text(
+                                  _rotating ? 'Making a new code…' : 'New code',
+                                ),
                               ),
                           ],
                         ),
@@ -321,10 +439,10 @@ class _InviteScreenState extends State<InviteScreen> {
                       if (!care.canInviteHousehold)
                         _LockedSitterLink(
                           onTap: () {
-                            AppLog.event('sitter.link_locked');
                             context.push(
                               AppRoutes.paywallWith(
                                 reason: PaywallReason.invite.queryValue,
+                                from: 'sitter_link',
                               ),
                             );
                           },
@@ -346,6 +464,56 @@ class _InviteScreenState extends State<InviteScreen> {
                             care.sitterLink!,
                           ),
                         ),
+                      if (care.canInviteHousehold && !_linksShown)
+                        TextButton(
+                          onPressed: _loadingLinks ? null : _showLinks,
+                          child: Text(
+                            _loadingLinks
+                                ? 'Loading links…'
+                                : 'See active links',
+                          ),
+                        ),
+                      if (care.canInviteHousehold &&
+                          _linksShown &&
+                          care.sitterLinks.isEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Text(
+                            'No other active links.',
+                            style: text.bodyMedium?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ),
+                      if (care.canInviteHousehold &&
+                          care.sitterLinks.isNotEmpty) ...[
+                        const SizedBox(height: 16),
+                        Text('Active sitter links', style: text.titleSmall),
+                        const SizedBox(height: 8),
+                        SurfaceCard(
+                          padding: EdgeInsets.zero,
+                          child: Column(
+                            children: [
+                              for (final link in care.sitterLinks)
+                                ListTile(
+                                  title: Text(
+                                    link.label.isEmpty
+                                        ? 'Sitter link'
+                                        : link.label,
+                                  ),
+                                  subtitle: Text(
+                                    'Works until ${_shortDate(link.expiresAt)}'
+                                    '${link.lastUsedAt == null ? '' : ' · last opened ${_shortDate(link.lastUsedAt!)}'}',
+                                  ),
+                                  trailing: TextButton(
+                                    onPressed: () => _revoke(link),
+                                    child: const Text('Revoke'),
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                      ],
                       if (joinLink != null) ...[
                         const SizedBox(height: 24),
                         Text(
@@ -513,6 +681,12 @@ class _SitterLinkCard extends StatelessWidget {
                   ),
                 ),
               ],
+            ),
+            const SizedBox(height: 4),
+            // Several sitters: each gets their own link, revocable alone.
+            TextButton(
+              onPressed: onCreate,
+              child: const Text('Create another link'),
             ),
           ] else ...[
             if (error != null) ...[

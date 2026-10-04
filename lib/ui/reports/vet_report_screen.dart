@@ -63,8 +63,9 @@ class _VetReportScreenState extends State<VetReportScreen> {
                   ),
                   trailing: TextButton(
                     onPressed: () {
-                      AppLog.event('report.upgrade_tap');
-                      context.push(AppRoutes.paywall);
+                      context.push(
+                        AppRoutes.paywallWith(from: 'report_upgrade'),
+                      );
                     },
                     child: const Text('Upgrade'),
                   ),
@@ -350,8 +351,9 @@ class _VetReportScreenState extends State<VetReportScreen> {
                       : care.canShareVetReport
                       ? () => _share(buttonContext, care, pet, report)
                       : () {
-                          AppLog.event('report.share.blocked');
-                          context.push(AppRoutes.paywall);
+                          context.push(
+                            AppRoutes.paywallWith(from: 'report_share'),
+                          );
                         },
                   style: FilledButton.styleFrom(
                     minimumSize: const Size.fromHeight(54),

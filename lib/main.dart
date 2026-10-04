@@ -9,6 +9,7 @@ import 'package:pawsitive_sync/data/dose_reminders.dart';
 import 'package:pawsitive_sync/data/household_api.dart';
 import 'package:pawsitive_sync/data/household_store.dart';
 import 'package:pawsitive_sync/data/pet_photo_store.dart';
+import 'package:pawsitive_sync/data/push_service.dart';
 import 'package:pawsitive_sync/data/revenue_cat_service.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
@@ -55,6 +56,16 @@ Future<Widget> bootstrap() async {
     'onboardingComplete': onboarding.isComplete,
     'ms': launch.elapsedMilliseconds,
   });
+  // Household pushes: the reminder for a dose someone else gave is cancelled
+  // by PushService; then refresh and re-aim the reminder. Also runs when iOS
+  // wakes the app in the background for a silent push.
+  PushService.onDosesLoggedElsewhere = (_) async {
+    await care.sync(force: true, source: 'push');
+    if (onboarding.isComplete && onboarding.remindersOn) {
+      await DoseReminders.scheduleNext(care);
+    }
+  };
+  PushService.listen();
   unawaited(_warmUp(care, onboarding));
   return MultiProvider(
     providers: [
@@ -72,6 +83,8 @@ Future<void> _warmUp(
 ) async {
   final watch = Stopwatch()..start();
   try {
+    // Local disk only: the rest of the 100-day history, before any sync.
+    await care.loadRecentHistory();
     await Future.wait([
       DoseReminders.prepare(),
       () async {
@@ -80,6 +93,9 @@ Future<void> _warmUp(
         await care.syncBillingFromStore();
       }(),
       if (care.isConnected) care.syncIfStale(),
+      // APNs can hand out a new token after a restore or reinstall; this
+      // only calls the server when the token or setting changed.
+      if (care.isConnected) care.refreshPushRegistration(),
     ]);
     // After the sync, so the reminder targets the dose still open.
     if (onboarding.isComplete && onboarding.remindersOn) {

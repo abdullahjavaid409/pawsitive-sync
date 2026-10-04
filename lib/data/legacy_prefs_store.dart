@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:math';
 
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/data/household_api.dart';
@@ -24,18 +25,25 @@ abstract final class LegacyPrefsStore {
   static const eventsKey = 'care_events_v1';
   static const outboxKey = 'sync_outbox_v1';
 
+  /// Where the fallback saves when the data already lives in SQLite but the
+  /// database can't be opened this run. Kept apart from the old keys so it
+  /// is merged back (never re-imported over newer rows) on the next launch
+  /// that opens the database.
+  static const recoveryHouseholdKey = 'household_recovery_v1';
+  static const recoveryEventsKey = 'care_events_recovery_v1';
+  static const recoveryOutboxKey = 'sync_outbox_recovery_v1';
+
   /// Set once the data lives in SQLite. If the database later can't be
-  /// opened, the old keys must not be written again (the next launch would
-  /// throw them away as migration leftovers), see [sqliteOwnsData].
+  /// opened, the fallback writes the recovery keys instead of the old ones
+  /// (old keys would be thrown away as migration leftovers).
   static const migratedFlagKey = 'store_sqlite_v1';
 
   /// `meta` row written in the same transaction as the migrated rows. Its
   /// presence means "never import the preferences blobs again".
   static const migratedMetaKey = 'legacy_migrated_at';
 
-  /// True when an earlier run already moved the data into SQLite. The
-  /// fallback then keeps changes in memory only rather than starting a
-  /// second, diverging copy in preferences.
+  /// True when an earlier run already moved the data into SQLite; the
+  /// fallback then uses the recovery keys.
   static Future<bool> sqliteOwnsData() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -65,6 +73,7 @@ abstract final class LegacyPrefsStore {
       final prefs = await SharedPreferences.getInstance();
       if (done.isNotEmpty) {
         await _removeOldKeys(prefs);
+        await _recover(db, prefs);
         return true;
       }
       final rawHousehold = prefs.getString(householdKey);
@@ -97,99 +106,31 @@ abstract final class LegacyPrefsStore {
       }
 
       stage = 'write';
-      final counts = await db.transaction((txn) async {
-        final batch = txn.batch();
-        if (house != null) {
-          for (final entry in metaRows(house).entries) {
-            batch.insert('meta', {
-              'key': entry.key,
-              'value': entry.value,
-            }, conflictAlgorithm: ConflictAlgorithm.replace);
-          }
-          for (final (i, m) in house.members.indexed) {
-            batch.insert(
-              'members',
-              LocalRows.member(m, i),
-              conflictAlgorithm: ConflictAlgorithm.replace,
-            );
-          }
-          for (final (i, pet) in house.pets.indexed) {
-            batch.insert(
-              'pets',
-              LocalRows.pet(pet, i),
-              conflictAlgorithm: ConflictAlgorithm.replace,
-            );
-          }
-          final active = {for (final m in house.medications) m.id};
-          for (final (i, m) in house.medications.indexed) {
-            batch.insert(
-              'medications',
-              LocalRows.medication(m, i),
-              conflictAlgorithm: ConflictAlgorithm.replace,
-            );
-          }
-          for (final (i, m) in house.archivedMedications.indexed) {
-            if (active.contains(m.id)) continue; // re-added since: active wins
-            batch.insert(
-              'medications',
-              LocalRows.medication(m, i),
-              conflictAlgorithm: ConflictAlgorithm.replace,
-            );
-          }
-          // Saved newest first; seq keeps that order within the same minute.
-          final n = house.logs.length;
-          for (final (i, log) in house.logs.indexed) {
-            batch.insert(
-              'dose_logs',
-              LocalRows.log(log, n - i),
-              conflictAlgorithm: ConflictAlgorithm.replace,
-            );
-          }
-        }
-        for (final (i, event) in events.indexed) {
-          batch.insert(
-            'care_events',
-            LocalRows.careEvent(event, i),
-            conflictAlgorithm: ConflictAlgorithm.replace,
-          );
-        }
-        for (final op in outbox) {
-          batch.insert('outbox', {
-            'id': op.id,
-            'type': op.type,
-            'payload': jsonEncode(op.payload),
-          }, conflictAlgorithm: ConflictAlgorithm.replace);
-        }
-        batch.insert('meta', {
+      final counts = await db.guardedTransaction((txn) async {
+        final ids = await _writeRows(
+          txn,
+          house: house,
+          events: events,
+          outbox: outbox,
+          recovering: false,
+        );
+        await txn.insert('meta', {
           'key': migratedMetaKey,
           'value': DateTime.now().toUtc().toIso8601String(),
         }, conflictAlgorithm: ConflictAlgorithm.replace);
-        await batch.commit(noResult: true);
-
-        // Duplicate ids collapse to one row, so compare distinct ids.
-        final expected = {
-          'members': {...?house?.members.map((m) => m.id)}.length,
-          'pets': {...?house?.pets.map((p) => p.id)}.length,
-          'medications': {
-            ...?house?.medications.map((m) => m.id),
-            ...?house?.archivedMedications.map((m) => m.id),
-          }.length,
-          'dose_logs': {...?house?.logs.map((l) => l.id)}.length,
-          'care_events': {...events.map((e) => e.id)}.length,
-          'outbox': {...outbox.map((o) => o.id)}.length,
-        };
-        for (final entry in expected.entries) {
+        // The tables were empty, so each must hold exactly the distinct ids.
+        for (final entry in ids.entries) {
           final rows = Sqflite.firstIntValue(
             await txn.rawQuery('SELECT count(*) FROM ${entry.key}'),
           );
-          if (rows != entry.value) {
+          if (rows != entry.value.length) {
             // Throwing rolls the whole migration back.
             throw StateError(
-              'migrate ${entry.key}: wrote $rows of ${entry.value}',
+              'migrate ${entry.key}: wrote $rows of ${entry.value.length}',
             );
           }
         }
-        return expected;
+        return {for (final e in ids.entries) e.key: e.value.length};
       });
 
       stage = 'cleanup';
@@ -212,6 +153,165 @@ abstract final class LegacyPrefsStore {
     } on Object catch (error, stack) {
       AppLog.error('store.migrate_failed', error, stack, {'stage': stage});
       return false;
+    }
+  }
+
+  /// Writes the parsed blobs as rows (one batch, inside [txn]) and returns
+  /// the distinct ids written per table, for the caller's check.
+  ///
+  /// [recovering]: rows saved while the database was unreachable go on top
+  /// of what is already there — nothing is deleted, the household's own
+  /// fields (meta) are only filled in if missing, a queued op already in
+  /// the outbox is kept, and recovered logs sort above older ones that day.
+  static Future<Map<String, Set<String>>> _writeRows(
+    Transaction txn, {
+    required StoredHousehold? house,
+    required List<CareEvent> events,
+    required List<SyncBatchOp> outbox,
+    required bool recovering,
+  }) async {
+    final batch = txn.batch();
+    const replace = ConflictAlgorithm.replace;
+    if (house != null) {
+      final hasMeta =
+          recovering &&
+          (await txn.query(
+            'meta',
+            where: 'key = ?',
+            whereArgs: ['saved'],
+          )).isNotEmpty;
+      if (!hasMeta) {
+        for (final entry in metaRows(house).entries) {
+          batch.insert('meta', {
+            'key': entry.key,
+            'value': entry.value,
+          }, conflictAlgorithm: replace);
+        }
+      }
+      for (final (i, m) in house.members.indexed) {
+        batch.insert(
+          'members',
+          LocalRows.member(m, i),
+          conflictAlgorithm: replace,
+        );
+      }
+      for (final (i, pet) in house.pets.indexed) {
+        batch.insert('pets', LocalRows.pet(pet, i), conflictAlgorithm: replace);
+      }
+      final active = {for (final m in house.medications) m.id};
+      for (final (i, m) in house.medications.indexed) {
+        batch.insert(
+          'medications',
+          LocalRows.medication(m, i),
+          conflictAlgorithm: replace,
+        );
+      }
+      for (final (i, m) in house.archivedMedications.indexed) {
+        if (active.contains(m.id)) continue; // re-added since: active wins
+        batch.insert(
+          'medications',
+          LocalRows.medication(m, i),
+          conflictAlgorithm: replace,
+        );
+      }
+      // Saved newest first; a falling ord keeps that order within each day.
+      final n = house.logs.length;
+      final base = recovering ? 1 << 30 : 0;
+      for (final (i, log) in house.logs.indexed) {
+        batch.insert(
+          'dose_logs',
+          LocalRows.log(log, base + n - i),
+          conflictAlgorithm: replace,
+        );
+      }
+    }
+    for (final (i, event) in events.indexed) {
+      batch.insert(
+        'care_events',
+        LocalRows.careEvent(event, i),
+        conflictAlgorithm: replace,
+      );
+    }
+    for (final op in outbox) {
+      batch.insert('outbox', {
+        'id': op.id,
+        'type': op.type,
+        'payload': jsonEncode(op.payload),
+      }, conflictAlgorithm: recovering ? ConflictAlgorithm.ignore : replace);
+    }
+    await batch.commit(noResult: true);
+    return {
+      'members': {...?house?.members.map((m) => m.id)},
+      'pets': {...?house?.pets.map((p) => p.id)},
+      'medications': {
+        ...?house?.medications.map((m) => m.id),
+        ...?house?.archivedMedications.map((m) => m.id),
+      },
+      'dose_logs': {...?house?.logs.map((l) => l.id)},
+      'care_events': {...events.map((e) => e.id)},
+      'outbox': {...outbox.map((o) => o.id)},
+    };
+  }
+
+  /// Merges changes saved in the recovery keys (a run where the database
+  /// couldn't be opened after the move) back into [db], then removes them.
+  /// On failure they stay and the next launch tries again.
+  static Future<void> _recover(Database db, SharedPreferences prefs) async {
+    final rawHousehold = prefs.getString(recoveryHouseholdKey);
+    final rawEvents = prefs.getString(recoveryEventsKey);
+    final rawOutbox = prefs.getString(recoveryOutboxKey);
+    if (rawHousehold == null && rawEvents == null && rawOutbox == null) return;
+    try {
+      final json = _decodeHousehold(rawHousehold);
+      final house = json == null ? null : parseHousehold(json, token: null);
+      final events = readEventsJson(rawEvents);
+      final outbox = readOutboxJson(rawOutbox);
+      final ids = await db.guardedTransaction((txn) async {
+        final ids = await _writeRows(
+          txn,
+          house: house,
+          events: events,
+          outbox: outbox,
+          recovering: true,
+        );
+        // Every recovered id must now be there (in chunks: SQLite caps the
+        // number of bound values per statement).
+        for (final entry in ids.entries) {
+          final all = entry.value.toList();
+          var found = 0;
+          for (var i = 0; i < all.length; i += 500) {
+            final chunk = all.sublist(i, min(i + 500, all.length));
+            found +=
+                Sqflite.firstIntValue(
+                  await txn.rawQuery(
+                    'SELECT count(*) FROM ${entry.key} WHERE id IN '
+                    '(${List.filled(chunk.length, '?').join(',')})',
+                    chunk,
+                  ),
+                ) ??
+                0;
+          }
+          if (found != all.length) {
+            throw StateError('recover ${entry.key}: $found of ${all.length}');
+          }
+        }
+        return ids;
+      });
+      for (final key in const [
+        recoveryHouseholdKey,
+        recoveryEventsKey,
+        recoveryOutboxKey,
+      ]) {
+        await prefs.remove(key);
+      }
+      AppLog.event('store.recovered', {
+        'pets': ids['pets']!.length,
+        'logs': ids['dose_logs']!.length,
+        'events': ids['care_events']!.length,
+        'outbox': ids['outbox']!.length,
+      });
+    } on Object catch (error, stack) {
+      AppLog.error('store.recover_failed', error, stack);
     }
   }
 
@@ -278,6 +378,7 @@ abstract final class LegacyPrefsStore {
     'household_id': house.householdId,
     'member_id': house.memberId,
     'invite_code': house.inviteCode,
+    'invite_expires_at': house.inviteExpiresAt?.toIso8601String() ?? '',
     'is_pro': house.isPro ? '1' : '0',
     'plan': house.plan.name,
   };
@@ -315,24 +416,32 @@ abstract final class LegacyPrefsStore {
   // Fallback for a run where the database can't be used. Same format and
   // behaviour as before the move to SQLite.
 
+  /// The keys the fallback reads and writes this run.
+  static Future<({String household, String events, String outbox})>
+  _fallbackKeys() async => await sqliteOwnsData()
+      ? (
+          household: recoveryHouseholdKey,
+          events: recoveryEventsKey,
+          outbox: recoveryOutboxKey,
+        )
+      : (household: householdKey, events: eventsKey, outbox: outboxKey);
+
   /// The saved household JSON, or null. A corrupt blob is removed (logged),
   /// as the old store did.
   static Future<Map<String, dynamic>?> readHouseholdJson() async {
+    final key = (await _fallbackKeys()).household;
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(householdKey);
+    final raw = prefs.getString(key);
     final json = _decodeHousehold(raw);
-    if (raw != null && json == null) await prefs.remove(householdKey);
+    if (raw != null && json == null) await prefs.remove(key);
     return json;
   }
 
   static Future<void> writeHousehold(StoredHousehold house) async {
-    if (await sqliteOwnsData()) {
-      _memoryOnly('household');
-      return;
-    }
+    final key = (await _fallbackKeys()).household;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
-      householdKey,
+      key,
       jsonEncode({
         'householdId': house.householdId,
         'memberId': house.memberId,
@@ -354,68 +463,59 @@ abstract final class LegacyPrefsStore {
 
   /// Rewrites the household blob without its plain-text token.
   static Future<void> rewriteHouseholdJson(Map<String, dynamic> json) async {
+    final key = (await _fallbackKeys()).household;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(householdKey, jsonEncode(json));
+    await prefs.setString(key, jsonEncode(json));
   }
 
   static Future<void> clearHousehold() async {
+    final key = (await _fallbackKeys()).household;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(householdKey);
+    await prefs.remove(key);
   }
 
   static Future<List<CareEvent>> readEvents() async {
+    final key = (await _fallbackKeys()).events;
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(eventsKey);
+    final raw = prefs.getString(key);
     final events = readEventsJson(raw);
-    if (raw != null && events.isEmpty && raw != '[]') {
-      await prefs.remove(eventsKey);
-    }
+    if (raw != null && events.isEmpty && raw != '[]') await prefs.remove(key);
     return events;
   }
 
   static Future<void> writeEvents(List<CareEvent> events) async {
-    if (await sqliteOwnsData()) {
-      _memoryOnly('care_events');
-      return;
-    }
+    final key = (await _fallbackKeys()).events;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
-      eventsKey,
+      key,
       jsonEncode([for (final event in events) event.toJson()]),
     );
   }
 
   static Future<void> clearEvents() async {
+    final key = (await _fallbackKeys()).events;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(eventsKey);
+    await prefs.remove(key);
   }
 
   static Future<List<SyncBatchOp>> readOutbox() async {
+    final key = (await _fallbackKeys()).outbox;
     final prefs = await SharedPreferences.getInstance();
-    return [...readOutboxJson(prefs.getString(outboxKey))];
+    return [...readOutboxJson(prefs.getString(key))];
   }
 
   static Future<void> writeOutbox(List<SyncBatchOp> items) async {
-    if (await sqliteOwnsData()) {
-      _memoryOnly('outbox');
-      return;
-    }
+    final key = (await _fallbackKeys()).outbox;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
-      outboxKey,
+      key,
       jsonEncode([for (final item in items) item.toJson()]),
     );
   }
 
   static Future<void> clearOutbox() async {
+    final key = (await _fallbackKeys()).outbox;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(outboxKey);
-  }
-
-  static void _memoryOnly(String table) {
-    AppLog.event('store.write_failed', {
-      'table': table,
-      'reason': 'database_unavailable',
-    });
+    await prefs.remove(key);
   }
 }

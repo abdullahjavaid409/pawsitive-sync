@@ -104,13 +104,18 @@ void main() {
     await HouseholdStore().write(_house(5000));
     const runs = 10;
     var restoreUs = 0;
+    var historyUs = 0;
     var writeUs = 0;
     for (var run = 0; run < runs; run++) {
       final store = HouseholdStore();
       final care = CareRepository(store: store, clock: () => _clock);
       final restore = Stopwatch()..start();
-      await care.restore();
+      await care.restore(); // before the first frame: last 14 days
       restoreUs += restore.elapsedMicroseconds;
+      expect(care.logs.length, lessThan(1000));
+      final history = Stopwatch()..start();
+      await care.loadRecentHistory(); // right after it
+      historyUs += history.elapsedMicroseconds;
       expect(care.logs.length, 5000 + run);
 
       final write = Stopwatch()..start();
@@ -129,7 +134,8 @@ void main() {
       expect(store.lastWriteRows, 2);
     }
     _report(
-      'restore(5k logs) avg=${restoreUs ~/ runs}us '
+      'first-frame restore(5k logs) avg=${restoreUs ~/ runs}us '
+      'rest of history avg=${historyUs ~/ runs}us '
       'dose-log write avg=${writeUs ~/ runs}us',
     );
   });
@@ -138,6 +144,7 @@ void main() {
     final care = CareRepository(store: HouseholdStore(), clock: () => _clock);
     await HouseholdStore().write(_house(3000));
     await care.restore();
+    await care.loadRecentHistory();
     const runs = 200;
     final watch = Stopwatch()..start();
     var count = 0;

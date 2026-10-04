@@ -106,6 +106,17 @@ void main() {
     expect(pet.photoPath, endsWith('pet_photos/$petId.jpg'));
     expect(transfer.puts, isEmpty);
     expect(_field('pet.photo_saved_local')['offline'], isTrue);
+    // The picker's source rides on the one saved line (no pet.photo_set).
+    expect(
+      await care.setPetPhoto(petId, sampleJpeg(32, 32), source: 'camera'),
+      isTrue,
+    );
+    expect(
+      AppLog.testRecords
+          .lastWhere((r) => r.name == 'pet.photo_saved_local')
+          .fields['source'],
+      'camera',
+    );
     // Survives a restart: the store keeps version + pending flag.
     final again = CareRepository(
       store: HouseholdStore(),

@@ -20,7 +20,16 @@ class HouseholdSnapshot {
     this.careEvents = const [],
     this.householdId = '',
     this.archivedMedications = const [],
+    this.role,
+    this.inviteExpiresAt,
   });
+
+  /// This member's role as the server sees it right now. Null from servers
+  /// older than v5 (then the member list's own entry is the answer).
+  final MemberRole? role;
+
+  /// When [inviteCode] stops working. Only the owner gets a code and expiry.
+  final DateTime? inviteExpiresAt;
 
   /// Server id for the household. Opaque and globally unique.
   final String householdId;
@@ -45,12 +54,35 @@ class BatchOpResult {
     required this.status,
     this.log,
     this.message,
+    this.code,
   });
 
   final String id;
   final String status;
   final DoseRecord? log;
   final String? message;
+
+  /// Machine-readable reason for an `error` op, e.g. `role_forbidden`.
+  final String? code;
+}
+
+/// One working browser sitter link, as the owner sees it (GET /v1/sitter-links).
+class SitterLinkInfo {
+  const SitterLinkInfo({
+    required this.id,
+    required this.label,
+    required this.expiresAt,
+    this.createdAt,
+    this.lastUsedAt,
+  });
+
+  final String id;
+  final String label;
+  final DateTime expiresAt;
+  final DateTime? createdAt;
+
+  /// Roughly when the sitter last opened it (stamped at most hourly).
+  final DateTime? lastUsedAt;
 }
 
 class BatchSyncResponse {
@@ -98,10 +130,25 @@ class HouseholdException implements Exception {
     this.existing,
     this.status,
     this.timedOut = false,
+    this.code,
   });
 
   final String message;
   final HouseholdErrorKind kind;
+
+  /// The server's machine-readable reason (`role_forbidden`, `pro_required`,
+  /// `invite_expired`, `member_removed`, `member_gone`). Null from older servers.
+  final String? code;
+
+  /// 403 because this member's role can't do it (the role may have changed on
+  /// another phone) — not a Pro problem.
+  bool get isRoleForbidden => code == 'role_forbidden';
+
+  /// 401 because the owner removed this member.
+  bool get isMemberRemoved => code == 'member_removed';
+
+  /// 404 because the invite code is past its 7 days.
+  bool get isInviteExpired => code == 'invite_expired';
 
   /// [HouseholdErrorKind.offline] because the call ran out of time (slow
   /// link) rather than never connecting: the server may have acted on it.
@@ -244,6 +291,7 @@ class HouseholdApi {
                 ? _log(_map(item['log']))
                 : null,
             message: item['message'] as String?,
+            code: item['code'] as String?,
           ),
     ];
     final house = body['household'];
@@ -262,20 +310,76 @@ class HouseholdApi {
     await _send('DELETE', '/v1/care-events/${Uri.encodeComponent(eventId)}');
   }
 
-  Future<void> registerDevice({
+  /// Registers this phone's push token. Returns whether the server can
+  /// actually deliver to it (`delivery`; false from older servers).
+  Future<bool> registerDevice({
     required String platform,
     required String token,
     required bool pushEnabled,
+    String? environment,
   }) async {
-    await _send('POST', '/v1/devices/register', {
+    final body = await _send('POST', '/v1/devices/register', {
       'platform': platform,
       'token': token,
       'pushEnabled': pushEnabled,
+      'environment': ?environment,
     });
+    return body['delivery'] == true;
+  }
+
+  /// Owner: replaces the invite code; the old one stops working at once.
+  Future<({String inviteCode, DateTime? expiresAt})> rotateInvite() async {
+    final body = await _send('POST', '/v1/invite/rotate');
+    final code = _nonEmpty(body['inviteCode']);
+    if (code == null) {
+      throw const HouseholdException(
+        'The household answer was not usable.',
+        kind: HouseholdErrorKind.server,
+      );
+    }
+    return (inviteCode: code, expiresAt: _date(body['inviteExpiresAt']));
+  }
+
+  /// Owner: the household's working sitter links.
+  Future<List<SitterLinkInfo>> listSitterLinks() async {
+    final body = await _send('GET', '/v1/sitter-links');
+    return [
+      for (final item in body['links'] is List ? body['links'] as List : const [])
+        if (item is Map<String, dynamic> && _nonEmpty(item['id']) != null)
+          SitterLinkInfo(
+            id: '${item['id']}',
+            label: '${item['label'] ?? ''}',
+            expiresAt: _date(item['expiresAt']) ?? DateTime.now(),
+            createdAt: _date(item['createdAt']),
+            lastUsedAt: _date(item['lastUsedAt']),
+          ),
+    ];
+  }
+
+  /// Owner: revokes a sitter link. Already-gone counts as done.
+  Future<void> revokeSitterLink(String id) async {
+    await _send('DELETE', '/v1/sitter-links/${Uri.encodeComponent(id)}');
+  }
+
+  /// Owner: makes another member a caregiver or sitter.
+  Future<Member> setMemberRole(String memberId, MemberRole role) async {
+    final body = await _send(
+      'PATCH',
+      '/v1/members/${Uri.encodeComponent(memberId)}',
+      {'role': role.name},
+    );
+    return memberFromJson(_map(body['member']));
+  }
+
+  /// Owner: removes another member (their past logs stay).
+  Future<void> removeMember(String memberId) async {
+    await _send('DELETE', '/v1/members/${Uri.encodeComponent(memberId)}');
   }
 
   /// Creates a time-limited browser link for sitters (Pro households).
-  Future<({String token, String url, DateTime expiresAt})> createSitterLink({
+  /// [id] is empty from servers older than v5.
+  Future<({String token, String url, DateTime expiresAt, String id})>
+  createSitterLink({
     String? label,
   }) async {
     final body = await _send('POST', '/v1/sitter-links', {
@@ -295,6 +399,7 @@ class HouseholdApi {
       expiresAt: expiresRaw is String
           ? DateTime.tryParse(expiresRaw) ?? DateTime.now()
           : DateTime.now(),
+      id: '${body['id'] ?? ''}',
     );
   }
 
@@ -394,6 +499,9 @@ class HouseholdApi {
     final serverMessage = data is Map && data['error'] is String
         ? data['error'] as String
         : null;
+    final code = data is Map && data['code'] is String
+        ? data['code'] as String
+        : null;
     // The one log line for a failed call (success lines: ApiLogInterceptor).
     AppLog.event(
       'api.failed',
@@ -438,16 +546,19 @@ class HouseholdApi {
         serverMessage ?? 'This phone is no longer in the household.',
         kind: HouseholdErrorKind.unauthorized,
         status: status,
+        code: code,
       ),
       403 => HouseholdException(
         serverMessage ?? 'That needs Pawsitive Pro.',
         kind: HouseholdErrorKind.invalid,
         status: status,
+        code: code,
       ),
       404 => HouseholdException(
         serverMessage ?? 'That was not found.',
         kind: HouseholdErrorKind.notFound,
         status: status,
+        code: code,
       ),
       409 => HouseholdException(
         serverMessage ?? 'Someone already logged this dose.',
@@ -493,6 +604,8 @@ HouseholdSnapshot _snapshot(Map<String, dynamic> body) {
   return HouseholdSnapshot(
     householdId: '${house['id'] ?? ''}',
     inviteCode: '${house['inviteCode'] ?? ''}',
+    inviteExpiresAt: _date(house['inviteExpiresAt']),
+    role: _enumOrNull(MemberRole.values, body['role']),
     isPro: house['isPro'] == true,
     plan: _plan(house['plan']),
     memberId: '${body['memberId'] ?? ''}',
@@ -543,6 +656,7 @@ Member memberFromJson(Map<String, dynamic> json) {
     status: json['joined'] == false ? 'Not joined yet' : null,
     isYou: isYou,
     joined: json['joined'] != false,
+    paysForPro: json['paysForPro'] == true,
   );
 }
 
@@ -571,6 +685,9 @@ Pet _pet(Map<String, dynamic> json) {
     photoSync: _enum(PhotoSync.values, json['photoSync'], PhotoSync.none),
   );
 }
+
+DateTime? _date(Object? value) =>
+    value is String && value.isNotEmpty ? DateTime.tryParse(value) : null;
 
 String? _nonEmpty(Object? value) =>
     value is String && value.isNotEmpty ? value : null;

@@ -93,8 +93,9 @@ class _TodayScreenState extends State<TodayScreen> {
                   onUpgrade: care.isPro
                       ? null
                       : () {
-                          AppLog.event('today.pro_badge_tapped');
-                          context.push(AppRoutes.paywall);
+                          context.push(
+                            AppRoutes.paywallWith(from: 'pro_badge'),
+                          );
                         },
                   // Logged as nav.push to=/settings.
                   onSettings: () => context.push(AppRoutes.settings),
@@ -231,10 +232,10 @@ class _TodayScreenState extends State<TodayScreen> {
                       ? addMedicine
                       : () {
                           if (!care.canAddPet) {
-                            AppLog.event('pet.add.blocked', {
-                              'source': 'today',
-                            });
-                            context.push(AppRoutes.paywall);
+                            // billing.paywall.opened from=add_pet_today.
+                            context.push(
+                              AppRoutes.paywallWith(from: 'add_pet_today'),
+                            );
                             return;
                           }
                           context.push(AppRoutes.addPet);

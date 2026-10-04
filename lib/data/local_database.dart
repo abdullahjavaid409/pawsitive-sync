@@ -70,7 +70,7 @@ class LocalDatabase {
     }
     Database? db;
     try {
-      db = await _openFile(path);
+      db = await _openWithRetry(path);
     } on DatabaseException catch (error, stack) {
       if (!_isCorrupt(error)) {
         AppLog.error('store.open_failed', error, stack, {'stage': 'open'});
@@ -98,6 +98,30 @@ class LocalDatabase {
     }
     AppLog.event('store.opened', {'ms': watch.elapsedMilliseconds});
     return db;
+  }
+
+  /// Waits before each retry of a failed open. A busy or briefly locked
+  /// file (another process, iOS data protection right after unlock) usually
+  /// opens on a second try; giving up sends the run to the fallback.
+  @visibleForTesting
+  static List<Duration> openRetryDelays = const [
+    Duration(milliseconds: 150),
+    Duration(milliseconds: 600),
+  ];
+
+  Future<Database> _openWithRetry(String path) async {
+    for (var attempt = 0; ; attempt++) {
+      try {
+        return await _openFile(path);
+      } on DatabaseException catch (error) {
+        // A damaged file won't get better; the caller sets it aside.
+        if (_isCorrupt(error) || attempt >= openRetryDelays.length) rethrow;
+      } on Object {
+        if (attempt >= openRetryDelays.length) rethrow;
+      }
+      AppLog.event('store.open_retry', {'attempt': attempt + 1});
+      await Future<void>.delayed(openRetryDelays[attempt]);
+    }
   }
 
   Future<Database> _openFile(String path) async {
@@ -155,8 +179,8 @@ class LocalDatabase {
           id TEXT PRIMARY KEY, medication_id TEXT NOT NULL, part TEXT NOT NULL,
           day TEXT NOT NULL, member_id TEXT NOT NULL, outcome TEXT NOT NULL,
           amount TEXT NOT NULL, time_label TEXT NOT NULL, note TEXT,
-          minute INTEGER NOT NULL, seq INTEGER NOT NULL)''')
-      ..execute('CREATE INDEX dose_logs_day ON dose_logs (day)')
+          ord INTEGER NOT NULL)''')
+      ..execute('CREATE INDEX dose_logs_day ON dose_logs (day, ord)')
       ..execute(
         'CREATE INDEX dose_logs_medication ON dose_logs (medication_id, day)',
       )
@@ -274,8 +298,10 @@ abstract final class LocalRows {
     return parsed.copyWith(archivedAt: '${row['archived_at'] ?? ''}');
   }
 
-  /// [seq] orders logs saved in the same minute (newest = highest).
-  static Map<String, Object?> log(DoseRecord log, int seq) => {
+  /// [ord] is the log's place within its day, newest = highest, so a
+  /// restart shows a day's logs in exactly the order the app had them
+  /// (including the server's order after a sync).
+  static Map<String, Object?> log(DoseRecord log, int ord) => {
     'id': log.id,
     'medication_id': log.medicationId,
     'part': log.part.name,
@@ -285,8 +311,7 @@ abstract final class LocalRows {
     'amount': log.amount,
     'time_label': log.timeLabel,
     'note': log.note,
-    'minute': minuteOfDay(log.timeLabel),
-    'seq': seq,
+    'ord': ord,
   };
 
   /// Built directly (no intermediate JSON map): launch reads thousands.
@@ -327,23 +352,35 @@ abstract final class LocalRows {
     'dueDay': row['due_day'],
     'note': row['note'],
   });
+}
 
-  static final _clock = RegExp(r'^\s*(\d{1,2}):(\d{2})\s*([AaPp][Mm])?');
-
-  /// Minutes since midnight from "8:02 AM" / "20:02", or -1 when unreadable.
-  /// Logs load newest first by (day, minute, seq), the order the app keeps
-  /// them in memory.
-  static int minuteOfDay(String label) {
-    final match = _clock.firstMatch(label);
-    if (match == null) return -1;
-    var hour = int.parse(match[1]!);
-    final minute = int.parse(match[2]!);
-    final half = match[3]?.toUpperCase();
-    if (half != null) {
-      hour %= 12;
-      if (half == 'PM') hour += 12;
+/// Transactions whose failure reports the cause.
+extension GuardedTransaction on Database {
+  /// [Database.transaction], rethrowing the error that broke it. When SQLite
+  /// has already rolled back by itself (disk full, I/O error), sqflite's own
+  /// ROLLBACK then fails and its "no transaction is active" would otherwise
+  /// replace the real reason in the log. Either way nothing is half-saved.
+  Future<T> guardedTransaction<T>(
+    Future<T> Function(Transaction txn) action,
+  ) async {
+    Object? cause;
+    StackTrace? causeStack;
+    try {
+      return await transaction((txn) async {
+        try {
+          return await action(txn);
+        } catch (error, stack) {
+          cause = error;
+          causeStack = stack;
+          rethrow;
+        }
+      });
+    } catch (error) {
+      final original = cause;
+      if (original != null && !identical(original, error)) {
+        Error.throwWithStackTrace(original, causeStack!);
+      }
+      rethrow;
     }
-    if (hour > 23 || minute > 59) return -1;
-    return hour * 60 + minute;
   }
 }

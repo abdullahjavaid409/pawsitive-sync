@@ -9,8 +9,18 @@ abstract final class AppRoutes {
   static const notifications = '/onboarding/notifications';
   static const paywall = '/paywall';
 
-  static String paywallWith({String? reason}) =>
-      reason == null || reason.isEmpty ? paywall : '$paywall?reason=$reason';
+  /// [reason] picks the copy and RevenueCat placement; [from] names the
+  /// button that led here. Both land on `billing.paywall.opened`, so the
+  /// gate doesn't log a line of its own.
+  static String paywallWith({String? reason, String? from}) {
+    final query = {
+      if (reason != null && reason.isNotEmpty) 'reason': reason,
+      if (from != null && from.isNotEmpty) 'from': from,
+    };
+    return query.isEmpty
+        ? paywall
+        : Uri(path: paywall, queryParameters: query).toString();
+  }
   static const today = '/today';
   static const pets = '/pets';
   static const household = '/household';

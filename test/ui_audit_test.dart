@@ -11,7 +11,6 @@ import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'fake_household_api.dart';
-import 'test_log_helpers.dart';
 
 GoRouter _inviteRouter() => GoRouter(
   initialLocation: AppRoutes.invite,
@@ -141,7 +140,7 @@ void main() {
     await t.ensureVisible(find.text('Pro'));
     await t.tap(find.text('Pro'));
     await t.pumpAndSettle();
-    expectLogged('sitter.link_locked');
+    // The gate has no line of its own: billing.paywall.opened from=sitter_link.
     expect(find.text('paywall:invite'), findsOneWidget);
   });
 
@@ -159,7 +158,14 @@ void main() {
       more: [_sitterReply],
     );
     await _pumpInvite(t, care);
-    await t.ensureVisible(find.text('Create browser link'));
+    // Centred, so the pinned Share button below the list can't cover it.
+    await t.runAsync(
+      () => Scrollable.ensureVisible(
+        t.element(find.text('Create browser link')),
+        alignment: 0.5,
+      ),
+    );
+    await t.pumpAndSettle();
     await t.tap(find.text('Create browser link'));
     await t.pumpAndSettle();
     expect(find.text('Who is this link for?'), findsOneWidget);

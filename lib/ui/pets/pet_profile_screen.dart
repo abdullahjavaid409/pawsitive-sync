@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/care_tab_builder.dart';
@@ -48,8 +47,10 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
                 tooltip: 'Add pet',
                 onPressed: () {
                   if (!care.canAddPet) {
-                    AppLog.event('pet.add.blocked', {'source': 'pets_tab'});
-                    context.push(AppRoutes.paywall);
+                    // billing.paywall.opened from=add_pet_pets_tab.
+                    context.push(
+                      AppRoutes.paywallWith(from: 'add_pet_pets_tab'),
+                    );
                     return;
                   }
                   context.push(AppRoutes.addPet);
@@ -334,7 +335,11 @@ class _PetPhotoButtonState extends State<_PetPhotoButton> {
         petId: pet.id,
       );
       final ok = switch (choice) {
-        PetPhotoPicked(:final bytes) => await care.setPetPhoto(pet.id, bytes),
+        PetPhotoPicked(:final bytes, :final source) => await care.setPetPhoto(
+          pet.id,
+          bytes,
+          source: source,
+        ),
         PetPhotoRemoved() => await care.removePetPhoto(pet.id),
         null => true,
       };

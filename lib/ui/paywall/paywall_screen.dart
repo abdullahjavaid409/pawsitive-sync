@@ -19,10 +19,13 @@ import 'package:url_launcher/url_launcher.dart';
 
 /// Compares Free and Pro. Free solves solo care; Pro solves shared / multi-pet pain.
 class PaywallScreen extends StatefulWidget {
-  const PaywallScreen({super.key, this.reason});
+  const PaywallScreen({super.key, this.reason, this.from});
 
   /// Query param from [AppRoutes.paywallWith] — contextual upgrade moment.
   final String? reason;
+
+  /// The button that opened the paywall (e.g. `pro_badge`), for the log.
+  final String? from;
 
   @override
   State<PaywallScreen> createState() => _PaywallScreenState();
@@ -98,6 +101,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
       AppLog.event('billing.paywall.opened', {
         'reason': widget.reason ?? 'default',
         'placement': _placement,
+        'from': ?widget.from,
       });
       _bootstrap();
     });

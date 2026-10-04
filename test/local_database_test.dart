@@ -429,24 +429,76 @@ void main() {
       expectLogged('store.row_corrupt', fields: {'table': 'pets'});
     });
 
-    test('database unavailable after the move: memory only, no second '
-        'copy in preferences', () async {
+    test('database unavailable after the move: changes go to recovery '
+        'keys and are merged back on the next launch', () async {
+      final saved = fileDb();
+      final first = HouseholdStore();
+      await first.write(house([log('kept', '2026-10-02')]));
+      await saved.close();
       SharedPreferences.setMockInitialValues({
         LegacyPrefsStore.migratedFlagKey: true,
       });
-      // A path that can't be a database (a directory).
-      Directory(path).createSync(recursive: true);
+      // The file is there but can't be opened this run (a directory takes
+      // its path); retries are quick in tests.
+      LocalDatabase.openRetryDelays = const [Duration.zero];
+      addTearDown(
+        () => LocalDatabase.openRetryDelays = const [
+          Duration(milliseconds: 150),
+          Duration(milliseconds: 600),
+        ],
+      );
+      final real = File(path).renameSync('$path.real');
+      Directory(path).createSync();
       fileDb();
-      await HouseholdStore().write(house([log('a', '2026-10-03')]));
-      final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getString(LegacyPrefsStore.householdKey), isNull);
-      expectLogged('store.open_failed');
-      expectLogged('store.write_failed', fields: {'table': 'household'});
+      final down = HouseholdStore();
+      expect(await down.read(), isNull);
+      await down.write(house([log('while-down', '2026-10-03')]));
       final outbox = SyncOutbox();
       await outbox.enqueue(
         const SyncBatchOp(id: 'op', type: 'refill', payload: {'id': 'm'}),
       );
-      expect(await outbox.read(), hasLength(1), reason: 'kept in memory');
+      expectLogged('store.open_retry');
+      expectLogged('store.open_failed');
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString(LegacyPrefsStore.householdKey), isNull);
+      expect(prefs.getString(LegacyPrefsStore.recoveryHouseholdKey), isNotNull);
+      expect(await SyncOutbox().read(), hasLength(1), reason: 'kept on disk');
+
+      // Next launch: the database opens again.
+      await LocalDatabase.shared.close();
+      Directory(path).deleteSync();
+      real.renameSync(path);
+      fileDb();
+      final logs = await HouseholdStore().readLogs();
+      expect(logs.map((l) => l.id), containsAll(['kept', 'while-down']));
+      expect(await SyncOutbox().read(), hasLength(1));
+      expectLogged('store.recovered', fields: {'logs': 1, 'outbox': 1});
+      expect(prefs.getString(LegacyPrefsStore.recoveryHouseholdKey), isNull);
+    });
+
+    test('a day keeps the exact order the app had, also after a server '
+        'snapshot reorders it', () async {
+      final store = HouseholdStore();
+      await store.write(
+        house([
+          log('b', '2026-10-03', '9:00 AM'),
+          log('a', '2026-10-03', '8:00 AM'),
+        ]),
+      );
+      // The server lists its own order (insert time), not clock order; a
+      // log for an earlier time that was synced later comes first.
+      await store.write(
+        house([
+          log('late-sync', '2026-10-03', '7:00 AM'),
+          log('b', '2026-10-03', '9:00 AM'),
+          log('a', '2026-10-03', '8:00 AM'),
+          log('y', '2026-10-02'),
+        ]),
+      );
+      final back = await HouseholdStore().read();
+      expect(back!.logs.map((l) => l.id), ['late-sync', 'b', 'a', 'y']);
+      // Only today's new log was written (others kept their place).
+      expect(store.lastWriteRows, 2, reason: 'late-sync + y');
     });
   });
 

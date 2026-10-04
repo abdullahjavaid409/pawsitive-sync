@@ -13,6 +13,9 @@ import WidgetKit
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    if let pushRegistrar = engineBridge.pluginRegistry.registrar(forPlugin: "PawsitivePush") {
+      PushBridge.register(with: pushRegistrar)
+    }
     guard let registrar = engineBridge.pluginRegistry.registrar(forPlugin: "PawsitiveWidgets") else { return }
     let channel = FlutterMethodChannel(name: "pawsitive_sync/widgets", binaryMessenger: registrar.messenger())
     channel.setMethodCallHandler { call, result in
@@ -31,5 +34,94 @@ import WidgetKit
       WidgetCenter.shared.reloadTimelines(ofKind: "PawsitiveCare")
       result(nil)
     }
+  }
+}
+
+/// Remote notifications for household pushes, over `pawsitive_sync/push`.
+///
+/// Dart → native: `register` answers at once with the token already known
+/// (or nil) and asks APNs in the background — it never waits, because a
+/// simulator or a phone without network may never get one. No permission
+/// prompt: alerts use the permission reminders already asked for; silent
+/// pushes need none. `ready` flushes pushes that arrived before Dart was
+/// listening (a background launch).
+/// Native → Dart: `token` (hex) whenever APNs hands one over (also later or
+/// when it changes), `token_error`, and `message` with a push's payload.
+final class PushBridge: NSObject, FlutterPlugin {
+  private let channel: FlutterMethodChannel
+  private var knownToken: String?
+  private var dartReady = false
+  /// Payloads (and their background completion handlers) waiting for Dart.
+  private var pending: [([AnyHashable: Any], ((UIBackgroundFetchResult) -> Void)?)] = []
+
+  init(channel: FlutterMethodChannel) {
+    self.channel = channel
+  }
+
+  static func register(with registrar: FlutterPluginRegistrar) {
+    let channel = FlutterMethodChannel(name: "pawsitive_sync/push", binaryMessenger: registrar.messenger())
+    let instance = PushBridge(channel: channel)
+    registrar.addMethodCallDelegate(instance, channel: channel)
+    registrar.addApplicationDelegate(instance)
+  }
+
+  func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
+    switch call.method {
+    case "register":
+      result(knownToken)
+      DispatchQueue.main.async { UIApplication.shared.registerForRemoteNotifications() }
+    case "ready":
+      dartReady = true
+      let queued = pending
+      pending.removeAll()
+      for (payload, completion) in queued { deliver(payload, completion: completion) }
+      result(nil)
+    default:
+      result(FlutterMethodNotImplemented)
+    }
+  }
+
+  func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+    let hex = deviceToken.map { String(format: "%02x", $0) }.joined()
+    knownToken = hex
+    channel.invokeMethod("token", arguments: hex)
+  }
+
+  func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+    channel.invokeMethod("token_error", arguments: "apns_unavailable")
+  }
+
+  func application(
+    _ application: UIApplication,
+    didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+    fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+  ) -> Bool {
+    if dartReady {
+      deliver(userInfo, completion: completionHandler)
+    } else {
+      pending.append((userInfo, completionHandler))
+      // iOS gives ~30 s of background time; never hold it if Dart is slow.
+      DispatchQueue.main.asyncAfter(deadline: .now() + 25) { [weak self] in
+        guard let self = self, !self.dartReady else { return }
+        if let index = self.pending.firstIndex(where: { ($0.0 as NSDictionary) == (userInfo as NSDictionary) }) {
+          self.pending[index].1?(.noData)
+          self.pending[index].1 = nil
+        }
+      }
+    }
+    return true
+  }
+
+  private func deliver(_ payload: [AnyHashable: Any], completion: ((UIBackgroundFetchResult) -> Void)?) {
+    var finished = false
+    let finish: (UIBackgroundFetchResult) -> Void = { result in
+      guard !finished else { return }
+      finished = true
+      completion?(result)
+    }
+    var arguments: [String: Any] = [:]
+    for (key, value) in payload { arguments["\(key)"] = value }
+    channel.invokeMethod("message", arguments: arguments) { _ in finish(.newData) }
+    DispatchQueue.main.asyncAfter(deadline: .now() + 25) { finish(.noData) }
   }
 }

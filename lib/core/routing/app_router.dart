@@ -101,6 +101,7 @@ GoRouter createRouter(OnboardingViewModel onboarding) {
         builder: (context, state) => AdaptivePage(
           child: PaywallScreen(
             reason: state.uri.queryParameters['reason'],
+            from: state.uri.queryParameters['from'],
           ),
         ),
       ),

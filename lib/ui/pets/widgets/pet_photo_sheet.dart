@@ -119,11 +119,7 @@ Future<PetPhotoChoice?> _pick(
       tell("That photo couldn't be used. Try another one.");
       return null;
     }
-    AppLog.event('pet.photo_set', {
-      'source': source,
-      'bytes': jpeg.length,
-      'petId': ?petId,
-    });
+    // Logged once saved: pet.photo_saved_local carries the source.
     return PetPhotoPicked(jpeg, source);
   } on PlatformException catch (error, stack) {
     // image_picker reports a refused permission as `camera_access_denied` /

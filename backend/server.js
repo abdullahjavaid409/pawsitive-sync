@@ -40,8 +40,16 @@ import {
   refreshProFromRevenueCat,
   revenueCatWebhookAuthorized,
   trackAnalytics,
+  rotateInviteCode,
+  setMemberRole,
+  removeMember,
+  listSitterLinks,
+  revokeSitterLink,
+  sweepExpiredSitterLinks,
+  wasRemoved,
 } from "./db.js";
 import { verifyAppleIdentityToken } from "./apple.js";
+import { requireRole } from "./roles.js";
 
 const webDir = join(dirname(fileURLToPath(import.meta.url)), "web");
 /** Absolute origin for link-preview images (crawlers need full URLs). */
@@ -262,7 +270,7 @@ function failure(error) {
         ? error.status
         : 500;
   const message =
-    error instanceof InputError
+    error instanceof InputError || error?.expose === true
       ? error.message
       : status === 400
         ? "Something went wrong sending that. Try again."
@@ -275,7 +283,14 @@ function failure(error) {
     status >= 500
       ? String(error?.message ?? error).slice(0, 200)
       : String(error?.detail ?? error?.message ?? message).slice(0, 200);
-  return { status, message, reason, code: typeof error?.code === "string" ? error.code : undefined };
+  return {
+    status,
+    message,
+    reason,
+    code: typeof error?.code === "string" ? error.code : undefined,
+    // Machine-readable reason the app may act on (role_forbidden, pro_required, invite_expired).
+    publicCode: typeof error?.publicCode === "string" ? error.publicCode : undefined,
+  };
 }
 
 const server = createServer(async (req, res) => {
@@ -320,10 +335,10 @@ const server = createServer(async (req, res) => {
     }
     log("request.completed", { requestId, method: req.method, path, status: result.status, ...timing() });
   } catch (error) {
-    const { status, message, reason, code } = failure(error);
-    if (!res.headersSent) send(res, status, { error: message });
+    const { status, message, reason, code, publicCode } = failure(error);
+    if (!res.headersSent) send(res, status, { error: message, ...(publicCode ? { code: publicCode } : {}) });
     else res.destroy();
-    log("request.failed", { requestId, method: req.method, path, status, reason, code, ...timing() });
+    log("request.failed", { requestId, method: req.method, path, status, reason, code, publicCode, ...timing() });
   }
 });
 
@@ -333,10 +348,31 @@ server.requestTimeout = 30_000;
 // Longer than Railway's proxy idle timeout so the proxy closes first.
 server.keepAliveTimeout = 65_000;
 
-async function authorize(req) {
+function bearer(req) {
   const header = req.headers.authorization;
   if (typeof header !== "string" || !header.startsWith("Bearer ")) return null;
-  return memberForToken(pool, header.slice(7).trim());
+  return header.slice(7).trim();
+}
+
+async function authorize(req) {
+  const token = bearer(req);
+  return token ? memberForToken(pool, token) : null;
+}
+
+/**
+ * Expired sitter links are swept at most once an hour, in the background of
+ * whatever request comes along — no cron, no extra service.
+ */
+const sweepEveryMs = 60 * 60 * 1000;
+let lastSweepAt = 0;
+function maybeSweep(requestId) {
+  const at = Date.now();
+  if (at - lastSweepAt < sweepEveryMs) return;
+  lastSweepAt = at;
+  runInBackground(async () => {
+    const swept = await sweepExpiredSitterLinks(pool);
+    if (swept.links > 0) log("sitter.links_swept", { requestId, ...swept });
+  }, requestId);
 }
 
 async function authorizeSitter(req) {
@@ -353,7 +389,7 @@ async function route(req, url, requestId) {
   const path = url.pathname;
   if (req.method === "GET" && path === "/health") {
     await pool.query("SELECT 1");
-    return { status: 200, body: { ok: true, service: "pawsitive-api", version: 4 } };
+    return { status: 200, body: { ok: true, service: "pawsitive-api", version: 5 } };
   }
 
   if (req.method === "GET" && (path === "/sitter" || path === "/join")) {
@@ -468,15 +504,29 @@ async function route(req, url, requestId) {
   if (!path.startsWith("/v1/")) return { status: 404, body: { error: "That page doesn't exist." } };
 
   const auth = await authorize(req);
-  if (!auth) return { status: 401, body: { error: "Sign in again to reach this household." } };
+  if (!auth) {
+    // Only on failure: tell a removed member why (their phone keeps its data).
+    if (await wasRemoved(pool, bearer(req))) {
+      return {
+        status: 401,
+        body: { error: "The household owner removed you from this household.", code: "member_removed" },
+      };
+    }
+    return { status: 401, body: { error: "Sign in again to reach this household." } };
+  }
+  maybeSweep(requestId);
+  // Every /v1 route below names the action it needs (roles.js).
+  const allow = (action) => requireRole(auth, action);
 
   if (req.method === "GET" && path === "/v1/household") {
+    allow("household.read");
     const house = await snapshot(auth);
     if (!house) return { status: 401, body: { error: "This household no longer exists." } };
     return { status: 200, body: house };
   }
 
   if (req.method === "POST" && path === "/v1/pets") {
+    allow("pet.add");
     const pet = await addPet(pool, auth, await readJson(req));
     log("pet.added", { requestId, householdId: auth.householdId, petId: pet.id });
     return { status: 201, body: { pet } };
@@ -486,6 +536,7 @@ async function route(req, url, requestId) {
   if (petPhotoPath) {
     const petId = decodeURIComponent(petPhotoPath[1]);
     const missing = { status: 404, body: { error: "That pet was removed. Pull down to refresh." } };
+    allow("pet.photo");
     if (req.method === "POST" && petPhotoPath[2]) {
       const started = await startPetPhotoUpload(pool, auth, petId, await readJson(req));
       if (!started) return missing;
@@ -508,6 +559,7 @@ async function route(req, url, requestId) {
 
   const petPath = path.match(/^\/v1\/pets\/([^/]+)$/);
   if (req.method === "PATCH" && petPath) {
+    allow("pet.update");
     const pet = await updatePet(pool, auth, decodeURIComponent(petPath[1]), await readJson(req));
     if (!pet) return { status: 404, body: { error: "That pet was removed. Pull down to refresh." } };
     log("pet.updated", { requestId, householdId: auth.householdId, petId: pet.id });
@@ -515,6 +567,7 @@ async function route(req, url, requestId) {
   }
 
   if (req.method === "POST" && path === "/v1/medications") {
+    allow("medication.add");
     const medication = await addMedication(pool, auth, await readJson(req));
     log("medication.added", { requestId, householdId: auth.householdId, medicationId: medication.id });
     return { status: 201, body: { medication } };
@@ -522,6 +575,7 @@ async function route(req, url, requestId) {
 
   const medicationPath = path.match(/^\/v1\/medications\/([^/]+)$/);
   if (req.method === "DELETE" && medicationPath) {
+    allow("medication.archive");
     const removed = await archiveMedication(pool, auth, decodeURIComponent(medicationPath[1]));
     if (!removed) return { status: 404, body: { error: "That medicine was removed. Pull down to refresh." } };
     log("medication.archived", { requestId, householdId: auth.householdId });
@@ -530,6 +584,7 @@ async function route(req, url, requestId) {
 
   const refill = path.match(/^\/v1\/medications\/([^/]+)\/refill$/);
   if (req.method === "POST" && refill) {
+    allow("medication.refill");
     const medication = await refillMedication(pool, auth, decodeURIComponent(refill[1]));
     if (!medication) return { status: 404, body: { error: "That medicine was removed. Pull down to refresh." } };
     log("medication.refilled", { requestId, householdId: auth.householdId, medicationId: medication.id });
@@ -537,6 +592,7 @@ async function route(req, url, requestId) {
   }
 
   if (req.method === "POST" && path === "/v1/logs") {
+    allow("dose.log");
     const result = await logDose(pool, auth, await readJson(req));
     if (result.missing) return { status: 404, body: { error: "That medicine was removed. Pull down to refresh." } };
     if (result.conflict !== undefined) {
@@ -549,6 +605,7 @@ async function route(req, url, requestId) {
   }
 
   if (req.method === "POST" && path === "/v1/sync/batch") {
+    // Per-op roles are checked inside applyBatch; a forbidden op fails alone.
     const body = await readJson(req, importBody);
     const { logged, ...batch } = await applyBatch(pool, auth, body);
     const failed = batch.results.filter((item) => item.status === "error").length;
@@ -566,6 +623,7 @@ async function route(req, url, requestId) {
   }
 
   if (req.method === "POST" && path === "/v1/sitter-links") {
+    allow("sitterLinks.manage");
     const created = await createSitterLink(pool, auth, await readJson(req));
     log("sitter.link_created", {
       requestId,
@@ -577,6 +635,8 @@ async function route(req, url, requestId) {
       body: {
         token: created.token,
         expiresAt: created.expiresAt,
+        // Additive (v5): lets the owner's phone match its cached link to the list.
+        id: created.linkId,
         // Fragment, not query: never sent to the server or proxy logs on open.
         url: `/sitter#t=${encodeURIComponent(created.token)}`,
       },
@@ -584,6 +644,7 @@ async function route(req, url, requestId) {
   }
 
   if (req.method === "POST" && path === "/v1/care-events") {
+    allow("careEvent.add");
     const event = await addCareEvent(pool, auth, await readJson(req));
     log("care_event.added", { requestId, householdId: auth.householdId, eventId: event.id });
     return { status: 201, body: { careEvent: event } };
@@ -591,6 +652,7 @@ async function route(req, url, requestId) {
 
   const careEventPath = path.match(/^\/v1\/care-events\/([^/]+)$/);
   if (req.method === "DELETE" && careEventPath) {
+    allow("careEvent.remove");
     const removed = await removeCareEvent(pool, auth, decodeURIComponent(careEventPath[1]));
     if (!removed) return { status: 404, body: { error: "That reminder was already removed." } };
     log("care_event.removed", { requestId, householdId: auth.householdId });
@@ -598,6 +660,7 @@ async function route(req, url, requestId) {
   }
 
   if (req.method === "POST" && path === "/v1/auth/apple/link") {
+    allow("apple.link");
     const body = await readJson(req);
     const apple = await verifyAppleIdentityToken(body.identityToken);
     if (!apple.ok) {
@@ -610,24 +673,33 @@ async function route(req, url, requestId) {
   }
 
   if (req.method === "POST" && path === "/v1/devices/register") {
+    allow("device.register");
     const registered = await registerDevice(pool, auth, await readJson(req));
-    log("device.registered", { requestId, householdId: auth.householdId });
+    log("device.registered", {
+      requestId,
+      householdId: auth.householdId,
+      stored: registered.stored,
+      delivery: registered.delivery,
+    });
     return { status: 200, body: registered };
   }
 
   if (req.method === "DELETE" && path === "/v1/account") {
+    allow("account.delete");
     const result = await deleteAccount(pool, auth, scopedLog(requestId));
     if (!result.deleted) return { status: 401, body: { error: "This phone is no longer in the household." } };
     return { status: 200, body: result };
   }
 
   if (req.method === "POST" && path === "/v1/members/leave") {
+    allow("member.leave");
     const left = await leaveHousehold(pool, auth);
     log("member.left", { requestId, householdId: auth.householdId, memberId: auth.memberId });
     return { status: 200, body: left };
   }
 
   if (req.method === "GET" && path === "/v1/export") {
+    allow("export");
     const data = await exportHouseholdData(pool, auth);
     if (!data) return { status: 404, body: { error: "This household no longer exists." } };
     log("export.completed", { requestId, householdId: auth.householdId });
@@ -635,6 +707,7 @@ async function route(req, url, requestId) {
   }
 
   if (req.method === "POST" && path === "/v1/billing/plan") {
+    allow("billing.plan");
     const body = await readJson(req);
     const plan = await setPlan(pool, auth, body.plan);
     if (!plan) return { status: 400, body: { error: "Pick yearly or monthly." } };
@@ -643,8 +716,48 @@ async function route(req, url, requestId) {
   }
 
   if (req.method === "POST" && path === "/v1/billing/trial") {
+    allow("billing.refresh");
     const refreshed = await refreshProFromRevenueCat(pool, auth, scopedLog(requestId));
     return { status: 200, body: refreshed };
+  }
+
+  if (req.method === "POST" && path === "/v1/invite/rotate") {
+    allow("invite.rotate");
+    const rotated = await rotateInviteCode(pool, auth);
+    if (!rotated) return { status: 401, body: { error: "This household no longer exists." } };
+    log("invite.rotated", { requestId, householdId: auth.householdId });
+    return { status: 200, body: rotated };
+  }
+
+  if (req.method === "GET" && path === "/v1/sitter-links") {
+    allow("sitterLinks.manage");
+    return { status: 200, body: { links: await listSitterLinks(pool, auth) } };
+  }
+
+  const sitterLinkPath = path.match(/^\/v1\/sitter-links\/([^/]+)$/);
+  if (req.method === "DELETE" && sitterLinkPath) {
+    allow("sitterLinks.manage");
+    const revoked = await revokeSitterLink(pool, auth, decodeURIComponent(sitterLinkPath[1]));
+    log("sitter.link_revoked", { requestId, householdId: auth.householdId, existed: revoked });
+    // Already gone (double tap, another phone) is still "revoked".
+    return { status: 200, body: { ok: true, revoked } };
+  }
+
+  const memberPath = path.match(/^\/v1\/members\/([^/]+)$/);
+  if (memberPath && (req.method === "PATCH" || req.method === "DELETE")) {
+    allow("members.manage");
+    const targetId = decodeURIComponent(memberPath[1]);
+    const gone = { status: 404, body: { error: "That person already left the household.", code: "member_gone" } };
+    if (req.method === "PATCH") {
+      const member = await setMemberRole(pool, auth, targetId, await readJson(req));
+      if (!member) return gone;
+      log("member.role_changed", { requestId, householdId: auth.householdId, memberId: targetId, role: member.role });
+      return { status: 200, body: { member } };
+    }
+    const removed = await removeMember(pool, auth, targetId);
+    if (!removed) return gone;
+    log("member.removed", { requestId, householdId: auth.householdId, memberId: targetId, role: removed.role });
+    return { status: 200, body: { ok: true } };
   }
 
   return { status: 404, body: { error: "That page doesn't exist." } };

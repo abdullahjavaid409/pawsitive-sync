@@ -26,12 +26,17 @@ class Member {
     this.active = false,
     this.isYou = false,
     this.joined = true,
+    this.paysForPro = false,
   });
 
   final String id;
   final String name;
   final String initials;
   final MemberRole role;
+
+  /// Their own subscription is (part of) the household's Pro. Server-only;
+  /// not saved on the phone, so false until the first sync after launch.
+  final bool paysForPro;
   final AvatarTone avatarTone;
   final String? status;
   final bool active;
@@ -46,6 +51,7 @@ class Member {
     'role': role.name,
     'joined': joined,
     if (isYou) 'isYou': true,
+    if (paysForPro) 'paysForPro': true,
   };
 
   String get roleLabel => switch (role) {

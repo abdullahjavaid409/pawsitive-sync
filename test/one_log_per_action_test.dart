@@ -3,8 +3,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/app_router.dart';
+import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/app_theme.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
+import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -242,5 +244,53 @@ void main() {
     );
     expect(settings.map((e) => e.name), ['nav.push']);
     expect(settings.single.fields['to'], '/settings');
+  });
+
+  test('paywall links carry the gate, so the gate needs no line', () {
+    expect(AppRoutes.paywallWith(), '/paywall');
+    expect(
+      AppRoutes.paywallWith(reason: 'invite', from: 'sitter_link'),
+      '/paywall?reason=invite&from=sitter_link',
+    );
+  });
+
+  testWidgets('free tier: a blocked "add pet" is one paywall line', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(430, 1400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final care = CareRepository(clock: () => DateTime(2026, 10, 3, 9));
+    await care.addPet(name: 'Luna', species: Species.cat);
+    final onboarding = OnboardingViewModel()..isComplete = true;
+    final router = createRouter(onboarding);
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          ChangeNotifierProvider.value(value: care),
+          ChangeNotifierProvider.value(value: onboarding),
+        ],
+        child: MaterialApp.router(
+          theme: AppTheme.light(),
+          routerConfig: router,
+        ),
+      ),
+    );
+    router.go(AppRoutes.pets);
+    await tester.pumpAndSettle();
+    final events = await _action(
+      tester,
+      'blocked add pet',
+      () => tester.tap(find.byTooltip('Add pet')),
+    );
+    // No gate line of its own; the paywall's opened line names the gate.
+    // (`offer_unavailable` is the store answer: no RevenueCat in tests.)
+    expect(events.first.name, 'billing.paywall.opened');
+    expect(events.first.fields['from'], 'add_pet_pets_tab');
+    expect(
+      events.map((e) => e.name),
+      everyElement(startsWith('billing.paywall.')),
+    );
   });
 }

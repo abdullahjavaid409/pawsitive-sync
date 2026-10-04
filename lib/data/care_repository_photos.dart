@@ -7,9 +7,15 @@ part of 'care_repository.dart';
 /// new key per phone. Nothing is re-fetched while a pet's key is unchanged.
 extension CarePetPhotos on CareRepository {
   /// Saves an already-compressed photo (see `PetPhotoCodec`) as this pet's
-  /// photo. Works offline; the upload follows when connected.
-  Future<bool> setPetPhoto(String petId, Uint8List jpeg) async {
+  /// photo. Works offline; the upload follows when connected. [source]
+  /// (`camera`, `library`, `onboarding`) goes on the one log line for it.
+  Future<bool> setPetPhoto(
+    String petId,
+    Uint8List jpeg, {
+    String? source,
+  }) async {
     lastError = null;
+    if (_roleBlocks('pet.photo', ownerOnly: false)) return false;
     final pet = tryPetById(petId);
     final store = _photos;
     if (pet == null) {
@@ -68,6 +74,7 @@ extension CarePetPhotos on CareRepository {
     );
     AppLog.event('pet.photo_saved_local', {
       'petId': petId,
+      'source': ?source,
       'bytes': jpeg.length,
       'offline': !isConnected,
     });
@@ -85,6 +92,7 @@ extension CarePetPhotos on CareRepository {
   /// (queued if offline).
   Future<bool> removePetPhoto(String petId) async {
     lastError = null;
+    if (_roleBlocks('pet.photo', ownerOnly: false)) return false;
     final pet = tryPetById(petId);
     if (pet == null) {
       AppLog.event('pet.photo_rejected', {
@@ -292,6 +300,11 @@ extension CarePetPhotos on CareRepository {
           // (retrying can never succeed); the local photo stays.
           _dropPendingUpload(pet.id, version);
           return true;
+        case HouseholdErrorKind.invalid when error.isRoleForbidden:
+          // This member's role no longer allows photos (changed on another
+          // phone): retrying can never succeed. The local photo stays.
+          _dropPendingUpload(pet.id, version);
+          return true;
         case HouseholdErrorKind.invalid when step == 'start':
           // Size refused: retrying would fail the same way.
           _dropPendingUpload(pet.id, version);
@@ -365,6 +378,16 @@ extension CarePetPhotos on CareRepository {
         return false;
       }
       if (error.kind == HouseholdErrorKind.offline) return false;
+      if (error.isRoleForbidden) {
+        // Not allowed any more: stop retrying; the next sync shows the
+        // household's photo again.
+        final current = tryPetById(pet.id);
+        if (current != null && current.photoSync == PhotoSync.remove) {
+          _replacePet(current.withPhoto(photoSync: PhotoSync.none));
+          _changed();
+        }
+        return true;
+      }
       if (error.kind != HouseholdErrorKind.notFound) return true;
     }
     final current = tryPetById(pet.id);

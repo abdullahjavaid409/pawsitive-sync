@@ -89,7 +89,7 @@ class SyncOutbox {
     _last = [...items];
     if (db == null) return LegacyPrefsStore.writeOutbox(items);
     await _guard(
-      () => db.transaction((txn) async {
+      () => db.guardedTransaction((txn) async {
         final batch = txn.batch()..delete('outbox');
         for (final op in items) {
           batch.insert('outbox', _row(op));
@@ -132,7 +132,7 @@ class SyncOutbox {
       return;
     }
     await _guard(
-      () => db.transaction((txn) async {
+      () => db.guardedTransaction((txn) async {
         final batch = txn.batch();
         for (final id in ids) {
           batch.delete('outbox', where: 'id = ?', whereArgs: [id]);

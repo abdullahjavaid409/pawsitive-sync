@@ -22,7 +22,11 @@ class StoredHousehold {
     this.archivedMedications = const [],
     this.deletedLogIds = const {},
     this.replaceLogs = false,
+    this.inviteExpiresAt,
   });
+
+  /// When [inviteCode] stops working (owner only; null when unknown).
+  final DateTime? inviteExpiresAt;
 
   final String householdId;
   final String? token;
@@ -94,7 +98,6 @@ class HouseholdStore {
   /// store; until then a write replaces them wholesale.
   bool _primed = false;
   int _generation = -1;
-  int _maxSeq = 0;
 
   /// Rows upserted or deleted by the last committed [write] (perf tests).
   @visibleForTesting
@@ -107,7 +110,6 @@ class HouseholdStore {
     _logObjects.clear();
     _meta = {};
     _primed = false;
-    _maxSeq = 0;
   }
 
   /// The saved household, or null when nothing is saved. [sinceDay]
@@ -133,17 +135,12 @@ class HouseholdStore {
       'dose_logs',
       where: sinceDay == null ? null : 'day >= ?',
       whereArgs: sinceDay == null ? null : [sinceDay],
-      orderBy: 'day DESC, minute DESC, seq DESC',
+      orderBy: 'day DESC, ord DESC',
     );
     final logs = _parseRows('dose_logs', logRows, LocalRows.toLog);
     _logObjects
       ..clear()
       ..addEntries([for (final log in logs) MapEntry(log.id, log)]);
-    _maxSeq =
-        Sqflite.firstIntValue(
-          await db.rawQuery('SELECT max(seq) FROM dose_logs'),
-        ) ??
-        0;
     _meta = meta;
     _primed = true;
     final token = await _readToken();
@@ -152,6 +149,7 @@ class HouseholdStore {
       token: token,
       memberId: meta['member_id'] ?? 'you',
       inviteCode: meta['invite_code'] ?? '',
+      inviteExpiresAt: DateTime.tryParse(meta['invite_expires_at'] ?? ''),
       isPro: meta['is_pro'] == '1',
       plan: meta['plan'] == 'monthly'
           ? BillingPlan.monthly
@@ -173,10 +171,14 @@ class HouseholdStore {
   /// Logs on disk, newest first, with `fromDay <= day < beforeDay` (either
   /// bound optional), at most [limit]. For history outside the window
   /// [read] loads, e.g. the full history sent when a household is shared.
+  ///
+  /// [remember]: the caller adds these logs to the list it saves, so the
+  /// store treats them as already on disk (no rewrite on the next save).
   Future<List<DoseRecord>> readLogs({
     String? fromDay,
     String? beforeDay,
     int? limit,
+    bool remember = false,
   }) async {
     final db = await _db.open();
     if (db == null) {
@@ -196,10 +198,16 @@ class HouseholdStore {
       'dose_logs',
       where: where.isEmpty ? null : where.join(' AND '),
       whereArgs: [?fromDay, ?beforeDay],
-      orderBy: 'day DESC, minute DESC, seq DESC',
+      orderBy: 'day DESC, ord DESC',
       limit: limit,
     );
-    return _parseRows('dose_logs', rows, LocalRows.toLog, cache: false);
+    final logs = _parseRows('dose_logs', rows, LocalRows.toLog, cache: remember);
+    if (remember) {
+      for (final log in logs) {
+        _logObjects[log.id] = log;
+      }
+    }
+    return logs;
   }
 
   Future<List<T>> _readTable<T>(
@@ -269,25 +277,37 @@ class HouseholdStore {
         if (!activeIds.contains(m.id)) LocalRows.medication(m, i),
     ]);
 
-    // Logs: upsert new/changed only. New rows get increasing seq from the
-    // oldest to the newest so same-minute order survives a restart.
+    // Logs: only days whose list changed (a new or replaced log, or a
+    // deletion) are looked at; their logs get ord = place within the day,
+    // and only rows whose content or place moved are written. Days load
+    // and save whole, so a day's order on disk always matches memory.
     final logCache = house.replaceLogs
         ? <String, Map<String, Object?>>{}
         : (_rows['dose_logs'] ??= {});
-    final logUpserts = <Map<String, Object?>>[];
-    var seq = _maxSeq;
-    for (final log in house.logs.reversed) {
-      if (!house.replaceLogs && identical(_logObjects[log.id], log)) continue;
-      final cached = logCache[log.id];
-      final row = LocalRows.log(
-        log,
-        cached == null ? ++seq : cached['seq']! as int,
-      );
-      if (cached == null || !mapEquals(cached, row)) {
-        logUpserts.add(row);
+    final logDeletes = house.deletedLogIds;
+    final touched = <String>{};
+    for (final log in house.logs) {
+      if (house.replaceLogs || !identical(_logObjects[log.id], log)) {
+        touched.add(log.day);
       }
     }
-    final logDeletes = house.deletedLogIds;
+    for (final id in logDeletes) {
+      final day = logCache[id]?['day'];
+      if (day is String) touched.add(day);
+    }
+    final byDay = <String, List<DoseRecord>>{};
+    if (touched.isNotEmpty) {
+      for (final log in house.logs) {
+        if (touched.contains(log.day)) (byDay[log.day] ??= []).add(log);
+      }
+    }
+    final logUpserts = <Map<String, Object?>>[];
+    for (final logs in byDay.values) {
+      for (final (i, log) in logs.indexed) {
+        final row = LocalRows.log(log, logs.length - i);
+        if (!mapEquals(logCache[log.id], row)) logUpserts.add(row);
+      }
+    }
 
     if (metaChanges.isEmpty &&
         members.isEmpty &&
@@ -302,7 +322,7 @@ class HouseholdStore {
 
     var table = 'meta';
     try {
-      await db.transaction((txn) async {
+      await db.guardedTransaction((txn) async {
         Future<void> run(String name, void Function(Batch batch) fill) async {
           table = name;
           final batch = txn.batch();
@@ -366,7 +386,6 @@ class HouseholdStore {
       logCache.removeWhere((id, _) => !live.contains(id));
       _logObjects.removeWhere((id, _) => !live.contains(id));
     }
-    _maxSeq = seq;
     _primed = true;
     lastWriteRows =
         metaChanges.length +
@@ -404,7 +423,7 @@ class HouseholdStore {
       await LegacyPrefsStore.clearHousehold();
     } else {
       _syncGeneration();
-      await db.transaction((txn) async {
+      await db.guardedTransaction((txn) async {
         final batch = txn.batch();
         for (final table in const [
           'members',
@@ -426,7 +445,6 @@ class HouseholdStore {
       _logObjects.clear();
       _meta = {};
       _primed = true;
-      _maxSeq = 0;
     }
     await _writeToken(null, force: true);
   }

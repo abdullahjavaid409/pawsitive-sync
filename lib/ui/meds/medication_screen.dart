@@ -85,15 +85,17 @@ class MedicationScreen extends StatelessWidget {
                   label: const Text('Back'),
                 ),
                 const Spacer(),
-                TextButton(
-                  // Logged as nav.push to=stop_medicine (the dialog).
-                  onPressed: () => _confirmStop(context, care, medication),
-                  style: TextButton.styleFrom(
-                    foregroundColor: scheme.error,
-                    textStyle: text.titleMedium,
+                // Only the owner stops (archives) a medicine.
+                if (care.canArchive)
+                  TextButton(
+                    // Logged as nav.push to=stop_medicine (the dialog).
+                    onPressed: () => _confirmStop(context, care, medication),
+                    style: TextButton.styleFrom(
+                      foregroundColor: scheme.error,
+                      textStyle: text.titleMedium,
+                    ),
+                    child: const Text('Stop medicine'),
                   ),
-                  child: const Text('Stop medicine'),
-                ),
               ],
             ),
             const SizedBox(height: 12),
@@ -217,25 +219,31 @@ class MedicationScreen extends StatelessWidget {
                         Expanded(
                           child: FilledButton(
                             // medication.refill.* is logged by the repository.
-                            onPressed: () async {
-                              final saved = await care.refill(medication.id);
-                              if (!context.mounted) return;
-                              if (!saved) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  SnackBar(
-                                    content: Text(
-                                      care.lastError ?? 'Could not save the refill. Try again.',
-                                    ),
-                                  ),
-                                );
-                                return;
-                              }
-                              await showMoment(
-                                context,
-                                name: 'medication.refilled',
-                                message: 'The box is full again.',
-                              );
-                            },
+                            // Sitters only log doses.
+                            onPressed: !care.canEditCare
+                                ? null
+                                : () async {
+                                    final saved = await care.refill(
+                                      medication.id,
+                                    );
+                                    if (!context.mounted) return;
+                                    if (!saved) {
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
+                                            SnackBar(
+                                              content: Text(
+                                                care.lastError ?? 'Could not save the refill. Try again.',
+                                              ),
+                                            ),
+                                          );
+                                      return;
+                                    }
+                                    await showMoment(
+                                      context,
+                                      name: 'medication.refilled',
+                                      message: 'The box is full again.',
+                                    );
+                                  },
                             style: FilledButton.styleFrom(
                               minimumSize: const Size.fromHeight(48),
                               shape: RoundedRectangleBorder(

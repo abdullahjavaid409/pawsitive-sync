@@ -152,7 +152,8 @@ void main() {
       final link = await care.ensureSitterWebLink();
       expect(link, contains('/sitter#t=sitter-tok'));
       expect(
-        await SecureTokens.read('${SecureTokens.sitterKeyPrefix}:ABC234'),
+        // Keyed by household (survives an invite-code rotation).
+        await SecureTokens.read('${SecureTokens.sitterKeyPrefix}:h:hh_test'),
         contains('"token":"sitter-tok"'),
       );
       final prefs = await SharedPreferences.getInstance();
@@ -164,7 +165,7 @@ void main() {
       await care.reset();
       expect(await SecureTokens.read(SecureTokens.householdKey), isNull);
       expect(
-        await SecureTokens.read('${SecureTokens.sitterKeyPrefix}:ABC234'),
+        await SecureTokens.read('${SecureTokens.sitterKeyPrefix}:h:hh_test'),
         isNull,
       );
     });

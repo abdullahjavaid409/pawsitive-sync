@@ -25,16 +25,23 @@ class SyncEngine {
     };
     String? conflictMessage;
     DoseRecord? conflictLog;
+    String? roleMessage;
     for (final result in response.results) {
       if (result.status == 'ok' ||
           result.status == 'missing' ||
           result.status == 'error') {
         applied.add(result.id);
         if (result.status == 'error') {
+          // Dropped from the outbox either way: a rejected op never succeeds
+          // on retry. The returned snapshot puts the server's truth back.
           AppLog.event('sync.batch.op_rejected', {
             'id': result.id,
             'message': result.message ?? '',
+            'code': ?result.code,
           });
+          if (result.code == 'role_forbidden') {
+            roleMessage ??= result.message;
+          }
         }
       } else if (result.status == 'conflict') {
         applied.add(result.id);
@@ -58,6 +65,7 @@ class SyncEngine {
       household: response.household,
       conflictMessage: conflictMessage,
       conflictLog: conflictLog,
+      roleMessage: roleMessage,
     );
   }
 }
@@ -68,10 +76,15 @@ class BatchFlushResult {
     this.household,
     this.conflictMessage,
     this.conflictLog,
+    this.roleMessage,
   });
 
   final int applied;
   final HouseholdSnapshot? household;
   final String? conflictMessage;
   final DoseRecord? conflictLog;
+
+  /// Set when a queued change was refused because this member's role no
+  /// longer allows it (changed on another phone while offline).
+  final String? roleMessage;
 }

@@ -2,28 +2,46 @@ import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import pg from "pg";
 import { fetchProEntitlement, proEntitlement } from "./revenuecat.js";
 import { checkPhotoSize, deletePhoto, keyBelongsTo, newPhotoKey, photoExists, photosConfigured, presignUpload, presignView } from "./photos.js";
+import { batchActions, requireRole, roles } from "./roles.js";
+import { pushSender } from "./push.js";
 
 const { Pool } = pg;
 
-const schemaVersion = "6";
+const schemaVersion = "7";
 
 /** A missed RENEWAL webhook must not cut off a paying household right away. */
 const storeExpirySlackMs = 24 * 60 * 60 * 1000;
 
+/** Invite codes stop working this long after they were made (or rotated). */
+export const inviteTtlMs = 7 * 24 * 60 * 60 * 1000;
+
 /**
- * Pro only ever comes from RevenueCat (webhook or a server-side subscriber
- * lookup). Free trials are App Store intro offers, so RevenueCat reports
- * them as an active `pro` entitlement — the server never grants its own.
+ * One member's RevenueCat `pro` entitlement (members.rc_*). Pro only ever
+ * comes from RevenueCat (webhook or a server-side subscriber lookup); free
+ * trials are App Store intro offers, so they arrive as an active entitlement.
  */
-function hasPro(household) {
-  if (!household?.is_pro) return false;
+function memberHasPro(row) {
+  if (!row?.rc_is_pro) return false;
   // Expiry from the last RevenueCat update also ends Pro if EXPIRATION never arrives.
-  const expires = household.rc_expires_at;
+  const expires = row.rc_expires_at;
   return expires == null || new Date(expires).getTime() + storeExpirySlackMs > Date.now();
+}
+
+/** Household Pro = any member currently entitled. One payer expiring never cancels another. */
+function hasPro(memberRows) {
+  return (memberRows ?? []).some(memberHasPro);
+}
+
+/** Household Pro straight from the members table (one indexed query). */
+export async function householdHasPro(pool, householdId) {
+  const result = await pool.query(
+    "SELECT rc_is_pro, rc_expires_at FROM members WHERE household_id = $1 AND rc_is_pro",
+    [householdId],
+  );
+  return hasPro(result.rows);
 }
 const parts = ["morning", "afternoon", "evening"];
 const species = ["cat", "dog", "rabbit", "other"];
-const roles = ["owner", "caregiver", "sitter"];
 const outcomes = ["given", "skipped", "uncertain"];
 const codeAlphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 /** Signed-in app members per household (sitter links don't count). */
@@ -216,6 +234,35 @@ async function migrateLocked(pool) {
   await pool.query(`
     ALTER TABLE medications ADD COLUMN IF NOT EXISTS archived_at timestamptz;
   `);
+  // v7 — all additive, so a v6 server (rollback) keeps working on this schema.
+  // Invite expiry: existing codes count as made now, so nobody is locked out.
+  // A constant default (now() is evaluated once) adds the column without a rewrite.
+  await pool.query(`
+    ALTER TABLE households ADD COLUMN IF NOT EXISTS invite_created_at timestamptz NOT NULL DEFAULT now();
+    ALTER TABLE members ADD COLUMN IF NOT EXISTS rc_is_pro boolean NOT NULL DEFAULT false;
+    ALTER TABLE members ADD COLUMN IF NOT EXISTS rc_expires_at timestamptz;
+    ALTER TABLE members ADD COLUMN IF NOT EXISTS rc_event_at timestamptz;
+    ALTER TABLE members ADD COLUMN IF NOT EXISTS rc_product_id text;
+    ALTER TABLE sitter_links ADD COLUMN IF NOT EXISTS last_used_at timestamptz;
+    ALTER TABLE device_tokens ADD COLUMN IF NOT EXISTS environment text NOT NULL DEFAULT 'production';
+    CREATE TABLE IF NOT EXISTS member_removals (
+      token_hash text PRIMARY KEY,
+      household_id text NOT NULL,
+      removed_at timestamptz NOT NULL DEFAULT now()
+    );
+  `);
+  // One-time: the old household-wide Pro flag moves onto the owner's row so
+  // nobody loses Pro. Guarded by a meta key so it never re-runs (a later
+  // EXPIRATION must not be undone by a reboot).
+  const proMoved = await pool.query("SELECT 1 FROM meta WHERE key = 'pro_per_member'");
+  if (proMoved.rowCount === 0) {
+    await moveHouseholdProToOwners(pool);
+    await pool.query("INSERT INTO meta (key, value) VALUES ('pro_per_member', '1') ON CONFLICT DO NOTHING");
+  }
+  // Old builds registered a made-up "local:<time>" id that can never receive a push.
+  await pool.query("DELETE FROM device_tokens WHERE token LIKE 'local:%'");
+  // Registering a token removes it from any other household/member (phone reused).
+  await ensureIndexConcurrently(pool, "device_tokens_token_idx", "device_tokens (token)");
   // Household snapshot reads the newest 100 days of logs; without this it
   // sorts every log the household ever wrote.
   await ensureIndexConcurrently(pool, "dose_logs_created_idx", "dose_logs (household_id, created_at DESC)");
@@ -225,6 +272,23 @@ async function migrateLocked(pool) {
     `INSERT INTO meta (key, value) VALUES ('schema_version', $1)
      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
     [schemaVersion],
+  );
+}
+
+/**
+ * v7 migration step: copies the household-wide Pro flag (and its expiry and
+ * event clock) onto the owner's member row. Skips owners that already have
+ * their own RevenueCat state. `householdId` limits it to one household (tests).
+ */
+export async function moveHouseholdProToOwners(client, householdId = null) {
+  await client.query(
+    `UPDATE members m
+     SET rc_is_pro = h.is_pro, rc_expires_at = h.rc_expires_at,
+         rc_event_at = h.rc_event_at, rc_product_id = h.rc_product_id
+     FROM households h
+     WHERE m.household_id = h.id AND m.role = 'owner' AND h.is_pro AND m.rc_event_at IS NULL
+       AND ($1::text IS NULL OR h.id = $1)`,
+    [householdId],
   );
 }
 
@@ -245,6 +309,19 @@ export class ProRequiredError extends InputError {
   constructor(message, detail = message) {
     super(message, detail);
     this.status = 403;
+    this.publicCode = "pro_required";
+  }
+}
+
+/**
+ * A 404 with a machine-readable `publicCode` (e.g. `invite_expired`) so newer
+ * apps can react; older apps just show `message`.
+ */
+export class NotFoundError extends InputError {
+  constructor(message, publicCode, detail = message) {
+    super(message, detail);
+    this.status = 404;
+    this.publicCode = publicCode;
   }
 }
 
@@ -513,8 +590,15 @@ export async function createHousehold(pool, body) {
 export async function joinHousehold(pool, body) {
   const code = text(body?.code, "code", { max: 12 }).toUpperCase().replace(/[^A-Z0-9]/g, "");
   const name = text(body?.name, "name", { max: 40 });
-  const household = await pool.query("SELECT id FROM households WHERE invite_code = $1", [code]);
+  const household = await pool.query(
+    `SELECT id, invite_created_at > now() - ($2::bigint * interval '1 millisecond') AS fresh
+     FROM households WHERE invite_code = $1`,
+    [code, inviteTtlMs],
+  );
   if (household.rowCount === 0) return null;
+  if (!household.rows[0].fresh) {
+    throw new NotFoundError("That invite code expired. Ask for a new one.", "invite_expired", "invite code expired");
+  }
   const householdId = household.rows[0].id;
   const memberId = newId("member");
   const token = newToken();
@@ -538,11 +622,112 @@ export async function joinHousehold(pool, body) {
   return { token, householdId, memberId };
 }
 
+/**
+ * Owner: a new invite code that works for [inviteTtlMs]; the old one stops
+ * working at once. Two quick rotations simply leave the second code.
+ */
+export async function rotateInviteCode(pool, { householdId }) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    const candidate = newCode();
+    try {
+      const result = await pool.query(
+        `UPDATE households SET invite_code = $2, invite_created_at = now() WHERE id = $1
+         RETURNING invite_code, invite_created_at`,
+        [householdId, candidate],
+      );
+      const row = result.rows[0];
+      if (!row) return null;
+      return {
+        inviteCode: row.invite_code,
+        inviteExpiresAt: new Date(new Date(row.invite_created_at).getTime() + inviteTtlMs).toISOString(),
+      };
+    } catch (error) {
+      if (error?.code !== "23505") throw error; // unique clash: try another code
+    }
+  }
+  throw new Error("Could not make an invite code");
+}
+
+const assignableRoles = ["caregiver", "sitter"];
+
+/**
+ * Owner: changes another member's role to caregiver or sitter. The owner
+ * can't change their own role, so there is always exactly one owner.
+ * Browser sitter-link members have no app, so their role is fixed.
+ */
+export async function setMemberRole(pool, { householdId, memberId }, targetId, body) {
+  const target = id(targetId, "member.id");
+  const role = oneOf(body?.role, assignableRoles, "role");
+  if (target === memberId) throw new InputError("You're the owner. Your role can't change.", "owner self-demotion");
+  const current = await pool.query(
+    `SELECT m.role, EXISTS (SELECT 1 FROM sitter_links s WHERE s.household_id = m.household_id AND s.member_id = m.id) AS link
+     FROM members m WHERE m.household_id = $1 AND m.id = $2`,
+    [householdId, target],
+  );
+  const row = current.rows[0];
+  if (!row) return null;
+  if (row.role === "owner") throw new InputError("The owner's role can't change.", "target is owner");
+  if (row.link) throw new InputError("Browser sitter links can't change role. Revoke the link instead.", "sitter link member");
+  const updated = await pool.query(
+    "UPDATE members SET role = $3 WHERE household_id = $1 AND id = $2 AND role <> 'owner' RETURNING *",
+    [householdId, target, role],
+  );
+  return updated.rows[0] ? mapMember(updated.rows[0], memberId) : null;
+}
+
+/**
+ * Owner: removes a member. Their app token stops working at once (a
+ * tombstone lets their phone say why), their push tokens and any sitter
+ * link go, and their past logs stay (shown as "Former member"). Null when
+ * they were already gone.
+ */
+export async function removeMember(pool, { householdId, memberId }, targetId) {
+  const target = id(targetId, "member.id");
+  if (target === memberId) {
+    throw new InputError("To leave, delete your account in Settings instead.", "owner removing self");
+  }
+  const result = await transaction(pool, async (client) => {
+    const row = (
+      await client.query("SELECT role, token_hash FROM members WHERE household_id = $1 AND id = $2 FOR UPDATE", [
+        householdId,
+        target,
+      ])
+    ).rows[0];
+    if (!row) return null;
+    if (row.role === "owner") throw new InputError("The owner can't be removed.", "target is owner");
+    if (row.token_hash) {
+      await client.query(
+        `INSERT INTO member_removals (token_hash, household_id) VALUES ($1, $2)
+         ON CONFLICT (token_hash) DO UPDATE SET removed_at = now()`,
+        [row.token_hash, householdId],
+      );
+    }
+    await client.query("DELETE FROM device_tokens WHERE household_id = $1 AND member_id = $2", [householdId, target]);
+    await client.query("DELETE FROM sitter_links WHERE household_id = $1 AND member_id = $2", [householdId, target]);
+    await client.query("DELETE FROM members WHERE household_id = $1 AND id = $2", [householdId, target]);
+    return { removed: true, role: row.role };
+  });
+  // A removed payer no longer counts toward household Pro.
+  if (result) await refreshLegacyPro(pool, householdId);
+  return result;
+}
+
+/** The member a bearer token belongs to, with their current role (read fresh every request). */
 export async function memberForToken(pool, token) {
   if (typeof token !== "string" || token.length < 20 || token.length > 100) return null;
-  const result = await pool.query("SELECT household_id, id FROM members WHERE token_hash = $1", [hashToken(token)]);
+  const result = await pool.query("SELECT household_id, id, role FROM members WHERE token_hash = $1", [hashToken(token)]);
   const row = result.rows[0];
-  return row ? { householdId: row.household_id, memberId: row.id } : null;
+  return row ? { householdId: row.household_id, memberId: row.id, role: row.role } : null;
+}
+
+/**
+ * Only asked after a token failed: was it removed by the owner? Lets the app
+ * say "The owner removed you" instead of a generic sign-in error.
+ */
+export async function wasRemoved(pool, token) {
+  if (typeof token !== "string" || token.length < 20 || token.length > 100) return false;
+  const result = await pool.query("SELECT 1 FROM member_removals WHERE token_hash = $1", [hashToken(token)]);
+  return result.rowCount > 0;
 }
 
 function mapMember(row, memberId) {
@@ -555,6 +740,8 @@ function mapMember(row, memberId) {
     role: row.role,
     joined: row.joined ?? row.token_hash != null,
     ...(row.id === memberId ? { isYou: true } : {}),
+    // Additive (v7): lets the owner see that removing this person ends Pro.
+    ...(memberHasPro(row) ? { paysForPro: true } : {}),
   };
 }
 
@@ -640,10 +827,10 @@ export async function loadHousehold(pool, { householdId, memberId }, { logDay } 
   const result = await pool.query(
     `SELECT
        (SELECT row_to_json(h) FROM (
-          SELECT id, invite_code, is_pro, plan, rc_expires_at FROM households WHERE id = $1
+          SELECT id, invite_code, invite_created_at, plan FROM households WHERE id = $1
         ) h) AS household,
        (SELECT coalesce(json_agg(m ORDER BY m.created_at), '[]'::json) FROM (
-          SELECT id, name, role, token_hash IS NOT NULL AS joined, created_at
+          SELECT id, name, role, token_hash IS NOT NULL AS joined, created_at, rc_is_pro, rc_expires_at
           FROM members WHERE household_id = $1
         ) m) AS members,
        (SELECT coalesce(json_agg(p ORDER BY p.created_at), '[]'::json) FROM (
@@ -671,14 +858,23 @@ export async function loadHousehold(pool, { householdId, memberId }, { logDay } 
   const row = result.rows[0];
   const household = row?.household;
   if (!household) return null;
+  const role = row.members.find((member) => member.id === memberId)?.role ?? "sitter";
+  const isOwner = role === "owner";
   return {
     household: {
       id: household.id,
-      inviteCode: household.invite_code,
-      isPro: hasPro(household),
+      // Only the owner can invite, so only the owner sees the code (older
+      // caregiver apps then show no code instead of one they can't manage).
+      inviteCode: isOwner ? household.invite_code : "",
+      ...(isOwner
+        ? { inviteExpiresAt: new Date(new Date(household.invite_created_at).getTime() + inviteTtlMs).toISOString() }
+        : {}),
+      isPro: hasPro(row.members),
       plan: household.plan,
     },
     memberId,
+    // Additive (v7): the caller's own role, read fresh on every snapshot.
+    role,
     members: row.members.map((member) => mapMember(member, memberId)),
     pets: row.pets.map(mapPet),
     medications: row.medications.map(mapMedication),
@@ -807,8 +1003,9 @@ export async function setPlan(pool, { householdId }, plan) {
 /**
  * POST /v1/billing/trial (path kept for shipped apps): the caller says it just
  * bought or restored. Ask RevenueCat — never the client — whether this
- * member's store account has `pro`, and share it with the household. Covers
- * purchases made before sharing, which no webhook ties to the household.
+ * member's store account has `pro`, and store it on this member's row; the
+ * household is Pro while any member is. Covers purchases made before
+ * sharing, which no webhook ties to the household.
  */
 export async function refreshProFromRevenueCat(pool, { householdId, memberId }, logFn = () => {}) {
   const pro = await fetchProEntitlement(`${householdId}:${memberId}`);
@@ -816,20 +1013,19 @@ export async function refreshProFromRevenueCat(pool, { householdId, memberId }, 
     logFn("billing.rc_refresh_failed", { householdId, reason: pro.reason });
   } else {
     if (pro.active) {
-      await applyProState(pool, householdId, {
+      await applyProState(pool, householdId, memberId, {
         isPro: true,
         expiresAt: pro.expiresAt,
         productId: pro.productId,
         eventAt: new Date(),
       });
     }
-    // Not active: leave it. A partner may pay; EXPIRATION webhooks revoke.
+    // Not active: leave it. RevenueCat can lag a fresh purchase by seconds;
+    // EXPIRATION webhooks revoke, and only this member's row is affected.
     logFn("billing.rc_refresh", { householdId, active: pro.active });
   }
-  const row = (
-    await pool.query("SELECT plan, is_pro, rc_expires_at FROM households WHERE id = $1", [householdId])
-  ).rows[0];
-  return { isPro: hasPro(row), plan: row?.plan ?? "yearly" };
+  const plan = (await pool.query("SELECT plan FROM households WHERE id = $1", [householdId])).rows[0]?.plan;
+  return { isPro: await householdHasPro(pool, householdId), plan: plan ?? "yearly" };
 }
 
 export async function addCareEvent(pool, { householdId }, body) {
@@ -889,18 +1085,37 @@ export async function recoverFromApple(pool, appleUserId) {
   return { token, householdId: row.household_id, memberId: row.member_id };
 }
 
-export async function registerDevice(pool, auth, body) {
+/**
+ * Saves this phone's push token. Only real tokens are stored: `apns:<hex>`
+ * (iOS) or `fcm:<id>` (Android). Older apps send a made-up `local:<time>`
+ * id — accepted (200) so they keep working, but never stored. A token moves
+ * with the phone: any row for it under another member/household is removed.
+ * `delivery` tells the app whether the server can actually push.
+ */
+export async function registerDevice(pool, auth, body, sender = pushSender()) {
   const platform = oneOf(body?.platform, ["ios", "android", "other"], "platform", "other");
   const token = text(body?.token, "token", { max: 512 });
   const pushEnabled = body?.pushEnabled !== false;
-  await pool.query(
-    `INSERT INTO device_tokens (household_id, member_id, platform, token, push_enabled, updated_at)
-     VALUES ($1,$2,$3,$4,$5,now())
-     ON CONFLICT (household_id, member_id, token) DO UPDATE SET
-       push_enabled = EXCLUDED.push_enabled, updated_at = now()`,
-    [auth.householdId, auth.memberId, platform, token, pushEnabled],
-  );
-  return { ok: true };
+  const environment = body?.environment === "sandbox" ? "sandbox" : "production";
+  const real =
+    (platform === "ios" && /^apns:[0-9a-f]{64,200}$/i.test(token)) ||
+    (platform === "android" && /^fcm:[\w:.-]{20,500}$/.test(token));
+  if (!real) return { ok: true, stored: false, delivery: false };
+  const normalized = platform === "ios" ? token.toLowerCase() : token;
+  await transaction(pool, async (client) => {
+    await client.query(
+      "DELETE FROM device_tokens WHERE token = $1 AND NOT (household_id = $2 AND member_id = $3)",
+      [normalized, auth.householdId, auth.memberId],
+    );
+    await client.query(
+      `INSERT INTO device_tokens (household_id, member_id, platform, token, push_enabled, environment, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,now())
+       ON CONFLICT (household_id, member_id, token) DO UPDATE SET
+         push_enabled = EXCLUDED.push_enabled, environment = EXCLUDED.environment, updated_at = now()`,
+      [auth.householdId, auth.memberId, platform, normalized, pushEnabled, environment],
+    );
+  });
+  return { ok: true, stored: true, delivery: sender.canSend({ platform, token: normalized }) };
 }
 
 export async function leaveHousehold(pool, { householdId, memberId }) {
@@ -969,6 +1184,8 @@ export async function trackAnalytics(pool, events) {
 export async function applyBatchOperation(pool, auth, operation) {
   const type = text(operation?.type, "operation.type", { max: 32 });
   const payload = operation?.payload ?? {};
+  // Same rules as the single-call routes; a forbidden op fails alone.
+  if (batchActions[type]) requireRole(auth, batchActions[type]);
   switch (type) {
     case "logDose": {
       const result = await logDose(pool, auth, payload);
@@ -1021,10 +1238,13 @@ export async function applyBatch(pool, auth, body) {
       }
       results.push({ id: opId, ...result });
     } catch (error) {
+      const exposed = error instanceof InputError || error?.expose === true;
       results.push({
         id: opId,
         status: "error",
-        message: error instanceof InputError ? error.message : "Operation failed",
+        message: exposed ? error.message : "Operation failed",
+        // Additive: newer apps tell a role change apart from a bad request.
+        ...(exposed && error.publicCode ? { code: error.publicCode } : {}),
       });
     }
   }
@@ -1055,12 +1275,10 @@ function formatTimeLabel(date = new Date()) {
 }
 
 export async function createSitterLink(pool, auth, body) {
-  const pro = await pool.query("SELECT is_pro, rc_expires_at FROM households WHERE id = $1", [
-    auth.householdId,
-  ]);
-  if (!hasPro(pro.rows[0])) {
+  if (!(await householdHasPro(pool, auth.householdId))) {
     throw new ProRequiredError("Browser sitter links need Pawsitive Pro.");
   }
+  await removeExpiredSitterLinks(pool, auth.householdId);
   const label = text(body?.label, "label", { max: 40, required: false }) || "Sitter";
   const linkId = newId("slink");
   const memberId = newId("sitter");
@@ -1081,22 +1299,112 @@ export async function createSitterLink(pool, auth, body) {
   return { token, expiresAt: expiresAt.toISOString(), memberId, linkId };
 }
 
+/** Last-used stamps are written at most this often per link (a write per page load would be waste). */
+const sitterTouchMs = 60 * 60 * 1000;
+
 export async function sitterForToken(pool, token) {
   if (typeof token !== "string" || token.length < 20 || token.length > 100) return null;
   const result = await pool.query(
-    `SELECT household_id, id, member_id, label FROM sitter_links
+    `SELECT household_id, id, member_id, label, last_used_at FROM sitter_links
      WHERE token_hash = $1 AND expires_at > now()`,
     [hashToken(token)],
   );
   const row = result.rows[0];
-  return row
-    ? {
-        householdId: row.household_id,
-        memberId: row.member_id,
-        linkId: row.id,
-        label: row.label,
-      }
-    : null;
+  if (!row) return null;
+  if (!row.last_used_at || Date.now() - new Date(row.last_used_at).getTime() > sitterTouchMs) {
+    // Best effort and off the request's critical path: a failure only means
+    // "last used" is a little stale.
+    pool
+      .query("UPDATE sitter_links SET last_used_at = now() WHERE household_id = $1 AND id = $2", [row.household_id, row.id])
+      .catch(() => {});
+  }
+  return {
+    householdId: row.household_id,
+    memberId: row.member_id,
+    linkId: row.id,
+    label: row.label,
+    role: "sitter",
+  };
+}
+
+/**
+ * Deletes a household's expired sitter links and their browser-only sitter
+ * members (never an app member: those have a token). Logs stay and read as
+ * "Former member". Runs on sitter-link reads/creates — no cron needed.
+ */
+export async function removeExpiredSitterLinks(pool, householdId) {
+  await pool.query(
+    `WITH gone AS (
+       DELETE FROM sitter_links WHERE household_id = $1 AND expires_at <= now() RETURNING member_id
+     )
+     DELETE FROM members m USING gone
+     WHERE m.household_id = $1 AND m.id = gone.member_id AND m.role = 'sitter' AND m.token_hash IS NULL`,
+    [householdId],
+  );
+}
+
+/**
+ * The same cleanup across every household, a bounded batch at a time. The
+ * server calls it at most once an hour in the background of a request.
+ */
+export async function sweepExpiredSitterLinks(pool, { limit = 500 } = {}) {
+  const result = await pool.query(
+    `WITH gone AS (
+       DELETE FROM sitter_links WHERE (household_id, id) IN (
+         SELECT household_id, id FROM sitter_links WHERE expires_at <= now() LIMIT $1
+       ) RETURNING household_id, member_id
+     ), members_gone AS (
+       DELETE FROM members m USING gone
+       WHERE m.household_id = gone.household_id AND m.id = gone.member_id
+         AND m.role = 'sitter' AND m.token_hash IS NULL
+       RETURNING 1
+     )
+     SELECT (SELECT count(*) FROM gone)::int AS links, (SELECT count(*) FROM members_gone)::int AS members`,
+    [limit],
+  );
+  // Removal tombstones only need to outlive a phone's next sync or two.
+  await pool.query("DELETE FROM member_removals WHERE removed_at < now() - interval '90 days'");
+  return result.rows[0];
+}
+
+/** Owner: the household's working sitter links, newest first. */
+export async function listSitterLinks(pool, { householdId }) {
+  await removeExpiredSitterLinks(pool, householdId);
+  const result = await pool.query(
+    `SELECT id, label, expires_at, created_at, last_used_at FROM sitter_links
+     WHERE household_id = $1 AND expires_at > now() ORDER BY created_at DESC LIMIT 100`,
+    [householdId],
+  );
+  return result.rows.map((row) => ({
+    id: row.id,
+    label: row.label,
+    expiresAt: new Date(row.expires_at).toISOString(),
+    createdAt: new Date(row.created_at).toISOString(),
+    lastUsedAt: row.last_used_at ? new Date(row.last_used_at).toISOString() : null,
+  }));
+}
+
+/**
+ * Owner: revokes a sitter link. Its token stops working on the next request
+ * (sitterForToken reads the row), and its browser sitter member goes too.
+ * False when it was already gone (double tap, another phone) — callers
+ * treat that as done.
+ */
+export async function revokeSitterLink(pool, { householdId }, linkId) {
+  return transaction(pool, async (client) => {
+    const link = await client.query(
+      "DELETE FROM sitter_links WHERE household_id = $1 AND id = $2 RETURNING member_id",
+      [householdId, id(linkId, "link.id")],
+    );
+    if (link.rowCount === 0) return false;
+    const memberId = link.rows[0].member_id;
+    await client.query("DELETE FROM device_tokens WHERE household_id = $1 AND member_id = $2", [householdId, memberId]);
+    await client.query(
+      "DELETE FROM members WHERE household_id = $1 AND id = $2 AND role = 'sitter' AND token_hash IS NULL",
+      [householdId, memberId],
+    );
+    return true;
+  });
 }
 
 export async function getSitterView(pool, sitterAuth, query) {
@@ -1154,68 +1462,126 @@ export async function sitterLogDose(pool, sitterAuth, body) {
   return result;
 }
 
+/** Most doses carried in one push's data (APNs payloads max out at 4 KB). */
+const pushDoseCap = 20;
+
+/** "Sam gave Miso's Insulin · 8:02 AM" — the visible line for one dose. */
+export function doseNotificationText({ who, petName, medName, outcome, timeLabel }) {
+  const what = petName ? `${petName}'s ${medName}` : medName;
+  const verb =
+    outcome === "given" ? `${who} gave ${what}` : outcome === "skipped" ? `${who} skipped ${what}` : `${who} isn't sure ${what} was given`;
+  return timeLabel ? `${verb} · ${timeLabel}` : verb;
+}
+
 /**
  * Tells the rest of the household about new dose logs. Accepts one log or a
  * batch (outbox replay): the device-token lookup runs first and alone, so the
  * common no-partner case costs one indexed query; a batch sends one summary
- * instead of a push per dose. Best-effort: callers don't await it on the
- * request path.
+ * instead of a push per dose.
+ *
+ * iOS devices get two pushes: the visible alert, and a silent background
+ * push carrying the doses so the phone can cancel its own reminder for them
+ * (Apple only wakes an app for `content-available` pushes). Android gets one
+ * message with both. Never the member who logged; browser sitters have no
+ * device tokens. Tokens APNs/FCM call invalid are deleted. Best-effort:
+ * callers run it after the response (runInBackground).
  */
-export async function notifyHouseholdOnDose(pool, auth, logEntries, logFn) {
+export async function notifyHouseholdOnDose(pool, auth, logEntries, logFn, sender = pushSender()) {
   const entries = (Array.isArray(logEntries) ? logEntries : [logEntries]).filter(Boolean);
   if (entries.length === 0) return;
   const tokens = await pool.query(
-    `SELECT token, platform FROM device_tokens
+    `SELECT member_id, token, platform, environment FROM device_tokens
      WHERE household_id = $1 AND member_id <> $2 AND push_enabled = true`,
     [auth.householdId, auth.memberId],
   );
   if (tokens.rowCount === 0) return;
+  const devices = [];
+  for (const row of tokens.rows) {
+    if (sender.canSend(row)) devices.push(row);
+    else if (row.platform === "ios" || row.platform === "android") sender.noteNotConfigured(row.platform, logFn);
+  }
+  if (devices.length === 0) return;
+
   const first = entries[0];
   const [medication, member] = await Promise.all([
-    pool.query("SELECT name FROM medications WHERE household_id = $1 AND id = $2", [
-      auth.householdId,
-      first.medicationId,
-    ]),
-    pool.query("SELECT name FROM members WHERE household_id = $1 AND id = $2", [
-      auth.householdId,
-      auth.memberId,
-    ]),
+    pool.query(
+      `SELECT m.name, p.name AS pet_name FROM medications m
+       LEFT JOIN pets p ON p.household_id = m.household_id AND p.id = m.pet_id
+       WHERE m.household_id = $1 AND m.id = $2`,
+      [auth.householdId, first.medicationId],
+    ),
+    pool.query("SELECT name, role FROM members WHERE household_id = $1 AND id = $2", [auth.householdId, auth.memberId]),
   ]);
-  const medName = medication.rows[0]?.name ?? "a dose";
-  const who = member.rows[0]?.name ?? "Someone";
-  const outcomeLabel =
-    first.outcome === "given" ? "gave" : first.outcome === "skipped" ? "skipped" : "marked uncertain for";
+  const rawName = member.rows[0]?.name ?? "Someone";
+  // Owners are stored as "You" by the app; to anyone else that's "Owner".
+  const who = member.rows[0]?.role === "owner" && /^you$/i.test(rawName) ? "Owner" : rawName;
   const single = entries.length === 1;
-  const title = single && first.outcome !== "given" ? "Dose update" : "Dose logged";
-  const body = single ? `${who} ${outcomeLabel} ${medName}` : `${who} logged ${entries.length} doses`;
-  const fcmKey = process.env.FCM_SERVER_KEY;
-  for (const row of tokens.rows) {
-    logFn("push.queued", {
-      householdId: auth.householdId,
-      platform: row.platform,
-      doses: entries.length,
-      hasFcm: Boolean(fcmKey),
-    });
-    if (!fcmKey || row.platform === "ios" || !row.token.startsWith("fcm:")) continue;
-    try {
-      const response = await fetch("https://fcm.googleapis.com/fcm/send", {
-        method: "POST",
-        headers: {
-          authorization: `key=${fcmKey}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          to: row.token.slice(4),
-          notification: { title, body },
-          data: { type: "dose_logged", logId: first.id },
-        }),
-        signal: AbortSignal.timeout(5000),
-      });
-      if (!response.ok) logFn("push.failed", { householdId: auth.householdId, status: response.status });
-    } catch (error) {
-      logFn("push.failed", { householdId: auth.householdId, reason: String(error?.name ?? error).slice(0, 60) });
-    }
+  const alert = {
+    title: single && first.outcome !== "given" ? "Dose update" : "Dose logged",
+    body: single
+      ? doseNotificationText({
+          who,
+          petName: medication.rows[0]?.pet_name ?? "",
+          medName: medication.rows[0]?.name ?? "a dose",
+          outcome: first.outcome,
+          timeLabel: first.timeLabel,
+        })
+      : `${who} logged ${entries.length} doses`,
+  };
+  const data = {
+    type: "dose_logged",
+    householdId: auth.householdId,
+    doses: entries.slice(0, pushDoseCap).map((entry) => ({
+      logId: entry.id,
+      medicationId: entry.medicationId,
+      part: entry.part,
+      day: entry.day,
+      outcome: entry.outcome,
+    })),
+  };
+  const collapseId = single ? first.id : undefined;
+
+  const invalid = new Set();
+  let sent = 0;
+  let failed = 0;
+  await Promise.all(
+    devices.map(async (device) => {
+      const messages =
+        device.platform === "ios"
+          ? [
+              { alert, data, collapseId, threadId: auth.householdId },
+              { background: true, data },
+            ]
+          : [{ alert, data, collapseId }];
+      for (const message of messages) {
+        const result = await sender.send(device, message);
+        if (result.ok) {
+          sent += 1;
+          continue;
+        }
+        failed += 1;
+        if (result.invalid) {
+          invalid.add(device.token);
+          break; // no point sending the second push to a dead token
+        }
+        logFn("push.failed", { householdId: auth.householdId, platform: device.platform, reason: result.reason });
+      }
+    }),
+  );
+  if (invalid.size > 0) {
+    await pool.query("DELETE FROM device_tokens WHERE household_id = $1 AND token = ANY($2::text[])", [
+      auth.householdId,
+      [...invalid],
+    ]);
   }
+  logFn("push.sent", {
+    householdId: auth.householdId,
+    devices: devices.length,
+    sent,
+    failed,
+    removed: invalid.size,
+    doses: entries.length,
+  });
 }
 
 /** Events that carry the subscription's current expiry; Pro = not yet expired. */
@@ -1255,7 +1621,7 @@ export function revenueCatWebhookAuthorized(headerValue) {
   return secretMatches(given, expected) ? { ok: true } : { ok: false, reason: "bad_secret" };
 }
 
-/** Household for a RevenueCat customer. Apps log in as "<householdId>:<memberId>";
+/** Household member for a RevenueCat customer. Apps log in as "<householdId>:<memberId>";
  * purchases made before joining arrive with that id in `aliases`. A bare member
  * id is only trusted when unique — every owner used to be "you". */
 async function householdForCustomer(pool, ids) {
@@ -1263,16 +1629,16 @@ async function householdForCustomer(pool, ids) {
     const split = id.indexOf(":");
     if (split <= 0) continue;
     const row = await pool.query(
-      "SELECT household_id FROM members WHERE household_id = $1 AND id = $2",
+      "SELECT household_id, id FROM members WHERE household_id = $1 AND id = $2",
       [id.slice(0, split), id.slice(split + 1)],
     );
-    if (row.rows[0]) return { householdId: row.rows[0].household_id };
+    if (row.rows[0]) return { householdId: row.rows[0].household_id, memberId: row.rows[0].id };
   }
   for (const id of ids) {
     if (id.includes(":") || id.startsWith("$RCAnonymousID")) continue;
-    const row = await pool.query("SELECT household_id FROM members WHERE id = $1 LIMIT 2", [id]);
+    const row = await pool.query("SELECT household_id, id FROM members WHERE id = $1 LIMIT 2", [id]);
     if (row.rowCount > 1) return { reason: "ambiguous_member" };
-    if (row.rows[0]) return { householdId: row.rows[0].household_id };
+    if (row.rows[0]) return { householdId: row.rows[0].household_id, memberId: row.rows[0].id };
   }
   return { reason: "member_not_found" };
 }
@@ -1288,16 +1654,36 @@ function customerIds(event, ...keys) {
   return ids.slice(0, 20);
 }
 
-async function applyProState(pool, householdId, { isPro, expiresAt, productId, eventAt }) {
-  // Retries and out-of-order deliveries: never let an older event win.
+/**
+ * Stores one member's entitlement. Retries and out-of-order deliveries: an
+ * older event never overwrites a newer one *for that member* (each payer
+ * has their own clock). Also refreshes the legacy households.is_pro copy so
+ * a rollback to a v6 server still sees the right answer.
+ */
+async function applyProState(pool, householdId, memberId, { isPro, expiresAt, productId, eventAt }) {
   const result = await pool.query(
-    `UPDATE households
-     SET is_pro = $2, rc_expires_at = $3, rc_product_id = COALESCE($4, rc_product_id), rc_event_at = $5
-     WHERE id = $1 AND (rc_event_at IS NULL OR rc_event_at <= $5)
+    `UPDATE members
+     SET rc_is_pro = $3, rc_expires_at = $4, rc_product_id = COALESCE($5, rc_product_id), rc_event_at = $6
+     WHERE household_id = $1 AND id = $2 AND (rc_event_at IS NULL OR rc_event_at <= $6)
      RETURNING id`,
-    [householdId, isPro, expiresAt, productId, eventAt],
+    [householdId, memberId, isPro, expiresAt, productId, eventAt],
   );
+  if (result.rowCount > 0) await refreshLegacyPro(pool, householdId);
   return result.rowCount > 0;
+}
+
+/** households.is_pro / rc_expires_at as an aggregate of the members (rollback safety only). */
+async function refreshLegacyPro(pool, householdId) {
+  const rows = (
+    await pool.query("SELECT rc_is_pro, rc_expires_at FROM members WHERE household_id = $1 AND rc_is_pro", [householdId])
+  ).rows.filter(memberHasPro);
+  const lifetime = rows.some((row) => row.rc_expires_at == null);
+  const latest = rows.reduce((max, row) => (row.rc_expires_at && (!max || row.rc_expires_at > max) ? row.rc_expires_at : max), null);
+  await pool.query("UPDATE households SET is_pro = $2, rc_expires_at = $3 WHERE id = $1", [
+    householdId,
+    rows.length > 0,
+    rows.length > 0 && !lifetime ? latest : rows.length > 0 ? null : new Date(),
+  ]);
 }
 
 /**
@@ -1315,25 +1701,26 @@ export async function verifyRevenueCatWebhookByLookup(pool, body, logFn) {
     return { status: "ok", test: true };
   }
   const ids = customerIds(event, "app_user_id", "original_app_user_id", "aliases", "transferred_from", "transferred_to");
+  // customer id → member. Each named member gets their own lookup.
   const targets = new Map();
   for (const id of ids) {
     const split = id.indexOf(":");
-    if (split <= 0 || targets.size >= 5) continue;
-    const row = await pool.query("SELECT household_id FROM members WHERE household_id = $1 AND id = $2", [
+    if (split <= 0 || targets.size >= 5 || targets.has(id)) continue;
+    const row = await pool.query("SELECT household_id, id FROM members WHERE household_id = $1 AND id = $2", [
       id.slice(0, split),
       id.slice(split + 1),
     ]);
-    if (row.rows[0] && !targets.has(row.rows[0].household_id)) targets.set(row.rows[0].household_id, id);
+    if (row.rows[0]) targets.set(id, { householdId: row.rows[0].household_id, memberId: row.rows[0].id });
   }
   if (targets.size === 0) return ignored(logFn, "member_not_found", type);
 
-  for (const [householdId, customerId] of targets) {
+  for (const [customerId, { householdId, memberId }] of targets) {
     const pro = await fetchProEntitlement(customerId);
     if (!pro.ok) {
       logFn("billing.webhook_lookup_failed", { householdId, type, reason: pro.reason });
       return { status: "retry" };
     }
-    await applyProState(pool, householdId, {
+    await applyProState(pool, householdId, memberId, {
       isPro: pro.active,
       expiresAt: pro.expiresAt ?? (pro.active ? null : new Date()),
       productId: pro.productId,
@@ -1384,7 +1771,7 @@ export async function handleRevenueCatWebhook(pool, body, logFn) {
     // The new owner's app re-syncs Pro and the next renewal confirms it.
     const from = await householdForCustomer(pool, customerIds(event, "transferred_from"));
     if (!from.householdId) return ignored(logFn, from.reason, type);
-    await applyProState(pool, from.householdId, { isPro: false, expiresAt: eventAt, productId: null, eventAt });
+    await applyProState(pool, from.householdId, from.memberId, { isPro: false, expiresAt: eventAt, productId: null, eventAt });
     logFn("billing.webhook", { householdId: from.householdId, type, isPro: false });
     return { status: "ok", isPro: false };
   }
@@ -1414,7 +1801,7 @@ export async function handleRevenueCatWebhook(pool, body, logFn) {
   );
   if (!found.householdId) return ignored(logFn, found.reason, type);
 
-  const applied = await applyProState(pool, found.householdId, { isPro, expiresAt, productId, eventAt });
+  const applied = await applyProState(pool, found.householdId, found.memberId, { isPro, expiresAt, productId, eventAt });
   if (!applied) {
     logFn("billing.webhook_stale", { householdId: found.householdId, type });
     return { status: "ignored", reason: "stale_event" };
