@@ -187,8 +187,12 @@ class Pet {
       weightKg: weightKg,
       onTimePercent: onTimePercent,
       dailyMeds: dailyMeds,
-      photoKey: identical(photoKey, _keep) ? this.photoKey : photoKey as String?,
-      photoUrl: identical(photoUrl, _keep) ? this.photoUrl : photoUrl as String?,
+      photoKey: identical(photoKey, _keep)
+          ? this.photoKey
+          : photoKey as String?,
+      photoUrl: identical(photoUrl, _keep)
+          ? this.photoUrl
+          : photoUrl as String?,
       photoVersion: photoVersion ?? this.photoVersion,
       photoSync: photoSync ?? this.photoSync,
       photoPath: identical(photoPath, _keep)
@@ -287,16 +291,15 @@ class Medication {
     final end = DateTime.tryParse(endDay);
     if (end == null) return false;
     final today = DateTime.now();
-    final diff = end.difference(
-      DateTime(today.year, today.month, today.day),
-    ).inDays;
+    final diff = end
+        .difference(DateTime(today.year, today.month, today.day))
+        .inDays;
     return diff >= 0 && diff <= 3;
   }
 
   bool get tracksSupply => supplyTotal > 0;
 
-  bool get isLow =>
-      tracksSupply && dosesLeft <= (parts.length * 3).clamp(3, 9);
+  bool get isLow => tracksSupply && dosesLeft <= (parts.length * 3).clamp(3, 9);
 
   double get supplyFraction =>
       tracksSupply ? (dosesLeft / supplyTotal).clamp(0.0, 1.0) : 0;
@@ -319,8 +322,18 @@ class Medication {
     final days = dosesLeft ~/ parts.length;
     final end = DateTime(now.year, now.month, now.day + days);
     const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     return '${weekdays[end.weekday - 1]}, ${months[end.month - 1]} ${end.day}';

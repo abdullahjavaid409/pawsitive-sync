@@ -8,6 +8,8 @@ import 'package:pawsitive_sync/core/widgets/care_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
+import 'package:pawsitive_sync/domain/models.dart';
+import 'package:pawsitive_sync/ui/pets/widgets/pet_photo_sheet.dart';
 
 class PetProfileScreen extends StatefulWidget {
   const PetProfileScreen({super.key});
@@ -98,7 +100,7 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        PetPortrait(pet, size: 90),
+                        _PetPhotoButton(pet: pet, care: care),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Align(
@@ -296,6 +298,106 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
               ),
             ],
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The profile avatar doubles as the photo control: tap to take, choose or
+/// remove a photo. Saving is local and instant; the upload runs behind it
+/// with a small ring, and the screen stays usable throughout.
+class _PetPhotoButton extends StatefulWidget {
+  const _PetPhotoButton({required this.pet, required this.care});
+
+  final Pet pet;
+  final CareRepository care;
+
+  @override
+  State<_PetPhotoButton> createState() => _PetPhotoButtonState();
+}
+
+class _PetPhotoButtonState extends State<_PetPhotoButton> {
+  /// Guards double taps while the sheet, picker or local save is open.
+  bool _busy = false;
+
+  Future<void> _change() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    final pet = widget.pet;
+    final care = widget.care;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final choice = await showPetPhotoSheet(
+        context,
+        hasPhoto: pet.hasPhoto,
+        petId: pet.id,
+      );
+      final ok = switch (choice) {
+        PetPhotoPicked(:final bytes) => await care.setPetPhoto(pet.id, bytes),
+        PetPhotoRemoved() => await care.removePetPhoto(pet.id),
+        null => true,
+      };
+      if (!ok && care.lastError != null) {
+        messenger.showSnackBar(SnackBar(content: Text(care.lastError!)));
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final pet = widget.pet;
+    final progress = widget.care.photoUploadProgress(pet.id);
+    const size = 90.0;
+    return Semantics(
+      button: true,
+      label: pet.hasPhoto
+          ? 'Change photo of ${pet.name}'
+          : 'Add a photo of ${pet.name}',
+      child: GestureDetector(
+        onTap: _change,
+        child: SizedBox.square(
+          dimension: size,
+          child: Stack(
+            children: [
+              PetPortrait(pet, size: size),
+              if (progress != null)
+                Positioned.fill(
+                  child: ExcludeSemantics(
+                    child: CircularProgressIndicator(
+                      // Indeterminate until the first bytes go out.
+                      value: progress <= 0 ? null : progress,
+                      strokeWidth: 3,
+                      color: scheme.primary,
+                      backgroundColor: scheme.surface.withValues(alpha: 0.6),
+                    ),
+                  ),
+                ),
+              Positioned(
+                right: 0,
+                bottom: 0,
+                child: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: scheme.primary,
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: scheme.primaryContainer,
+                      width: 3,
+                    ),
+                  ),
+                  child: StrokeIcon(
+                    StrokeIconKind.camera,
+                    size: 13,
+                    color: scheme.onPrimary,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

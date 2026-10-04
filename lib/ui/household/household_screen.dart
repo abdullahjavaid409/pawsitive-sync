@@ -51,6 +51,38 @@ class HouseholdScreen extends StatelessWidget {
                 ),
               ),
             ),
+            if (care.pets.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              // Whose care this household shares — photos when set.
+              Wrap(
+                spacing: 12,
+                runSpacing: 8,
+                children: [
+                  for (final pet in care.pets)
+                    Semantics(
+                      label: pet.name,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          PetPortrait(pet, size: 44),
+                          const SizedBox(height: 4),
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 64),
+                            child: ExcludeSemantics(
+                              child: Text(
+                                pet.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: text.labelMedium,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ],
             const SizedBox(height: 24),
             Container(
               padding: const EdgeInsets.all(22),

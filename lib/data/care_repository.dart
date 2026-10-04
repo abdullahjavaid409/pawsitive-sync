@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:convert';
+import 'dart:io' show FileSystemException;
 import 'dart:math';
 
 import 'package:characters/characters.dart';
@@ -238,7 +239,32 @@ class CareRepository extends ChangeNotifier {
   final PetPhotoStore? _photos;
   final PetPhotoTransfer _photoTransfer;
   Future<void>? _photoSyncRunning;
+  Future<void>? _photoCacheRunning;
   final Set<String> _photoCacheHitLogged = {};
+
+  /// Upload progress (0..1) per pet while a photo PUT is in flight.
+  final Map<String, double> _photoProgress = {};
+
+  /// Backoff after a network failure: 5 s, 30 s, 2 min, then wait for the
+  /// next sync/resume. Never a tight retry loop on a bad connection.
+  @visibleForTesting
+  static List<Duration> photoRetryDelays = const [
+    Duration(seconds: 5),
+    Duration(seconds: 30),
+    Duration(minutes: 2),
+  ];
+  int _photoRetryAttempt = 0;
+  Timer? _photoRetryTimer;
+
+  /// Account deletion in flight, shared by repeated taps.
+  Future<String?>? _deleting;
+  bool _accountDeletePending = false;
+
+  @override
+  void dispose() {
+    _photoRetryTimer?.cancel();
+    super.dispose();
+  }
 
   bool syncing = false;
   String? syncError;
@@ -735,6 +761,7 @@ class CareRepository extends ChangeNotifier {
     try {
       final prefs = await SharedPreferences.getInstance();
       _storeProLastRun = prefs.getBool(_lastStoreProKey) ?? false;
+      _accountDeletePending = prefs.getBool(_deletePendingKey) ?? false;
     } on Object catch (error, stack) {
       AppLog.error('store.billing_state_failed', error, stack);
     }

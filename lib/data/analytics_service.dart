@@ -38,6 +38,10 @@ abstract final class AnalyticsService {
   @visibleForTesting
   static int get bufferedCount => _buffer.length;
 
+  /// Seeds the buffer in tests (tracking is off without a compiled-in API).
+  @visibleForTesting
+  static void debugAdd(String name) => _buffer.add(name);
+
   /// Drops unsent counts (account deletion).
   static void clear() => _buffer.clear();
 

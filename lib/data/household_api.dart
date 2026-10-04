@@ -92,10 +92,15 @@ class HouseholdException implements Exception {
     required this.kind,
     this.existing,
     this.status,
+    this.timedOut = false,
   });
 
   final String message;
   final HouseholdErrorKind kind;
+
+  /// [HouseholdErrorKind.offline] because the call ran out of time (slow
+  /// link) rather than never connecting: the server may have acted on it.
+  final bool timedOut;
 
   /// HTTP status when the server answered (e.g. 403 = needs household Pro).
   final int? status;
@@ -339,8 +344,16 @@ class HouseholdApi {
 
   /// Deletes this member's account. Returns the server scope: `household`
   /// (owner: everything) or `member` (caregiver/sitter: only them).
+  ///
+  /// Longer wait than other calls: an owner delete removes every photo from
+  /// the bucket before answering, and a slow link must not read as failed.
   Future<String> deleteAccount() async {
-    final body = await _send('DELETE', '/v1/account');
+    final body = await _send(
+      'DELETE',
+      '/v1/account',
+      null,
+      const Duration(seconds: 45),
+    );
     return '${body['scope'] ?? 'member'}';
   }
 
@@ -356,12 +369,13 @@ class HouseholdApi {
     String method,
     String path, [
     Map<String, Object?>? data,
+    Duration? receiveTimeout,
   ]) async {
     try {
       final response = await _dio.request<Object?>(
         path,
         data: data,
-        options: Options(method: method),
+        options: Options(method: method, receiveTimeout: receiveTimeout),
       );
       return _map(response.data);
     } on DioException catch (error) {
@@ -385,9 +399,15 @@ class HouseholdApi {
       }),
     );
     switch (error.type) {
-      case DioExceptionType.connectionTimeout:
+      // Sent (or partly sent) but no answer in time: outcome unknown.
       case DioExceptionType.sendTimeout:
       case DioExceptionType.receiveTimeout:
+        return const HouseholdException(
+          "Can't reach the household. Check your internet and try again.",
+          kind: HouseholdErrorKind.offline,
+          timedOut: true,
+        );
+      case DioExceptionType.connectionTimeout:
       case DioExceptionType.connectionError:
       case DioExceptionType.cancel:
         return const HouseholdException(

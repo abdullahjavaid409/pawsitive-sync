@@ -8,6 +8,7 @@ import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/data/dose_reminders.dart';
 import 'package:pawsitive_sync/data/household_api.dart';
 import 'package:pawsitive_sync/data/household_store.dart';
+import 'package:pawsitive_sync/data/pet_photo_store.dart';
 import 'package:pawsitive_sync/data/revenue_cat_service.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
@@ -28,11 +29,22 @@ Future<Widget> bootstrap() async {
   final api = AppConfig.hasApi
       ? HouseholdApi(Uri.parse(AppConfig.apiBaseUrl.trim()))
       : null;
-  final care = CareRepository(api: api, store: HouseholdStore());
-  final (_, onboarding) = await (
+  final care = CareRepository(
+    api: api,
+    store: HouseholdStore(),
+    photoStore: PetPhotoStore(),
+  );
+  var (_, onboarding) = await (
     care.restore(),
     OnboardingViewModel.load(),
   ).wait;
+  if (care.accountDeletePending) {
+    // The app was killed mid-delete last time. Rare, so it is the one case
+    // that waits on the network before the first frame: showing the deleted
+    // household again would be worse. Success wipes; failure keeps the data.
+    final error = await care.deleteAccount();
+    if (error == null) onboarding = await OnboardingViewModel.load();
+  }
   RevenueCatService.onEntitlementChanged = care.applyStoreEntitlement;
   if (onboarding.isComplete && care.pets.isEmpty && !care.isConnected) {
     care.applyOnboarding(onboarding);

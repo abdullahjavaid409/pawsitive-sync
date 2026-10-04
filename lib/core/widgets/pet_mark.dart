@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
@@ -51,4 +53,66 @@ class PetMark extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A pet's photo in a circle, or its drawn [PetMark] when there is none (or
+/// the file can't be read). Decoded at display size, so a 512 px photo costs
+/// only a few KB of memory per avatar.
+class PetAvatar extends StatelessWidget {
+  const PetAvatar({
+    super.key,
+    required this.species,
+    required this.photoPath,
+    this.photoVersion = 0,
+    this.size = 72,
+    this.artScale = 0.7,
+  });
+
+  final Species species;
+  final String? photoPath;
+
+  /// Changes whenever the file at [photoPath] is replaced.
+  final int photoVersion;
+  final double size;
+  final double artScale;
+
+  @override
+  Widget build(BuildContext context) {
+    final mark = PetMark(species: species, size: size, artScale: artScale);
+    final path = photoPath;
+    if (path == null) return mark;
+    final pixels = (size * MediaQuery.devicePixelRatioOf(context)).round();
+    return ClipOval(
+      child: Image(
+        image: ResizeImage(
+          _VersionedFileImage(File(path), photoVersion),
+          width: pixels,
+          height: pixels,
+        ),
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        gaplessPlayback: true,
+        errorBuilder: (_, _, _) => mark,
+      ),
+    );
+  }
+}
+
+/// [FileImage] whose cache identity includes a version, so replacing the
+/// photo at the same path shows the new picture instead of the cached one.
+class _VersionedFileImage extends FileImage {
+  const _VersionedFileImage(super.file, this.version);
+
+  final int version;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _VersionedFileImage &&
+      other.file.path == file.path &&
+      other.version == version &&
+      other.scale == scale;
+
+  @override
+  int get hashCode => Object.hash(file.path, version, scale);
 }

@@ -255,7 +255,13 @@ class PetPortrait extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ExcludeSemantics(
-    child: PetMark(species: pet.species, size: size, artScale: 1),
+    child: PetAvatar(
+      species: pet.species,
+      photoPath: pet.photoPath,
+      photoVersion: pet.photoVersion,
+      size: size,
+      artScale: 1,
+    ),
   );
 }
 

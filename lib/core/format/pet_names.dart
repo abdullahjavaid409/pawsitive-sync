@@ -11,3 +11,15 @@ String householdPetSubtitle(List<Pet> pets) {
   }
   return 'The people looking after ${pets.length} pets.';
 }
+
+/// Every pet named, for copy that must be exact (e.g. what a delete
+/// removes): "Miso", "Miso and Juniper", "Miso, Juniper and Pip".
+/// Falls back to "your pets" when there are none.
+String petNameList(List<Pet> pets) {
+  final names = [for (final pet in pets) pet.name];
+  return switch (names.length) {
+    0 => 'your pets',
+    1 => names.first,
+    _ => '${names.take(names.length - 1).join(', ')} and ${names.last}',
+  };
+}

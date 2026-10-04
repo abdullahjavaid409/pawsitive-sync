@@ -57,6 +57,15 @@ class PetPhotoStore {
 
   bool isCached(String photoKey) => _cached.contains(cacheName(photoKey));
 
+  /// [isCached] checked against the disk: a file removed behind our back
+  /// (storage cleanup, restore from backup) is forgotten so it re-downloads.
+  Future<bool> verifyCached(String photoKey) async {
+    if (!isCached(photoKey)) return false;
+    if (await File(cachePath(photoKey)!).exists()) return true;
+    _cached.remove(cacheName(photoKey));
+    return false;
+  }
+
   Future<void> writeOwn(String petId, Uint8List bytes) async {
     await init();
     final file = File(ownPath(petId)!);
@@ -142,9 +151,14 @@ class PetPhotoStore {
 class PhotoTransferException implements Exception {
   const PhotoTransferException(this.kind, [this.status]);
 
-  /// `offline`, `rejected` (bucket said no / expired URL) or `invalid`.
+  /// `offline` (no connection), `timeout` (slow link ran out of time),
+  /// `rejected` (bucket said no, e.g. an expired URL), `cancelled` or
+  /// `invalid` (empty/oversized answer).
   final String kind;
   final int? status;
+
+  /// Worth retrying later rather than now: the network, not the request.
+  bool get isNetwork => kind == 'offline' || kind == 'timeout';
 
   @override
   String toString() => 'PhotoTransferException($kind, $status)';
@@ -160,27 +174,50 @@ class PetPhotoTransfer {
           Dio(
             BaseOptions(
               connectTimeout: const Duration(seconds: 10),
-              sendTimeout: const Duration(seconds: 20),
-              receiveTimeout: const Duration(seconds: 20),
+              receiveTimeout: const Duration(seconds: 30),
             ),
           );
 
-  final Dio _dio;
+  /// An ~60 KB body on a weak cellular link can take far longer than the
+  /// API's 10 s send timeout; one slow upload is fine, a failed one is not.
+  static const putSendTimeout = Duration(seconds: 60);
 
-  Future<void> put(String url, Map<String, String> headers, Uint8List bytes) {
+  final Dio _dio;
+  CancelToken _downloads = CancelToken();
+
+  /// Uploads [bytes] with exactly the signed [headers]. [onProgress] gets
+  /// 0..1 as the body is sent (for the avatar's progress ring).
+  Future<void> put(
+    String url,
+    Map<String, String> headers,
+    Uint8List bytes, {
+    void Function(double sent)? onProgress,
+  }) {
     return _guard(() async {
       await _dio.put<void>(
         url,
         data: Stream.fromIterable([bytes]),
-        options: Options(headers: headers, responseType: ResponseType.plain),
+        options: Options(
+          headers: headers,
+          responseType: ResponseType.plain,
+          sendTimeout: putSendTimeout,
+        ),
+        onSendProgress: onProgress == null
+            ? null
+            : (sent, total) {
+                final size = total > 0 ? total : bytes.length;
+                onProgress((sent / size).clamp(0.0, 1.0));
+              },
       );
     });
   }
 
   Future<Uint8List> get(String url) {
+    final token = _downloads;
     return _guard(() async {
       final response = await _dio.get<List<int>>(
         url,
+        cancelToken: token,
         options: Options(responseType: ResponseType.bytes),
       );
       final data = response.data;
@@ -193,15 +230,27 @@ class PetPhotoTransfer {
     });
   }
 
+  /// Stops in-flight downloads (household left/deleted, account wiped) so a
+  /// late answer never writes a photo for a household that is gone.
+  void cancelDownloads() {
+    _downloads.cancel('photos cleared');
+    _downloads = CancelToken();
+  }
+
   Future<T> _guard<T>(Future<T> Function() run) async {
     try {
       return await run();
     } on DioException catch (error) {
       final status = error.response?.statusCode;
-      throw PhotoTransferException(
-        status == null ? 'offline' : 'rejected',
-        status,
-      );
+      final kind = switch (error.type) {
+        DioExceptionType.sendTimeout ||
+        DioExceptionType.receiveTimeout ||
+        DioExceptionType.connectionTimeout => 'timeout',
+        DioExceptionType.cancel => 'cancelled',
+        _ when status == null => 'offline',
+        _ => 'rejected',
+      };
+      throw PhotoTransferException(kind, status);
     } on PhotoTransferException {
       rethrow;
     } catch (error, stack) {
