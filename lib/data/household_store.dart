@@ -19,6 +19,7 @@ class StoredHousehold {
     required this.medications,
     required this.logs,
     this.householdId = '',
+    this.archivedMedications = const [],
   });
 
   final String householdId;
@@ -31,6 +32,9 @@ class StoredHousehold {
   final List<Pet> pets;
   final List<Medication> medications;
   final List<DoseRecord> logs;
+
+  /// Removed medicines kept for vet-report history (local only).
+  final List<Medication> archivedMedications;
 }
 
 /// Saves the household as JSON in shared preferences so it survives restarts
@@ -83,6 +87,7 @@ class HouseholdStore {
         pets: list('pets', petFromJson),
         medications: list('medications', medicationFromJson),
         logs: list('logs', doseRecordFromJson),
+        archivedMedications: list('archivedMedications', medicationFromJson),
       );
     } on Object catch (error, stack) {
       AppLog.error('store.household_corrupt', error, stack);
@@ -153,6 +158,9 @@ class HouseholdStore {
         'members': [for (final member in house.members) member.toJson()],
         'pets': [for (final pet in house.pets) pet.toJson()],
         'medications': [for (final item in house.medications) item.toJson()],
+        'archivedMedications': [
+          for (final item in house.archivedMedications) item.toJson(),
+        ],
         'logs': [for (final log in house.logs.take(3000)) log.toJson()],
       }),
     );
