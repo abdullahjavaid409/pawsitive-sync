@@ -213,6 +213,9 @@ async function migrateLocked(pool) {
   await pool.query(`
     ALTER TABLE pets ADD COLUMN IF NOT EXISTS photo_key text;
   `);
+  await pool.query(`
+    ALTER TABLE medications ADD COLUMN IF NOT EXISTS archived_at timestamptz;
+  `);
   // Household snapshot reads the newest 100 days of logs; without this it
   // sorts every log the household ever wrote.
   await ensureIndexConcurrently(pool, "dose_logs_created_idx", "dose_logs (household_id, created_at DESC)");
@@ -633,6 +636,7 @@ export async function loadHousehold(pool, { householdId, memberId }, { logDay } 
   const logFilter = logDay
     ? "household_id = $1 AND day = $2"
     : "household_id = $1 AND created_at > now() - interval '100 days'";
+  const archivedLogFilter = logDay ? "l.day = $2" : "l.created_at > now() - interval '100 days'";
   const result = await pool.query(
     `SELECT
        (SELECT row_to_json(h) FROM (
@@ -648,6 +652,14 @@ export async function loadHousehold(pool, { householdId, memberId }, { logDay } 
        (SELECT coalesce(json_agg(d ORDER BY d.created_at), '[]'::json) FROM (
           SELECT * FROM medications WHERE household_id = $1 AND archived = false
         ) d) AS medications,
+       -- Stopped medicines that still have logs in the returned window, so a
+       -- phone that joins later can label that history (vet report).
+       (SELECT coalesce(json_agg(a ORDER BY a.created_at), '[]'::json) FROM (
+          SELECT m.* FROM medications m
+          WHERE m.household_id = $1 AND m.archived = true
+            AND EXISTS (SELECT 1 FROM dose_logs l WHERE l.household_id = $1 AND l.medication_id = m.id AND ${archivedLogFilter})
+          LIMIT 200
+        ) a) AS archived_medications,
        (SELECT coalesce(json_agg(l ORDER BY l.created_at DESC), '[]'::json) FROM (
           SELECT * FROM dose_logs WHERE ${logFilter} ORDER BY created_at DESC LIMIT 3000
         ) l) AS logs,
@@ -670,6 +682,8 @@ export async function loadHousehold(pool, { householdId, memberId }, { logDay } 
     members: row.members.map((member) => mapMember(member, memberId)),
     pets: row.pets.map(mapPet),
     medications: row.medications.map(mapMedication),
+    // Separate list so older apps never show a stopped medicine as active.
+    archivedMedications: row.archived_medications.map((m) => ({ ...mapMedication(m), archivedAt: m.archived_at })),
     logs: row.logs.map(mapLog),
     careEvents: row.care_events.map(mapCareEvent),
   };
@@ -701,7 +715,7 @@ export async function addMedication(pool, { householdId }, body) {
 
 export async function archiveMedication(pool, { householdId }, medicationId) {
   const result = await pool.query(
-    "UPDATE medications SET archived = true WHERE household_id = $1 AND id = $2",
+    "UPDATE medications SET archived = true, archived_at = now() WHERE household_id = $1 AND id = $2",
     [householdId, id(medicationId, "medication.id")],
   );
   return result.rowCount > 0;

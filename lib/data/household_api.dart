@@ -55,6 +55,19 @@ class BatchSyncResponse {
   final HouseholdSnapshot? household;
 }
 
+/// A presigned bucket upload: PUT exactly these headers, then attach the key.
+class PhotoUploadTicket {
+  const PhotoUploadTicket({
+    required this.photoKey,
+    required this.url,
+    required this.headers,
+  });
+
+  final String photoKey;
+  final String url;
+  final Map<String, String> headers;
+}
+
 /// This device's link to one household (stored privately on the phone).
 class HouseholdSession {
   const HouseholdSession({required this.token, required this.snapshot});
@@ -275,6 +288,62 @@ class HouseholdApi {
     );
   }
 
+  /// Step 1 of a photo upload: reserves a bucket key and returns a 5-minute
+  /// presigned PUT. The bytes go straight to the bucket (see PetPhotoTransfer).
+  Future<PhotoUploadTicket> startPetPhotoUpload(String petId, int bytes) async {
+    final body = await _send(
+      'POST',
+      '/v1/pets/${Uri.encodeComponent(petId)}/photo/upload',
+      {'bytes': bytes},
+    );
+    final upload = _map(body['upload']);
+    final key = _nonEmpty(body['photoKey']);
+    final url = _nonEmpty(upload['url']);
+    if (key == null || url == null) {
+      throw const HouseholdException(
+        'The photo upload answer was incomplete.',
+        kind: HouseholdErrorKind.server,
+      );
+    }
+    final headers = upload['headers'];
+    return PhotoUploadTicket(
+      photoKey: key,
+      url: url,
+      headers: {
+        if (headers is Map)
+          for (final entry in headers.entries) '${entry.key}': '${entry.value}',
+      },
+    );
+  }
+
+  /// Step 3: points the pet at the uploaded object (the server checks it is
+  /// there and deletes the previous photo).
+  Future<({String photoKey, String? photoUrl})> attachPetPhoto(
+    String petId,
+    String photoKey,
+  ) async {
+    final body = await _send(
+      'PUT',
+      '/v1/pets/${Uri.encodeComponent(petId)}/photo',
+      {'photoKey': photoKey},
+    );
+    return (
+      photoKey: _nonEmpty(body['photoKey']) ?? photoKey,
+      photoUrl: _nonEmpty(body['photoUrl']),
+    );
+  }
+
+  Future<void> removePetPhoto(String petId) async {
+    await _send('DELETE', '/v1/pets/${Uri.encodeComponent(petId)}/photo');
+  }
+
+  /// Deletes this member's account. Returns the server scope: `household`
+  /// (owner: everything) or `member` (caregiver/sitter: only them).
+  Future<String> deleteAccount() async {
+    final body = await _send('DELETE', '/v1/account');
+    return '${body['scope'] ?? 'member'}';
+  }
+
   Future<void> leaveHousehold() async {
     await _send('POST', '/v1/members/leave');
   }
@@ -465,8 +534,16 @@ Pet _pet(Map<String, dynamic> json) {
     weightKg: _double(json['weightKg']),
     onTimePercent: 0,
     dailyMeds: 0,
+    photoKey: _nonEmpty(json['photoKey']),
+    photoUrl: _nonEmpty(json['photoUrl']),
+    // Local-store fields; absent in server answers and older saved households.
+    photoVersion: _int(json['photoVersion']),
+    photoSync: _enum(PhotoSync.values, json['photoSync'], PhotoSync.none),
   );
 }
+
+String? _nonEmpty(Object? value) =>
+    value is String && value.isNotEmpty ? value : null;
 
 Medication medicationFromJson(Map<String, dynamic> json) => _medication(json);
 

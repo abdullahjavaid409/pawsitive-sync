@@ -22,6 +22,13 @@ abstract final class PushService {
     AppLog.event('push.preference', {'enabled': on});
   }
 
+  /// Forgets this device's push id and preference (account deletion).
+  static Future<void> clearLocal() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_tokenKey);
+    await prefs.remove(_enabledKey);
+  }
+
   static Future<String> _deviceToken() async {
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getString(_tokenKey);

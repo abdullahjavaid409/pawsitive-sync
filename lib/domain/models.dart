@@ -12,6 +12,9 @@ enum DoseOutcome { smooth, partial, vomited, lowAppetite }
 
 enum InviteRole { caregiver, sitter }
 
+/// What this phone still owes the server for a pet's photo (latest wins).
+enum PhotoSync { none, upload, remove }
+
 class Member {
   const Member({
     required this.id,
@@ -66,6 +69,11 @@ class Pet {
     required this.weightKg,
     required this.onTimePercent,
     required this.dailyMeds,
+    this.photoKey,
+    this.photoUrl,
+    this.photoVersion = 0,
+    this.photoSync = PhotoSync.none,
+    this.photoPath,
   });
 
   final String id;
@@ -79,6 +87,27 @@ class Pet {
   final int onTimePercent;
   final int dailyMeds;
 
+  /// Bucket object key of the household's photo (server truth). Stable, so
+  /// it doubles as the on-disk cache key for photos set by other members.
+  final String? photoKey;
+
+  /// Short-lived (24h) presigned download URL from the last snapshot.
+  /// Never saved: it expires, the key does not.
+  final String? photoUrl;
+
+  /// Non-zero while this phone holds its own photo file
+  /// (`pet_photos/<id>.jpg`); changes on every new photo so images re-render.
+  final int photoVersion;
+
+  /// Pending photo upload or removal, retried on the next sync.
+  final PhotoSync photoSync;
+
+  /// Absolute file to show right now, resolved by the repository each run
+  /// (the app container path can change between launches, so never saved).
+  final String? photoPath;
+
+  bool get hasPhoto => photoPath != null;
+
   String get speciesLabel => switch (species) {
     Species.cat => 'Cat',
     Species.dog => 'Dog',
@@ -86,6 +115,8 @@ class Pet {
     Species.other => 'Other',
   };
 
+  /// What the API accepts for create/update. Photo fields have their own
+  /// endpoints and are never sent here.
   Map<String, Object?> toJson() => {
     'id': id,
     'name': name,
@@ -95,6 +126,14 @@ class Pet {
     'breed': breed,
     'sex': sex,
     'conditions': conditions,
+  };
+
+  /// [toJson] plus this phone's photo state, for the local store only.
+  Map<String, Object?> toStoreJson() => {
+    ...toJson(),
+    if (photoKey != null) 'photoKey': photoKey,
+    if (photoVersion != 0) 'photoVersion': photoVersion,
+    if (photoSync != PhotoSync.none) 'photoSync': photoSync.name,
   };
 
   Pet copyWith({
@@ -119,6 +158,42 @@ class Pet {
       weightKg: weightKg ?? this.weightKg,
       onTimePercent: onTimePercent ?? this.onTimePercent,
       dailyMeds: dailyMeds ?? this.dailyMeds,
+      photoKey: photoKey,
+      photoUrl: photoUrl,
+      photoVersion: photoVersion,
+      photoSync: photoSync,
+      photoPath: photoPath,
+    );
+  }
+
+  static const _keep = Object();
+
+  /// Changes only the photo fields; pass null to clear a nullable one.
+  Pet withPhoto({
+    Object? photoKey = _keep,
+    Object? photoUrl = _keep,
+    int? photoVersion,
+    PhotoSync? photoSync,
+    Object? photoPath = _keep,
+  }) {
+    return Pet(
+      id: id,
+      name: name,
+      species: species,
+      ageYears: ageYears,
+      breed: breed,
+      sex: sex,
+      conditions: conditions,
+      weightKg: weightKg,
+      onTimePercent: onTimePercent,
+      dailyMeds: dailyMeds,
+      photoKey: identical(photoKey, _keep) ? this.photoKey : photoKey as String?,
+      photoUrl: identical(photoUrl, _keep) ? this.photoUrl : photoUrl as String?,
+      photoVersion: photoVersion ?? this.photoVersion,
+      photoSync: photoSync ?? this.photoSync,
+      photoPath: identical(photoPath, _keep)
+          ? this.photoPath
+          : photoPath as String?,
     );
   }
 }

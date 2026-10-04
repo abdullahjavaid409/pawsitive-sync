@@ -156,7 +156,7 @@ class HouseholdStore {
         'isPro': house.isPro,
         'plan': house.plan.name,
         'members': [for (final member in house.members) member.toJson()],
-        'pets': [for (final pet in house.pets) pet.toJson()],
+        'pets': [for (final pet in house.pets) pet.toStoreJson()],
         'medications': [for (final item in house.medications) item.toJson()],
         'archivedMedications': [
           for (final item in house.archivedMedications) item.toJson(),

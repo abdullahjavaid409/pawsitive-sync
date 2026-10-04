@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:pawsitive_sync/core/config/app_config.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 
@@ -33,6 +34,12 @@ abstract final class AnalyticsService {
       AppLog.unawaitedLogged(flush(), 'analytics.flush_failed');
     }
   }
+
+  @visibleForTesting
+  static int get bufferedCount => _buffer.length;
+
+  /// Drops unsent counts (account deletion).
+  static void clear() => _buffer.clear();
 
   static Future<void> flush() async {
     if (!_enabled || !AppConfig.hasApi || _buffer.isEmpty) return;

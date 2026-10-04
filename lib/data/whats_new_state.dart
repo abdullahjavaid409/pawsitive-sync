@@ -10,6 +10,11 @@ abstract final class WhatsNewState {
     return prefs.getString(_key) != ReleaseFeatures.version;
   }
 
+  static Future<void> clear() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_key);
+  }
+
   static Future<void> markSeen() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_key, ReleaseFeatures.version);

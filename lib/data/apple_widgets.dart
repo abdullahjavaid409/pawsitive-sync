@@ -80,6 +80,27 @@ class AppleWidgets {
 
   static bool _bridgeMissingLogged = false;
 
+  /// Empty widget (no pets, no doses) after account deletion, so the home
+  /// screen never shows a deleted pet. Same bridge call as [refresh].
+  static Future<void> clear() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return;
+    final payload = jsonEncode({
+      'version': 1,
+      'updatedAt': DateTime.now().millisecondsSinceEpoch / 1000,
+      'hasPets': false,
+      'days': const <Object>[],
+    });
+    try {
+      await _channel.invokeMethod<void>('update', payload);
+      _lastPayload = null;
+      AppLog.event('widgets.cleared');
+    } on MissingPluginException {
+      AppLog.event('widgets.unavailable', {'reason': 'no_bridge'});
+    } on PlatformException catch (error, stack) {
+      AppLog.error('widgets.update_failed', error, stack, {'code': error.code});
+    }
+  }
+
   /// Pushes the snapshot only when it changed since the last push.
   static Future<void> refresh(CareRepository care) async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.iOS) return;

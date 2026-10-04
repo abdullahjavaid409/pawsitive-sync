@@ -81,14 +81,14 @@ void main() {
   ) async {
     final care = CareRepository.sample(clock: () => DateTime(2026, 10, 3, 14));
     care.applyStoreEntitlement(true, BillingPlan.yearly);
-    for (final medicine in care.medicationsFor('juniper')) {
-      await care.removeMedication(medicine.id);
-    }
+    // A removed medicine keeps its in-range history in the report, so the
+    // empty state needs a pet that never had a medicine.
+    await care.addPet(name: 'Pip', species: Species.rabbit);
     final router = await _pump(tester, care);
     router.go(AppRoutes.reports);
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('Juniper'));
-    await tester.tap(find.text('Juniper'));
+    await tester.ensureVisible(find.text('Pip'));
+    await tester.tap(find.text('Pip'));
     await tester.pumpAndSettle();
     expect(find.byType(CareEmptyState), findsOneWidget);
     expect(find.byType(CarePetPicker), findsOneWidget);

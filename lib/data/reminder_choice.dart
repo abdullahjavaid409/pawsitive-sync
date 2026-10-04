@@ -17,6 +17,17 @@ class ReminderChoice {
     }
   }
 
+  static Future<void> clear() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_key);
+    } catch (error, stack) {
+      AppLog.error('store.reminder_choice_failed', error, stack, {
+        'op': 'clear',
+      });
+    }
+  }
+
   static Future<void> write(bool on) async {
     try {
       final prefs = await SharedPreferences.getInstance();

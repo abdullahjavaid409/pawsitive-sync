@@ -22,6 +22,9 @@ abstract final class SecureTokens {
 
   static Future<void> delete(String key) => _storage.delete(key: key);
 
+  /// Removes every secret this app stored (account deletion).
+  static Future<void> deleteAll() => _storage.deleteAll();
+
   /// Removes every cached sitter token (household reset / leave).
   static Future<void> deleteSitterTokens() async {
     final all = await _storage.readAll();

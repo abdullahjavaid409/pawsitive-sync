@@ -157,4 +157,15 @@ void main() {
       'میسو-care-report-2026-10-04.pdf',
     );
   });
+
+  test('PDF builds off the UI thread', () async {
+    final (care, petId, _) = await _care();
+    final pdf = await buildVetReportPdfInBackground(
+      pet: care.petById(petId),
+      report: care.reportFor(petId, 7),
+      showCaregivers: false,
+      generatedAt: care.now,
+    );
+    expect(pdf.bytes, isNotEmpty);
+  });
 }

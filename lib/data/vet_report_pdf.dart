@@ -7,18 +7,14 @@ import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
-/// Raw TTF bytes for the PDF (bundled Geist). Plain bytes so they can be
-/// sent to a background isolate.
+/// Raw TTF bytes for the PDF. Plain bytes so they can be sent to a
+/// background isolate. Noto Sans (+ Arabic fallback) because the app's Geist
+/// files are CFF OpenType, which the pdf package cannot embed.
 class VetReportFonts {
-  const VetReportFonts({
-    required this.regular,
-    required this.medium,
-    required this.semiBold,
-  });
+  const VetReportFonts({required this.latin, required this.arabic});
 
-  final Uint8List regular;
-  final Uint8List medium;
-  final Uint8List semiBold;
+  final Uint8List latin;
+  final Uint8List arabic;
 
   static VetReportFonts? _cache;
 
@@ -26,17 +22,13 @@ class VetReportFonts {
     final cached = _cache;
     if (cached != null) return cached;
     Future<Uint8List> bytes(String name) async =>
-        (await rootBundle.load('assets/fonts/$name.ttf')).buffer.asUint8List();
-    final (regular, medium, semiBold) = await (
-      bytes('Geist-Regular'),
-      bytes('Geist-Medium'),
-      bytes('Geist-SemiBold'),
+        (await rootBundle.load('assets/fonts/pdf/$name.ttf')).buffer
+            .asUint8List();
+    final (latin, arabic) = await (
+      bytes('NotoSans-Regular'),
+      bytes('NotoSansArabic-Regular'),
     ).wait;
-    return _cache = VetReportFonts(
-      regular: regular,
-      medium: medium,
-      semiBold: semiBold,
-    );
+    return _cache = VetReportFonts(latin: latin, arabic: arabic);
   }
 }
 
@@ -108,13 +100,15 @@ Future<VetReportPdf> buildVetReportPdf({
   required DateTime generatedAt,
   required VetReportFonts fonts,
 }) async {
-  final regular = pw.Font.ttf(ByteData.sublistView(fonts.regular));
-  final medium = pw.Font.ttf(ByteData.sublistView(fonts.medium));
-  final bold = pw.Font.ttf(ByteData.sublistView(fonts.semiBold));
+  final regular = pw.Font.ttf(ByteData.sublistView(fonts.latin));
+  final arabic = pw.Font.ttf(ByteData.sublistView(fonts.arabic));
+  // One weight keeps the bundle small; headings stand out by size.
+  final medium = regular;
+  final bold = regular;
   final theme = pw.ThemeData.withFont(
     base: regular,
     bold: bold,
-    fontFallback: [medium],
+    fontFallback: [arabic],
   );
   const ink = PdfColor.fromInt(0xFF2C3531);
   const muted = PdfColor.fromInt(0xFF6B726E);

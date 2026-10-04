@@ -8,13 +8,21 @@ import 'package:flutter/foundation.dart';
 import 'package:pawsitive_sync/core/constants/pet_limits.dart';
 import 'package:pawsitive_sync/core/legal/app_links.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
+import 'package:pawsitive_sync/data/analytics_service.dart';
+import 'package:pawsitive_sync/data/apple_widgets.dart';
 import 'package:pawsitive_sync/data/care_events_store.dart';
+import 'package:pawsitive_sync/data/dose_reminders.dart';
 import 'package:pawsitive_sync/data/household_api.dart';
 import 'package:pawsitive_sync/data/household_store.dart';
 import 'package:pawsitive_sync/data/push_service.dart';
 import 'package:pawsitive_sync/data/sync_engine.dart';
 import 'package:pawsitive_sync/data/sync_outbox.dart';
 import 'package:pawsitive_sync/data/onboarding_profile.dart';
+import 'package:pawsitive_sync/data/onboarding_state.dart';
+import 'package:pawsitive_sync/data/pet_photo_codec.dart';
+import 'package:pawsitive_sync/data/pet_photo_store.dart';
+import 'package:pawsitive_sync/data/reminder_choice.dart';
+import 'package:pawsitive_sync/data/whats_new_state.dart';
 import 'package:pawsitive_sync/data/upgrade_nudge_state.dart';
 import 'package:pawsitive_sync/data/revenue_cat_service.dart';
 import 'package:pawsitive_sync/data/secure_tokens.dart';
@@ -22,6 +30,9 @@ import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:purchases_flutter/purchases_flutter.dart' show Package;
 import 'package:shared_preferences/shared_preferences.dart';
+
+part 'care_repository_account.dart';
+part 'care_repository_photos.dart';
 
 /// Local calendar day as YYYY-MM-DD.
 String dayKey(DateTime time) =>
@@ -192,12 +203,16 @@ class CareRepository extends ChangeNotifier {
     HouseholdStore? store,
     CareEventsStore? eventsStore,
     SyncEngine? syncEngine,
+    PetPhotoStore? photoStore,
+    PetPhotoTransfer? photoTransfer,
     DateTime Function()? clock,
     bool sample = false,
   }) : _api = api,
        _store = store,
        _eventsStore = eventsStore ?? CareEventsStore(),
        _syncEngine = syncEngine ?? SyncEngine(),
+       _photos = photoStore,
+       _photoTransfer = photoTransfer ?? PetPhotoTransfer(),
        _clock = clock ?? DateTime.now {
     if (sample) loadSampleData();
   }
@@ -218,6 +233,12 @@ class CareRepository extends ChangeNotifier {
   final CareEventsStore _eventsStore;
   final SyncEngine _syncEngine;
   final DateTime Function() _clock;
+
+  /// Null where photos are off (most widget tests); set by `bootstrap`.
+  final PetPhotoStore? _photos;
+  final PetPhotoTransfer _photoTransfer;
+  Future<void>? _photoSyncRunning;
+  final Set<String> _photoCacheHitLogged = {};
 
   bool syncing = false;
   String? syncError;
@@ -322,12 +343,14 @@ class CareRepository extends ChangeNotifier {
   Member get you =>
       _members.firstWhere((member) => member.isYou, orElse: () => _youMember);
 
-  /// Falls back to a neutral member so stale IDs never crash a screen.
+  /// Falls back to a neutral member so stale IDs never crash a screen. A log
+  /// whose member is no longer in the household (they deleted their account)
+  /// reads as "Former member" — never blank, "You" or "Someone".
   Member memberById(String id) => _members.firstWhere(
     (member) => member.id == id,
     orElse: () => Member(
       id: id,
-      name: 'Someone',
+      name: formerMemberName,
       initials: '?',
       role: MemberRole.caregiver,
       avatarTone: AvatarTone.neutral,
@@ -356,6 +379,8 @@ class CareRepository extends ChangeNotifier {
     }
     return null;
   }
+
+  static const formerMemberName = 'Former member';
 
   Pet? get primaryPet => _pets.isEmpty ? null : _pets.first;
 
@@ -716,6 +741,11 @@ class CareRepository extends ChangeNotifier {
     _careEvents
       ..clear()
       ..addAll(await _eventsStore.read());
+    try {
+      await _photos?.init();
+    } on Object catch (error, stack) {
+      AppLog.error('pet.photo_store_failed', error, stack);
+    }
     final saved = await _store?.read();
     if (saved == null) return;
     _apply(
@@ -775,6 +805,7 @@ class CareRepository extends ChangeNotifier {
     _logs
       ..clear()
       ..addAll(logs);
+    _resolvePhotoPaths();
   }
 
   void _applySession(HouseholdSession session) {
@@ -789,7 +820,7 @@ class CareRepository extends ChangeNotifier {
       isPro: house.isPro,
       plan: house.plan,
       members: house.members,
-      pets: house.pets,
+      pets: _mergePhotoState(house.pets),
       medications: house.medications,
       logs: house.logs,
     );
@@ -811,7 +842,7 @@ class CareRepository extends ChangeNotifier {
       // server copy must never overwrite it.
       plan: _storePro ? _plan : house.plan,
       members: house.members,
-      pets: house.pets,
+      pets: _mergePhotoState(house.pets),
       medications: house.medications,
       logs: house.logs,
     );
@@ -1050,7 +1081,7 @@ class CareRepository extends ChangeNotifier {
         if (error.status != null) 'status': error.status,
       });
       if (error.kind == HouseholdErrorKind.unauthorized) {
-        await _dropSession('sitter_link_unauthorized');
+        await _dropSession('sitter_link_unauthorized', error);
       }
       return null;
     } catch (error, stack) {
@@ -1136,6 +1167,9 @@ class CareRepository extends ChangeNotifier {
     notifyListeners();
     _persist();
   }
+
+  /// For the photo/account extensions (notifyListeners is protected).
+  void _notify() => notifyListeners();
 
   /// Puts this phone's household on the server so others can join.
   /// Returns a message when it could not.
@@ -1255,6 +1289,9 @@ class CareRepository extends ChangeNotifier {
       _persist();
       _lastSyncedAt = now;
       AppLog.event('household.synced', {'doses': doses.length});
+      // Pending uploads/removals first, then fetch photos others set.
+      await syncPetPhotos();
+      await refreshPhotoCache();
       if (_storePro && !_isPro) {
         // Server confirmed the household is still Free: share this phone's Pro.
         await startTrial();
@@ -1263,7 +1300,7 @@ class CareRepository extends ChangeNotifier {
       syncError = error.message;
       AppLog.event('household.sync_failed', {'kind': error.kind.name});
       if (error.kind == HouseholdErrorKind.unauthorized) {
-        await _dropSession('sync_unauthorized');
+        await _dropSession('sync_unauthorized', error);
       }
     } finally {
       syncing = false;
@@ -1297,6 +1334,9 @@ class CareRepository extends ChangeNotifier {
     await RevenueCatService.identifyMember(billingUserId);
     await PushService.registerIfConnected(_api);
     await _flushOutbox(silent: true);
+    // Photos picked while solo (or on the old household) go up now.
+    await syncPetPhotos();
+    await refreshPhotoCache();
   }
 
   Future<void> _flushOutbox({bool silent = false}) async {
@@ -1320,7 +1360,7 @@ class CareRepository extends ChangeNotifier {
     } on HouseholdException catch (error) {
       AppLog.event('sync.batch.failed', {'kind': error.kind.name});
       if (error.kind == HouseholdErrorKind.unauthorized) {
-        await _dropSession('batch_unauthorized');
+        await _dropSession('batch_unauthorized', error);
         return;
       }
       if (!silent) {
@@ -1364,7 +1404,7 @@ class CareRepository extends ChangeNotifier {
         lastError = error.message;
         AppLog.event('$event.failed', {...fields, 'kind': error.kind.name});
         if (error.kind == HouseholdErrorKind.unauthorized) {
-          await _dropSession('write_unauthorized');
+          await _dropSession('write_unauthorized', error);
         }
         notifyListeners();
         return false;
@@ -1381,14 +1421,31 @@ class CareRepository extends ChangeNotifier {
   /// The server no longer knows this phone's household link (member removed,
   /// owner signed out elsewhere). Keep every pet and dose on the phone so
   /// logging still works, and let the person join again with a code.
-  Future<void> _dropSession(String reason) async {
+  ///
+  /// There is no "remove member" in the API, so for a caregiver or sitter a
+  /// 401 means the owner deleted the household (the server answers "This
+  /// household no longer exists." or, once the members are gone, "Sign in
+  /// again…"). For the owner it means the token moved to another phone.
+  Future<void> _dropSession(String reason, [HouseholdException? error]) async {
     if (!isConnected) return;
+    final deletedByOwner =
+        (error?.message.contains('no longer exists') ?? false) ||
+        you.role != MemberRole.owner;
     _api?.token = null;
     await _syncEngine.outbox.clear();
-    syncError = 'This phone is no longer in the shared household. Your data is still here — join again with an invite code.';
+    await _keepPhotosAfterHouseholdGone();
+    syncError = deletedByOwner
+        ? householdDeletedMessage
+        : 'This phone is no longer in the shared household. Your data is still here — join again with an invite code.';
     AppLog.event('household.session_expired', {'reason': reason});
+    if (deletedByOwner) {
+      AppLog.event('household.deleted_by_owner', {'reason': reason});
+    }
     _changed();
   }
+
+  static const householdDeletedMessage =
+      'This household was deleted by its owner. Your pets and doses are still on this phone.';
 
   static SyncBatchOp _op(String type, Map<String, Object?> payload) =>
       SyncBatchOp(id: newId('op'), type: type, payload: payload);
@@ -1811,7 +1868,16 @@ class CareRepository extends ChangeNotifier {
       (api) async {
         final saved = await api.updatePet(updated);
         final index = _pets.indexWhere((pet) => pet.id == petId);
-        if (index >= 0) _pets[index] = saved;
+        // The pet answer has no local photo state; keep this phone's.
+        if (index >= 0) {
+          _pets[index] = saved.withPhoto(
+            photoKey: _pets[index].photoKey,
+            photoUrl: _pets[index].photoUrl,
+            photoVersion: _pets[index].photoVersion,
+            photoSync: _pets[index].photoSync,
+            photoPath: _pets[index].photoPath,
+          );
+        }
       },
       () {
         final index = _pets.indexWhere((pet) => pet.id == petId);
@@ -1888,7 +1954,7 @@ class CareRepository extends ChangeNotifier {
       // Retried on the next launch / resume via [syncBillingFromStore].
       AppLog.event('billing.share_pro.failed', {'kind': error.kind.name});
       if (error.kind == HouseholdErrorKind.unauthorized) {
-        await _dropSession('share_pro_unauthorized');
+        await _dropSession('share_pro_unauthorized', error);
       }
     }
   }
@@ -2105,6 +2171,14 @@ class CareRepository extends ChangeNotifier {
     _medications.clear();
     _logs.clear();
     _changed();
+    final photo = model.photoBytes;
+    if (photo != null) {
+      // Picked before the pet existed; saved now that it has an id.
+      AppLog.unawaitedLogged(
+        setPetPhoto(_pets.last.id, photo),
+        'pet.photo_save_failed',
+      );
+    }
     AppLog.event('household.created_from_onboarding', {
       'conditions': model.conditions.length,
       'caregivers': model.caregivers.length,
@@ -2172,6 +2246,7 @@ class CareRepository extends ChangeNotifier {
     _lastSyncedAt = null;
     _sitterLink = null;
     _archivedMedications.clear();
+    await _clearPhotos();
     AppLog.event('household.reset');
     notifyListeners();
   }

@@ -50,6 +50,9 @@ dependencies:
   pdf: ^3.11.3
   purchases_ui_flutter: ^10.7.0
   flutter_secure_storage: ^11.2.0
+  # Pet photos: pure-Dart resize/JPEG (no native plugin) + documents folder.
+  image: ^4.10.1
+  path_provider: ^2.1.6
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -78,6 +81,7 @@ flutter:
     - assets/marks/
     - assets/art/
     - assets/lottie/
+    - assets/fonts/pdf/
   fonts:
     - family: Geist
       fonts:
