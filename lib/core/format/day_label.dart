@@ -1,4 +1,4 @@
-/// "Good morning" from the phone's clock.
+/// "Good morning" from the phone’s clock.
 String greetingLabel([DateTime? date]) {
   final hour = (date ?? DateTime.now()).hour;
   if (hour < 12) return 'Good morning';
@@ -6,7 +6,7 @@ String greetingLabel([DateTime? date]) {
   return 'Good evening';
 }
 
-/// "Friday, October 2" from the phone's clock.
+/// "Friday, October 2" from the phone’s clock.
 String dayLabel([DateTime? date]) {
   final day = date ?? DateTime.now();
   const weekdays = [
@@ -35,7 +35,7 @@ String dayLabel([DateTime? date]) {
   return '${weekdays[day.weekday - 1]}, ${months[day.month - 1]} ${day.day}';
 }
 
-/// "7:58" from the phone's clock.
+/// "7:58" from the phone’s clock.
 String clockLabel([DateTime? date]) {
   final day = date ?? DateTime.now();
   final hour = day.hour % 12 == 0 ? 12 : day.hour % 12;

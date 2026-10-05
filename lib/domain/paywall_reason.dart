@@ -7,7 +7,7 @@ enum PaywallReason {
   milestone,
   settings,
 
-  /// A free user's medicine is running low (refill alerts are Pro).
+  /// A free user’s medicine is running low (refill alerts are Pro).
   refill,
 
   /// A free solo user marked a dose "not sure if given".
@@ -29,7 +29,7 @@ enum PaywallReason {
   /// The recurring idle upgrade prompt on Today.
   weekly,
 
-  /// The daily idle upgrade prompt in a free user's first week.
+  /// The daily idle upgrade prompt in a free user’s first week.
   firstWeek,
 }
 
@@ -130,5 +130,4 @@ extension PaywallReasonQuery on PaywallReason {
       'Two people, one pill, no record: that’s how double doses happen. Pro puts everyone on one list.',
     ),
   };
-
 }

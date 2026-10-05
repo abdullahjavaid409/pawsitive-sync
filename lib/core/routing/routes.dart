@@ -11,7 +11,7 @@ abstract final class AppRoutes {
 
   /// [reason] picks the copy and RevenueCat placement; [from] names the
   /// button that led here. Both land on `billing.paywall.opened`, so the
-  /// gate doesn't log a line of its own.
+  /// gate doesn’t log a line of its own.
   static String paywallWith({String? reason, String? from}) {
     final query = {
       if (reason != null && reason.isNotEmpty) 'reason': reason,
@@ -21,6 +21,7 @@ abstract final class AppRoutes {
         ? paywall
         : Uri(path: paywall, queryParameters: query).toString();
   }
+
   static const today = '/today';
   static const pets = '/pets';
   static const household = '/household';

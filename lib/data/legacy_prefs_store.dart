@@ -18,7 +18,7 @@ import 'package:sqflite/sqflite.dart';
 /// - [migrateInto] moves them into [LocalDatabase] once, on the first launch
 ///   after the update.
 /// - The read/write helpers keep the app working on the old data when the
-///   database can't be used this run (migration failed, disk full). The
+///   database can’t be used this run (migration failed, disk full). The
 ///   next launch retries the migration, so nothing written meanwhile is lost.
 abstract final class LegacyPrefsStore {
   static const householdKey = 'household_v2';
@@ -26,14 +26,14 @@ abstract final class LegacyPrefsStore {
   static const outboxKey = 'sync_outbox_v1';
 
   /// Where the fallback saves when the data already lives in SQLite but the
-  /// database can't be opened this run. Kept apart from the old keys so it
+  /// database can’t be opened this run. Kept apart from the old keys so it
   /// is merged back (never re-imported over newer rows) on the next launch
   /// that opens the database.
   static const recoveryHouseholdKey = 'household_recovery_v1';
   static const recoveryEventsKey = 'care_events_recovery_v1';
   static const recoveryOutboxKey = 'sync_outbox_recovery_v1';
 
-  /// Set once the data lives in SQLite. If the database later can't be
+  /// Set once the data lives in SQLite. If the database later can’t be
   /// opened, the fallback writes the recovery keys instead of the old ones
   /// (old keys would be thrown away as migration leftovers).
   static const migratedFlagKey = 'store_sqlite_v1';
@@ -157,10 +157,10 @@ abstract final class LegacyPrefsStore {
   }
 
   /// Writes the parsed blobs as rows (one batch, inside [txn]) and returns
-  /// the distinct ids written per table, for the caller's check.
+  /// the distinct ids written per table, for the caller’s check.
   ///
   /// [recovering]: rows saved while the database was unreachable go on top
-  /// of what is already there — nothing is deleted, the household's own
+  /// of what is already there — nothing is deleted, the household’s own
   /// fields (meta) are only filled in if missing, a queued op already in
   /// the outbox is kept, and recovered logs sort above older ones that day.
   static Future<Map<String, Set<String>>> _writeRows(
@@ -254,7 +254,7 @@ abstract final class LegacyPrefsStore {
   }
 
   /// Merges changes saved in the recovery keys (a run where the database
-  /// couldn't be opened after the move) back into [db], then removes them.
+  /// couldn’t be opened after the move) back into [db], then removes them.
   /// On failure they stay and the next launch tries again.
   static Future<void> _recover(Database db, SharedPreferences prefs) async {
     final rawHousehold = prefs.getString(recoveryHouseholdKey);
@@ -372,7 +372,7 @@ abstract final class LegacyPrefsStore {
     }
   }
 
-  /// `meta` rows for the household fields that aren't lists.
+  /// `meta` rows for the household fields that aren’t lists.
   static Map<String, String> metaRows(StoredHousehold house) => {
     'saved': '1',
     'household_id': house.householdId,
@@ -414,7 +414,7 @@ abstract final class LegacyPrefsStore {
   }
 
   // ---------------------------------------------------------------------------
-  // Fallback for a run where the database can't be used. Same format and
+  // Fallback for a run where the database can’t be used. Same format and
   // behaviour as before the move to SQLite.
 
   /// The keys the fallback reads and writes this run.
@@ -456,7 +456,7 @@ abstract final class LegacyPrefsStore {
           for (final item in house.archivedMedications)
             {...item.toJson(), 'archivedAt': ?item.archivedAt},
         ],
-        // The old format's cap: one string has to fit in preferences.
+        // The old format’s cap: one string has to fit in preferences.
         'logs': [for (final log in house.logs.take(3000)) log.toJson()],
       }),
     );

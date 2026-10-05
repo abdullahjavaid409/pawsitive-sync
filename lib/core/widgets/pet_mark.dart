@@ -55,8 +55,8 @@ class PetMark extends StatelessWidget {
   }
 }
 
-/// A pet's photo in a circle, or its drawn [PetMark] when there is none (or
-/// the file can't be read). Decoded at display size, so a 512 px photo costs
+/// A pet’s photo in a circle, or its drawn [PetMark] when there is none (or
+/// the file can’t be read). Decoded at display size, so a 512 px photo costs
 /// only a few KB of memory per avatar.
 class PetAvatar extends StatelessWidget {
   const PetAvatar({

@@ -115,7 +115,7 @@ Future<PetPhotoChoice?> _pick(
         'kind': 'decode',
         'bytes': raw.length,
       });
-      tell("That photo couldn't be used. Try another one.");
+      tell("That photo couldn’t be used. Try another one.");
       return null;
     }
     // Logged once saved: pet.photo_saved_local carries the source.
@@ -144,7 +144,7 @@ Future<PetPhotoChoice?> _pick(
       'source': source,
       'kind': 'read',
     });
-    tell("That photo couldn't be used. Try another one.");
+    tell("That photo couldn’t be used. Try another one.");
     return null;
   }
 }

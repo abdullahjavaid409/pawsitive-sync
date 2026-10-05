@@ -274,7 +274,7 @@ async function migrateLocked(pool) {
   // (rollback) simply never reads it.
   await pool.query(`
     ALTER TABLE medications ADD COLUMN IF NOT EXISTS times jsonb;
-    -- Saved while Free but over Free's limits (an old or modified app, or Pro
+    -- Saved while Free but over Free’s limits (an old or modified app, or Pro
     -- that ended before an offline add synced). Never rejected: the medicine
     -- and its doses stay, apps pause its reminders until Pro.
     ALTER TABLE medications ADD COLUMN IF NOT EXISTS needs_pro boolean NOT NULL DEFAULT false;
@@ -387,7 +387,7 @@ function oneOf(value, allowed, field, fallback) {
 
 function day(value, field) {
   if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    throw new InputError("That date doesn't look right. Pick it again.", `${field} must be YYYY-MM-DD`);
+    throw new InputError("That date doesn’t look right. Pick it again.", `${field} must be YYYY-MM-DD`);
   }
   return value;
 }
@@ -468,7 +468,7 @@ function readTimes(value, chosenParts) {
   return Object.keys(result).length === 0 ? null : result;
 }
 
-const badTimeMessage = "That reminder time doesn't look right. Pick it again.";
+const badTimeMessage = "That reminder time doesn’t look right. Pick it again.";
 
 function readMedication(input) {
   const chosen = [...new Set(list(input?.parts, 3))].filter((part) => parts.includes(part));
@@ -719,7 +719,7 @@ const assignableRoles = ["caregiver", "sitter"];
 export async function setMemberRole(pool, { householdId, memberId }, targetId, body) {
   const target = id(targetId, "member.id");
   const role = oneOf(body?.role, assignableRoles, "role");
-  if (target === memberId) throw new InputError("You're the owner. Your role can't change.", "owner self-demotion");
+  if (target === memberId) throw new InputError("You’re the owner. Your role can’t change.", "owner self-demotion");
   const current = await pool.query(
     `SELECT m.role, EXISTS (SELECT 1 FROM sitter_links s WHERE s.household_id = m.household_id AND s.member_id = m.id) AS link
      FROM members m WHERE m.household_id = $1 AND m.id = $2`,
@@ -727,8 +727,8 @@ export async function setMemberRole(pool, { householdId, memberId }, targetId, b
   );
   const row = current.rows[0];
   if (!row) return null;
-  if (row.role === "owner") throw new InputError("The owner's role can't change.", "target is owner");
-  if (row.link) throw new InputError("Browser sitter links can't change role. Revoke the link instead.", "sitter link member");
+  if (row.role === "owner") throw new InputError("The owner’s role can’t change.", "target is owner");
+  if (row.link) throw new InputError("Browser sitter links can’t change role. Revoke the link instead.", "sitter link member");
   const updated = await pool.query(
     "UPDATE members SET role = $3 WHERE household_id = $1 AND id = $2 AND role <> 'owner' RETURNING *",
     [householdId, target, role],
@@ -755,7 +755,7 @@ export async function removeMember(pool, { householdId, memberId }, targetId) {
       ])
     ).rows[0];
     if (!row) return null;
-    if (row.role === "owner") throw new InputError("The owner can't be removed.", "target is owner");
+    if (row.role === "owner") throw new InputError("The owner can’t be removed.", "target is owner");
     if (row.token_hash) {
       await client.query(
         `INSERT INTO member_removals (token_hash, household_id) VALUES ($1, $2)
@@ -1740,11 +1740,11 @@ export async function sitterLogDose(pool, sitterAuth, body) {
 /** Most doses carried in one push's data (APNs payloads max out at 4 KB). */
 const pushDoseCap = 20;
 
-/** "Sam gave Miso's Insulin · 8:02 AM" — the visible line for one dose. */
+/** "Sam gave Miso’s Insulin · 8:02 AM" — the visible line for one dose. */
 export function doseNotificationText({ who, petName, medName, outcome, timeLabel }) {
-  const what = petName ? `${petName}'s ${medName}` : medName;
+  const what = petName ? `${petName}’s ${medName}` : medName;
   const verb =
-    outcome === "given" ? `${who} gave ${what}` : outcome === "skipped" ? `${who} skipped ${what}` : `${who} isn't sure ${what} was given`;
+    outcome === "given" ? `${who} gave ${what}` : outcome === "skipped" ? `${who} skipped ${what}` : `${who} isn’t sure ${what} was given`;
   return timeLabel ? `${verb} · ${timeLabel}` : verb;
 }
 
@@ -2104,7 +2104,7 @@ export async function handleRevenueCatWebhook(pool, body, logFn) {
 
 /** Photos are optional infrastructure: without the bucket the app keeps photos on the phone. */
 function requirePhotos() {
-  if (!photosConfigured()) throw new InputError("Photo sharing isn't available right now.", "photos bucket not configured");
+  if (!photosConfigured()) throw new InputError("Photo sharing isn’t available right now.", "photos bucket not configured");
 }
 
 async function petExists(pool, householdId, petId) {
@@ -2133,7 +2133,7 @@ export async function attachPetPhoto(pool, { householdId }, petId, body, logFn =
   const photoKey = body?.photoKey;
   if (!keyBelongsTo(photoKey, householdId, petId)) throw new InputError(appProblem, "photoKey not for this pet");
   if (!(await photoExists(photoKey))) {
-    throw new InputError("The photo didn't finish uploading. Try again.", "photo object missing");
+    throw new InputError("The photo didn’t finish uploading. Try again.", "photo object missing");
   }
   await pool.query("UPDATE pets SET photo_key = $3 WHERE household_id = $1 AND id = $2", [householdId, petId, photoKey]);
   if (pet.photo_key && pet.photo_key !== photoKey) await deletePhoto(pet.photo_key, logFn);

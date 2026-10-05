@@ -3,7 +3,7 @@ import 'package:pawsitive_sync/data/household_api.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 
 /// Test-only household: two pets (Miso, Juniper), two caregivers (Sara,
-/// Dan), four medicines and this morning's doses already logged. Free tier.
+/// Dan), four medicines and this morning’s doses already logged. Free tier.
 /// Lives in `test/` so no made-up data ever ships in the app.
 CareRepository sampleCare({HouseholdApi? api, DateTime Function()? clock}) {
   final care = CareRepository(

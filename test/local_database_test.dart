@@ -17,7 +17,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'test_log_helpers.dart';
 
-/// Blobs written by the pre-SQLite build's own stores (household_store,
+/// Blobs written by the pre-SQLite build’s own stores (household_store,
 /// care_events_store, sync_outbox at d92aa9c), so the upgrade is tested
 /// against the exact bytes phones have saved today.
 final Map<String, dynamic> _fixture = jsonDecode(
@@ -86,7 +86,7 @@ void main() {
   });
 
   group('Upgrade from the preferences blobs', () {
-    test('moves today\'s saved format into SQLite and removes it', () async {
+    test('moves today’s saved format into SQLite and removes it', () async {
       SharedPreferences.setMockInitialValues(_oldPrefs());
       final oldJson = jsonDecode(
         _fixture['household_v2'] as String,
@@ -438,7 +438,7 @@ void main() {
       SharedPreferences.setMockInitialValues({
         LegacyPrefsStore.migratedFlagKey: true,
       });
-      // The file is there but can't be opened this run (a directory takes
+      // The file is there but can’t be opened this run (a directory takes
       // its path); retries are quick in tests.
       LocalDatabase.openRetryDelays = const [Duration.zero];
       addTearDown(
@@ -497,12 +497,12 @@ void main() {
       );
       final back = await HouseholdStore().read();
       expect(back!.logs.map((l) => l.id), ['late-sync', 'b', 'a', 'y']);
-      // Only today's new log was written (others kept their place).
+      // Only today’s new log was written (others kept their place).
       expect(store.lastWriteRows, 2, reason: 'late-sync + y');
     });
   });
 
-  test('launch can\'t read the saved household: nothing is saved over it '
+  test('launch can’t read the saved household: nothing is saved over it '
       'this run, logging still works', () async {
     final store = _UnreadableStore();
     final care = CareRepository(store: store);

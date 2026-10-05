@@ -124,7 +124,7 @@ test("a lagging (or forged) lookup never blocks the real purchase webhook", asyn
   assert.equal(await isPro(house), true);
 });
 
-test("a lookup can't revoke Pro set in the last 10 minutes; an older one it can", async () => {
+test("a lookup can’t revoke Pro set in the last 10 minutes; an older one it can", async () => {
   const house = await household();
   await webhook(house, "INITIAL_PURCHASE", { signed: true, at: Date.now() });
   assert.equal(await isPro(house), true);

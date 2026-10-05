@@ -40,23 +40,32 @@ void main() {
     final api = fakeHouseholdApi(adapter, token: 'house-token');
     await PushService.registerIfConnected(api);
     await Future<void>.delayed(const Duration(milliseconds: 200));
-    final calls = adapter.requests.where((r) => r.path == '/v1/devices/register');
+    final calls = adapter.requests.where(
+      (r) => r.path == '/v1/devices/register',
+    );
     expect(calls, hasLength(1));
     expect(ios.tokenCalls, 1, reason: 'the OS is asked once, not in a loop');
   });
 
-  test('a burst of triggers registers once (no race past "unchanged")', () async {
-    PushService.platform = FakePushPlatform();
-    final adapter = FakeHouseholdAdapter([
-      for (var i = 0; i < 20; i++) (200, {'ok': true, 'delivery': false}),
-    ]);
-    final api = fakeHouseholdApi(adapter, token: 'house-token');
-    await Future.wait([
-      for (var i = 0; i < 10; i++) PushService.registerIfConnected(api, force: false),
-    ]);
-    expect(adapter.requests.where((r) => r.path == '/v1/devices/register'), hasLength(1));
-    expectLogged('push.register_skipped', fields: {'reason': 'unchanged'});
-  });
+  test(
+    'a burst of triggers registers once (no race past "unchanged")',
+    () async {
+      PushService.platform = FakePushPlatform();
+      final adapter = FakeHouseholdAdapter([
+        for (var i = 0; i < 20; i++) (200, {'ok': true, 'delivery': false}),
+      ]);
+      final api = fakeHouseholdApi(adapter, token: 'house-token');
+      await Future.wait([
+        for (var i = 0; i < 10; i++)
+          PushService.registerIfConnected(api, force: false),
+      ]);
+      expect(
+        adapter.requests.where((r) => r.path == '/v1/devices/register'),
+        hasLength(1),
+      );
+      expectLogged('push.register_skipped', fields: {'reason': 'unchanged'});
+    },
+  );
 
   test('a genuinely new token (APNs rotated it) still registers', () async {
     final ios = FakePushPlatform();
@@ -69,6 +78,9 @@ void main() {
     await PushService.registerIfConnected(api);
     ios.deliverToken('ab' * 32);
     await Future<void>.delayed(const Duration(milliseconds: 50));
-    expect(adapter.requests.where((r) => r.path == '/v1/devices/register'), hasLength(2));
+    expect(
+      adapter.requests.where((r) => r.path == '/v1/devices/register'),
+      hasLength(2),
+    );
   });
 }

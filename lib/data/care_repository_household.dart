@@ -12,7 +12,7 @@ extension CareHousehold on CareRepository {
   List<SitterLinkInfo> get sitterLinks => UnmodifiableListView(_sitterLinks);
 
   static const _unconfirmed =
-      "Couldn't confirm that — your connection is slow. Check again in a moment.";
+      "Couldn’t confirm that — your connection is slow. Check again in a moment.";
 
   /// Runs an owner-only call; returns a message for the person, or null.
   Future<String?> _ownerCall(
@@ -62,7 +62,7 @@ extension CareHousehold on CareRepository {
         _changed();
       }).whenComplete(() => _rotating = null);
 
-  /// Owner: refreshes [sitterLinks] from the server. Drops this phone's
+  /// Owner: refreshes [sitterLinks] from the server. Drops this phone’s
   /// cached link when it no longer appears (revoked elsewhere or expired).
   Future<String?> loadSitterLinks() =>
       _sitterLinksRunning ??= _ownerCall('sitter.links_load', (api) async {
@@ -106,7 +106,7 @@ extension CareHousehold on CareRepository {
   /// Owner: makes [memberId] a caregiver or sitter.
   Future<String?> changeMemberRole(String memberId, MemberRole role) {
     if (role == MemberRole.owner) {
-      return Future.value("There's always exactly one owner.");
+      return Future.value("There’s always exactly one owner.");
     }
     return _memberActions[memberId] ??=
         _ownerCall('member.role_change', (api) async {

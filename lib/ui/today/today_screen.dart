@@ -74,7 +74,9 @@ class _TodayScreenState extends State<TodayScreen> {
       if (trigger == null || !mounted || !_idle()) return;
       // billing.paywall.opened reason=<trigger> from=idle_prompt.
       unawaited(
-        context.push(AppRoutes.paywallWith(reason: trigger, from: 'idle_prompt')),
+        context.push(
+          AppRoutes.paywallWith(reason: trigger, from: 'idle_prompt'),
+        ),
       );
     });
   }
@@ -88,13 +90,13 @@ class _TodayScreenState extends State<TodayScreen> {
     if (!TickerMode.valuesOf(context).enabled) return false;
     if (Navigator.of(context, rootNavigator: true).canPop()) return false;
     if (DoseReminders.pendingOpen.value != null) return false;
-    // "Not sure" doses wait for a check, not a dose: they don't block.
+    // "Not sure" doses wait for a check, not a dose: they don’t block.
     return !care.doses.any(
       (d) => d.status == DoseStatus.due && d.givenById == null,
     );
   }
 
-  /// A notification tap opens that dose's log sheet (or the "already
+  /// A notification tap opens that dose’s log sheet (or the "already
   /// given" guard); a message (e.g. "Logged …") shows as a snackbar.
   void _openFromNotification() {
     final open = DoseReminders.pendingOpen.value;
@@ -737,7 +739,7 @@ class _PartLabel extends StatelessWidget {
   final DayPart part;
   final List<Dose> doses;
 
-  /// The section's time: one time when every dose shares it, else the
+  /// The section’s time: one time when every dose shares it, else the
   /// earliest–latest range (custom times can differ per medicine).
   String get _timeLabel {
     final minutes = {
@@ -1003,7 +1005,7 @@ class _LowSupply extends StatelessWidget {
   );
 }
 
-/// A medicine saved over Free's limits (see [Medication.needsPro]): its
+/// A medicine saved over Free’s limits (see [Medication.needsPro]): its
 /// doses stay on Today and log as usual; only its reminders wait for Pro.
 class _RemindersNeedPro extends StatelessWidget {
   const _RemindersNeedPro({required this.medications, required this.onTap});
@@ -1463,7 +1465,7 @@ class _RemindersBannerState extends State<_RemindersBanner> {
   }
 }
 
-/// Reddit's #1 pet-med pain: "Did someone already give it?"
+/// Reddit’s #1 pet-med pain: "Did someone already give it?"
 class _DoubleDoseAlert extends StatelessWidget {
   const _DoubleDoseAlert({required this.onCheckHousehold});
 

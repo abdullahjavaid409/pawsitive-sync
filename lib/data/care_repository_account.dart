@@ -58,9 +58,9 @@ extension CareAccount on CareRepository {
           lastError = switch (error) {
             // Sent but unanswered: the server may or may not have deleted.
             // Wiping now could orphan a live account; a retry is safe.
-            HouseholdException(timedOut: true) => "Couldn't confirm the delete — check your connection and try again.",
-            HouseholdException(kind: HouseholdErrorKind.offline) => "Can't reach the server, so nothing was deleted. Connect to the internet and try again.",
-            _ => "Couldn't delete your account right now. Nothing was deleted. Try again in a moment.",
+            HouseholdException(timedOut: true) => "Couldn’t confirm the delete — check your connection and try again.",
+            HouseholdException(kind: HouseholdErrorKind.offline) => "Can’t reach the server, so nothing was deleted. Connect to the internet and try again.",
+            _ => "Couldn’t delete your account right now. Nothing was deleted. Try again in a moment.",
           };
           _notify();
           return lastError;

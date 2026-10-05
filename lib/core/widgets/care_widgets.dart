@@ -97,13 +97,7 @@ class CarePageHeader extends StatelessWidget {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(
-              children: [
-                ?leading,
-                const Spacer(),
-                ?action,
-              ],
-            ),
+            Row(children: [?leading, const Spacer(), ?action]),
             SizedBox(height: spacing.sm),
             titleBlock,
           ],
@@ -113,10 +107,7 @@ class CarePageHeader extends StatelessWidget {
       return Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (leading != null) ...[
-            leading!,
-            SizedBox(width: spacing.xs),
-          ],
+          if (leading != null) ...[leading!, SizedBox(width: spacing.xs)],
           Expanded(child: titleBlock),
           if (action != null) ...[SizedBox(width: spacing.md), action!],
         ],
@@ -189,9 +180,7 @@ class CarePlanBadge extends StatelessWidget {
     final tokens = context.paws;
     final scheme = Theme.of(context).colorScheme;
     final label = isPro ? 'Pro' : 'Free';
-    final semanticsLabel = isPro
-        ? 'Pro plan'
-        : 'Free plan. See Pro features';
+    final semanticsLabel = isPro ? 'Pro plan' : 'Free plan. See Pro features';
     final content = Padding(
       padding: EdgeInsets.symmetric(
         horizontal: tokens.spacing.sm + 2,
@@ -208,9 +197,8 @@ class CarePlanBadge extends StatelessWidget {
           SizedBox(width: tokens.spacing.xs + 1),
           Text(
             label,
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: tokens.brandDark,
-            ),
+            style: Theme.of(context).textTheme.labelSmall
+                ?.copyWith(color: tokens.brandDark),
           ),
           if (!isPro && onUpgrade != null) ...[
             SizedBox(width: tokens.spacing.xs),
@@ -365,9 +353,7 @@ class _PetChoice extends StatelessWidget {
       selected: selected,
       button: true,
       child: Material(
-        color: selected
-            ? scheme.primaryContainer
-            : tokens.surfaces.card,
+        color: selected ? scheme.primaryContainer : tokens.surfaces.card,
         shape: RoundedRectangleBorder(
           borderRadius: tokens.radii.chipShape,
           side: BorderSide(
@@ -396,14 +382,14 @@ class _PetChoice extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                 ],
-                  Text(
-                    label,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      color: selected
-                          ? tokens.states.selectedContent
-                          : scheme.onSurface,
-                    ),
+                Text(
+                  label,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: selected
+                        ? tokens.states.selectedContent
+                        : scheme.onSurface,
                   ),
+                ),
               ],
             ),
           ),

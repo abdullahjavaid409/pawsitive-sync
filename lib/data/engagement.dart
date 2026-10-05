@@ -7,7 +7,7 @@ import 'package:pawsitive_sync/data/reminders/reminder_settings.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// "Sam gave Miso's Insulin — thanks, Sam" (in-app, from the synced log).
+/// "Sam gave Miso’s Insulin — thanks, Sam" (in-app, from the synced log).
 class ThankYou {
   const ThankYou({required this.logId, required this.text});
   final String logId;
@@ -59,14 +59,14 @@ abstract final class Engagement {
           ? 'a dose'
           : petName == null
           ? med.name
-          : "$petName's ${med.name}";
+          : "$petName’s ${med.name}";
       return ThankYou(logId: log.id, text: '$who gave $what — thanks, $who');
     }
     return null;
   }
 
   /// Courses whose last day is today (once every dose of it is logged) or
-  /// up to [courseCardDays] ago. Counts only what's in local history.
+  /// up to [courseCardDays] ago. Counts only what’s in local history.
   static List<CourseDone> courses({
     required List<Medication> medications,
     required List<DoseRecord> logs,
@@ -94,12 +94,18 @@ abstract final class Engagement {
       final ago = today.difference(end).inDays;
       if (ago < 0 || ago >= courseCardDays) continue;
       if (med.endDay == todayKey &&
-          !med.parts.every((p) => resolved.contains('${med.id}.${p.name}|$todayKey'))) {
+          !med.parts.every(
+            (p) => resolved.contains('${med.id}.${p.name}|$todayKey'),
+          )) {
         continue; // last day still has doses to give
       }
       var expected = 0;
       var got = 0;
-      for (var d = start; !d.isAfter(end); d = DateTime(d.year, d.month, d.day + 1)) {
+      for (
+        var d = start;
+        !d.isAfter(end);
+        d = DateTime(d.year, d.month, d.day + 1)
+      ) {
         final day = dayKey(d);
         for (final part in med.parts) {
           expected++;
@@ -112,7 +118,9 @@ abstract final class Engagement {
       result.add(
         CourseDone(
           medicationId: med.id,
-          title: full ? '${med.name} course complete 🎉' : '${med.name} course finished',
+          title: full
+              ? '${med.name} course complete 🎉'
+              : '${med.name} course finished',
           body: full
               ? '$pet got every dose — $got of $expected. Nice work${shared ? ', everyone' : ''}.'
               : '$pet got $got of $expected doses.',
@@ -139,7 +147,11 @@ abstract final class Engagement {
     if (start == null) return const {};
     final result = <String>{};
     final today = DateTime(now.year, now.month, now.day);
-    for (var d = start; !d.isAfter(today); d = DateTime(d.year, d.month, d.day + 1)) {
+    for (
+      var d = start;
+      !d.isAfter(today);
+      d = DateTime(d.year, d.month, d.day + 1)
+    ) {
       final day = dayKey(d);
       var expected = 0;
       var complete = true;
@@ -206,8 +218,12 @@ class EngagementState extends ChangeNotifier {
     settings = await ReminderSettingsStore.read();
     try {
       final prefs = await SharedPreferences.getInstance();
-      _dismissedThanks.addAll(prefs.getStringList(_dismissedThanksKey) ?? const []);
-      _dismissedCourses.addAll(prefs.getStringList(_dismissedCoursesKey) ?? const []);
+      _dismissedThanks.addAll(
+        prefs.getStringList(_dismissedThanksKey) ?? const [],
+      );
+      _dismissedCourses.addAll(
+        prefs.getStringList(_dismissedCoursesKey) ?? const [],
+      );
       _careDays.addAll(prefs.getStringList(_careDaysKey) ?? const []);
       _milestoneSeen = prefs.getInt(_milestoneKey) ?? 0;
       final until = prefs.getInt(_nudgeKey);
@@ -228,7 +244,10 @@ class EngagementState extends ChangeNotifier {
       dayKey(now),
       care.logs.length,
       care.logs.isEmpty ? '' : care.logs.first.id,
-      Object.hashAll([for (final m in care.medications) Object.hash(m.id, m.startDay, m.endDay)]),
+      Object.hashAll([
+        for (final m in care.medications)
+          Object.hash(m.id, m.startDay, m.endDay),
+      ]),
     );
     if (input == _lastInput) return;
     _lastInput = input;
@@ -299,7 +318,9 @@ class EngagementState extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt(_milestoneKey, days);
     } on Object catch (error, stack) {
-      AppLog.error('store.engagement_failed', error, stack, {'op': 'milestone'});
+      AppLog.error('store.engagement_failed', error, stack, {
+        'op': 'milestone',
+      });
     }
   }
 

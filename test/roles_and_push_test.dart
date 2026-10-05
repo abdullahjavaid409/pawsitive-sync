@@ -371,7 +371,7 @@ void main() {
       () async {
         final (care, _) = await connected(more: [timeout]);
         final error = await care.rotateInvite();
-        expect(error, contains("Couldn't confirm"));
+        expect(error, contains("Couldn’t confirm"));
         expect(care.inviteCode, 'ABC234');
       },
     );
@@ -477,7 +477,7 @@ void main() {
         );
         expect(
           await care.changeMemberRole('dan', MemberRole.owner),
-          "There's always exactly one owner.",
+          "There’s always exactly one owner.",
         );
       },
     );
@@ -658,26 +658,29 @@ void main() {
       ],
     };
 
-    test('a dose someone else gave cancels exactly that reminder, once', () async {
-      await PushService.handleRemoteMessage(payload('morning'));
-      // Reminder, follow-up and snooze of exactly that dose-day, by id.
-      expect(cancelled, [
-        for (final kind in [
-          ReminderKind.dose,
-          ReminderKind.followUp,
-          ReminderKind.snooze,
-        ])
-          ReminderIds.forDose(kind, 'insulin.morning', '2026-10-04'),
-      ]);
-      expect(refreshed.single.single.doseId, 'insulin.morning');
-      // The alert and the silent push both arrive: cancelling is idempotent.
-      await PushService.handleRemoteMessage(payload('morning'));
-      expect(cancelled.toSet(), hasLength(3));
-      expectLogged(
-        'reminders.cancelled_by_push',
-        fields: {'doseId': 'insulin.morning'},
-      );
-    });
+    test(
+      'a dose someone else gave cancels exactly that reminder, once',
+      () async {
+        await PushService.handleRemoteMessage(payload('morning'));
+        // Reminder, follow-up and snooze of exactly that dose-day, by id.
+        expect(cancelled, [
+          for (final kind in [
+            ReminderKind.dose,
+            ReminderKind.followUp,
+            ReminderKind.snooze,
+          ])
+            ReminderIds.forDose(kind, 'insulin.morning', '2026-10-04'),
+        ]);
+        expect(refreshed.single.single.doseId, 'insulin.morning');
+        // The alert and the silent push both arrive: cancelling is idempotent.
+        await PushService.handleRemoteMessage(payload('morning'));
+        expect(cancelled.toSet(), hasLength(3));
+        expectLogged(
+          'reminders.cancelled_by_push',
+          fields: {'doseId': 'insulin.morning'},
+        );
+      },
+    );
 
     test(
       'a different dose, day, or a "not sure" leaves this reminder alone',
@@ -695,7 +698,7 @@ void main() {
         await PushService.handleRemoteMessage(
           payload('morning', day: '2026-10-05'),
         );
-        // Only those doses' own reminders go; this morning's stays.
+        // Only those doses' own reminders go; this morning’s stays.
         expect(cancelled, hasLength(6));
         expect(cancelled, isNot(contains(mine)));
         expect(

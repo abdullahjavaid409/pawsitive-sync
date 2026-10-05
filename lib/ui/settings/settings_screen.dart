@@ -57,7 +57,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   /// Customer Center keeps cancel, refund and retention offers in-app;
-  /// Apple's subscriptions page is the fallback when billing is off.
+  /// Apple’s subscriptions page is the fallback when billing is off.
   Future<void> _manageSubscription() async {
     final shown = await RevenueCatService.presentCustomerCenter();
     if (!shown) await _open(Uri.parse(AppLinks.manageAppleSubscriptions));
@@ -152,14 +152,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     color: scheme.onSurface,
                   ),
                 ),
-                Expanded(
-                  child: Text(
-                    'Settings',
-                    textAlign: TextAlign.center,
-                    style: text.titleMedium,
-                  ),
-                ),
-                const SizedBox(width: 48),
+                // The page title below is the only "Settings" on screen.
+                const Spacer(),
               ],
             ),
             const SizedBox(height: 8),
@@ -346,7 +340,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 }
 
-/// Delete confirmation with the exact consequence for this person's role,
+/// Delete confirmation with the exact consequence for this person’s role,
 /// a busy state, a "slow connection" note after 5 s, and inline errors.
 class _DeleteAccountDialog extends StatefulWidget {
   const _DeleteAccountDialog({required this.care});
@@ -404,11 +398,11 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
     final (title, body) = switch (care.accountDeleteScope) {
       AccountDeleteScope.household => (
         'Delete your account and household?',
-        'This permanently deletes ${petNameList(care.pets)} and all medicines, doses and notes for everyone in this household. Other caregivers will lose access. This can\'t be undone.',
+        'This permanently deletes ${petNameList(care.pets)} and all medicines, doses and notes for everyone in this household. Other caregivers will lose access. This can’t be undone.',
       ),
       AccountDeleteScope.member => (
         'Delete your account?',
-        'You\'ll leave this household and your account is deleted. Doses you logged stay in the household\'s history.',
+        'You’ll leave this household and your account is deleted. Doses you logged stay in the household’s history.',
       ),
       AccountDeleteScope.local => (
         'Delete everything on this phone?',

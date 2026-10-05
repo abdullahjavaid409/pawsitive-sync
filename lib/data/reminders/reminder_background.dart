@@ -24,21 +24,20 @@ void reminderBackgroundDispatcher() {
     (task, input) => ReminderBackground.run(task: task),
     // Android stopped the job early (quota, Doze, constraints): next run or
     // app open re-plans; the safety-net notification is already pending.
-    onTaskStopped: (task, reason) async =>
-        AppLog.event('reminders.background_stopped', {
-          'task': task,
-          'reason': reason,
-        }),
+    onTaskStopped: (task, reason) async => AppLog.event(
+      'reminders.background_stopped',
+      {'task': task, 'reason': reason},
+    ),
   );
 }
 
-/// Keeps reminders going when the app isn't opened: the plan only covers
+/// Keeps reminders going when the app isn’t opened: the plan only covers
 /// [ReminderPlanner.horizonDays] days, so a periodic background run
-/// re-plans from the phone's own data. No network, no UI — it opens the
+/// re-plans from the phone’s own data. No network, no UI — it opens the
 /// local database, plans and diffs pending notifications, nothing else.
 ///
 /// Neither OS guarantees the run (iOS decides from usage; Android may defer
-/// in Doze or after a force-stop), so the planner's "keep reminders going"
+/// in Doze or after a force-stop), so the planner’s "keep reminders going"
 /// notification is the safety net.
 abstract final class ReminderBackground {
   /// Android: about daily is enough (the plan reaches 7 days ahead).
@@ -51,7 +50,7 @@ abstract final class ReminderBackground {
   static const budget = Duration(seconds: 25);
 
   /// Registers the periodic job (idempotent: an existing one is kept, so
-  /// launches don't reset its timer). Never throws.
+  /// launches don’t reset its timer). Never throws.
   static Future<void> register() async {
     if (kIsWeb || !(Platform.isAndroid || Platform.isIOS)) return;
     try {
@@ -101,14 +100,12 @@ abstract final class ReminderBackground {
       return true;
     }
     await DoseReminders.reschedule(care, reason: 'background');
-    AppLog.event('reminders.background_run', {
-      'ms': watch.elapsedMilliseconds,
-    });
+    AppLog.event('reminders.background_run', {'ms': watch.elapsedMilliseconds});
     return true;
   }
 
   /// The household from disk. The API object only carries the saved token
-  /// so copy matches the foreground ("we'll let the household know"); no
+  /// so copy matches the foreground ("we’ll let the household know"); no
   /// request is ever made from here.
   static Future<CareRepository> _load() async {
     final api = AppConfig.hasApi

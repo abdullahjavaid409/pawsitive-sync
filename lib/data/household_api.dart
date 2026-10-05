@@ -30,8 +30,8 @@ class HouseholdSnapshot {
   /// alone decides, as before.
   final DateTime? proUntil;
 
-  /// This member's role as the server sees it right now. Null from servers
-  /// older than v5 (then the member list's own entry is the answer).
+  /// This member’s role as the server sees it right now. Null from servers
+  /// older than v5 (then the member list’s own entry is the answer).
   final MemberRole? role;
 
   /// When [inviteCode] stops working. Only the owner gets a code and expiry.
@@ -111,7 +111,7 @@ class PhotoUploadTicket {
   final Map<String, String> headers;
 }
 
-/// This device's link to one household (stored privately on the phone).
+/// This device’s link to one household (stored privately on the phone).
 class HouseholdSession {
   const HouseholdSession({required this.token, required this.snapshot});
 
@@ -142,11 +142,11 @@ class HouseholdException implements Exception {
   final String message;
   final HouseholdErrorKind kind;
 
-  /// The server's machine-readable reason (`role_forbidden`, `pro_required`,
+  /// The server’s machine-readable reason (`role_forbidden`, `pro_required`,
   /// `invite_expired`, `member_removed`, `member_gone`). Null from older servers.
   final String? code;
 
-  /// 403 because this member's role can't do it (the role may have changed on
+  /// 403 because this member’s role can’t do it (the role may have changed on
   /// another phone) — not a Pro problem.
   bool get isRoleForbidden => code == 'role_forbidden';
 
@@ -243,8 +243,8 @@ class HouseholdApi {
     return _medication(_map(body['medication']));
   }
 
-  /// Changes a medicine's reminder times. Only `times` is sent: the server
-  /// changes nothing else, so this can't undo a partner's edits.
+  /// Changes a medicine’s reminder times. Only `times` is sent: the server
+  /// changes nothing else, so this can’t undo a partner’s edits.
   Future<Medication> updateMedicationTimes(
     String id,
     Map<DayPart, int> times,
@@ -335,7 +335,7 @@ class HouseholdApi {
     await _send('DELETE', '/v1/care-events/${Uri.encodeComponent(eventId)}');
   }
 
-  /// Registers this phone's push token. Returns whether the server can
+  /// Registers this phone’s push token. Returns whether the server can
   /// actually deliver to it (`delivery`; false from older servers).
   Future<bool> registerDevice({
     required String platform,
@@ -365,11 +365,12 @@ class HouseholdApi {
     return (inviteCode: code, expiresAt: _date(body['inviteExpiresAt']));
   }
 
-  /// Owner: the household's working sitter links.
+  /// Owner: the household’s working sitter links.
   Future<List<SitterLinkInfo>> listSitterLinks() async {
     final body = await _send('GET', '/v1/sitter-links');
     return [
-      for (final item in body['links'] is List ? body['links'] as List : const [])
+      for (final item
+          in body['links'] is List ? body['links'] as List : const [])
         if (item is Map<String, dynamic> && _nonEmpty(item['id']) != null)
           SitterLinkInfo(
             id: '${item['id']}',
@@ -404,9 +405,7 @@ class HouseholdApi {
   /// Creates a time-limited browser link for sitters (Pro households).
   /// [id] is empty from servers older than v5.
   Future<({String token, String url, DateTime expiresAt, String id})>
-  createSitterLink({
-    String? label,
-  }) async {
+  createSitterLink({String? label}) async {
     final body = await _send('POST', '/v1/sitter-links', {
       if (label != null && label.isNotEmpty) 'label': label,
     });
@@ -477,7 +476,7 @@ class HouseholdApi {
     await _send('DELETE', '/v1/pets/${Uri.encodeComponent(petId)}/photo');
   }
 
-  /// Deletes this member's account. Returns the server scope: `household`
+  /// Deletes this member’s account. Returns the server scope: `household`
   /// (owner: everything) or `member` (caregiver/sitter: only them).
   ///
   /// Longer wait than other calls: an owner delete removes every photo from
@@ -541,7 +540,7 @@ class HouseholdApi {
       case DioExceptionType.sendTimeout:
       case DioExceptionType.receiveTimeout:
         return const HouseholdException(
-          "Can't reach the household. Check your internet and try again.",
+          "Can’t reach the household. Check your internet and try again.",
           kind: HouseholdErrorKind.offline,
           timedOut: true,
         );
@@ -549,18 +548,18 @@ class HouseholdApi {
       case DioExceptionType.connectionError:
       case DioExceptionType.cancel:
         return const HouseholdException(
-          "Can't reach the household. Check your internet and try again.",
+          "Can’t reach the household. Check your internet and try again.",
           kind: HouseholdErrorKind.offline,
         );
       // No response at all (socket closed, DNS) reads as offline too.
       case DioExceptionType.unknown when status == null:
         return const HouseholdException(
-          "Can't reach the household. Check your internet and try again.",
+          "Can’t reach the household. Check your internet and try again.",
           kind: HouseholdErrorKind.offline,
         );
       case DioExceptionType.badCertificate:
         return const HouseholdException(
-          "Couldn't make a secure connection. Check your network and try again.",
+          "Couldn’t make a secure connection. Check your network and try again.",
           kind: HouseholdErrorKind.offline,
         );
       default:
@@ -748,7 +747,8 @@ Medication _medication(Map<String, dynamic> json) {
 Map<DayPart, int> _times(Map<String, dynamic> json, List<DayPart> parts) {
   final raw = json['times'];
   final parsed = DoseTimes.parse(raw);
-  final junk = raw != null &&
+  final junk =
+      raw != null &&
       (raw is! Map ||
           raw.entries.any(
             (e) =>

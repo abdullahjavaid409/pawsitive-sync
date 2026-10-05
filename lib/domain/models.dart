@@ -19,7 +19,7 @@ enum DoseOutcome { smooth, partial, vomited, lowAppetite }
 
 enum InviteRole { caregiver, sitter }
 
-/// What this phone still owes the server for a pet's photo (latest wins).
+/// What this phone still owes the server for a pet’s photo (latest wins).
 enum PhotoSync { none, upload, remove }
 
 class Member {
@@ -41,7 +41,7 @@ class Member {
   final String initials;
   final MemberRole role;
 
-  /// Their own subscription is (part of) the household's Pro. Server-only;
+  /// Their own subscription is (part of) the household’s Pro. Server-only;
   /// not saved on the phone, so false until the first sync after launch.
   final bool paysForPro;
   final AvatarTone avatarTone;
@@ -100,7 +100,7 @@ class Pet {
   final int onTimePercent;
   final int dailyMeds;
 
-  /// Bucket object key of the household's photo (server truth). Stable, so
+  /// Bucket object key of the household’s photo (server truth). Stable, so
   /// it doubles as the on-disk cache key for photos set by other members.
   final String? photoKey;
 
@@ -141,7 +141,7 @@ class Pet {
     'conditions': conditions,
   };
 
-  /// [toJson] plus this phone's photo state, for the local store only.
+  /// [toJson] plus this phone’s photo state, for the local store only.
   Map<String, Object?> toStoreJson() => {
     ...toJson(),
     if (photoKey != null) 'photoKey': photoKey,
@@ -243,7 +243,7 @@ class Dose {
   /// Time the logged dose was given, e.g. "8:02 AM". Empty when not logged.
   final String givenAt;
 
-  /// Scheduled reminder time (minute of day); the part's default when the
+  /// Scheduled reminder time (minute of day); the part’s default when the
   /// medicine has no custom time.
   final int minute;
 
@@ -299,20 +299,20 @@ class Medication {
   final List<DayPart> parts;
 
   /// Custom reminder time per part (minute of day). Missing parts use the
-  /// part's default; see [DoseTimes] for the rules.
+  /// part’s default; see [DoseTimes] for the rules.
   final Map<DayPart, int> times;
 
   /// Reminder time for [part] as a minute of day.
   int minuteFor(DayPart part) => times[part] ?? part.defaultMinute;
 
-  /// From this minute of the day on the dose counts as due: the part's
+  /// From this minute of the day on the dose counts as due: the part’s
   /// usual opening ([DayPartLabel.opensAt]) or the custom time when earlier,
   /// so a 15:00 "evening" dose is due at 15:00, never shown as upcoming
   /// after its own reminder fired.
   int dueFromMinute(DayPart part) =>
       math.min(part.opensAt * 60, minuteFor(part));
 
-  /// "7:00 AM" for [part], in the phone's clock format.
+  /// "7:00 AM" for [part], in the phone’s clock format.
   String timeLabelFor(DayPart part) => ClockFormat.label(minuteFor(part));
 
   /// True when any selected part has a non-default time.
@@ -335,7 +335,7 @@ class Medication {
 
   bool get isArchived => archivedAt != null;
 
-  /// The server saved it over Free's limits (old or modified app, or Pro
+  /// The server saved it over Free’s limits (old or modified app, or Pro
   /// that ended before an offline add synced). Never set by this phone;
   /// cleared by the server once the household has Pro. Doses still log;
   /// reminders wait for Pro (see [CareRepository.isMedicationLocked]).
@@ -474,7 +474,7 @@ class Medication {
     'startDay': startDay,
     if (endDay.isNotEmpty) 'endDay': endDay,
     // Absent (not empty) when there are no custom times: the server keeps
-    // what it has when the field is missing, so a replayed add can't wipe
+    // what it has when the field is missing, so a replayed add can’t wipe
     // times set later on another phone.
     if (times.isNotEmpty) 'times': DoseTimes.encode(times),
     // Read back from saved data; the server ignores it and decides itself.

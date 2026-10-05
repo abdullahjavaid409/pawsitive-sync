@@ -10,6 +10,7 @@ import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
 import 'support/sample_household.dart';
 
 void main() {
@@ -236,7 +237,7 @@ void main() {
   });
 
   test('a new medicine shows on Today and in the vet report', () async {
-    // Pro: the sample's Miso already has Free's medicine count.
+    // Pro: the sample’s Miso already has Free’s medicine count.
     final care = sampleCare()..debugStorePro = true;
     final before = care.doses.length;
     final saved = await care.addMedication(

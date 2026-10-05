@@ -23,7 +23,7 @@ abstract final class PetPhotoCodec {
   static const _fallbackSides = [384, 256];
 
   /// Null when the bytes are not an image this app can read (corrupt file,
-  /// HEIC the picker didn't convert, out of memory on a huge image).
+  /// HEIC the picker didn’t convert, out of memory on a huge image).
   static Future<Uint8List?> compress(Uint8List source) =>
       Isolate.run(() => compressSync(source));
 
@@ -34,13 +34,13 @@ abstract final class PetPhotoCodec {
       decoded = img.decodeImage(source);
     } on Object {
       // Truncated/corrupt data can throw inside a decoder instead of
-      // returning null; both read as "can't use this photo".
+      // returning null; both read as "can’t use this photo".
       return null;
     }
     if (decoded == null || decoded.width < 1 || decoded.height < 1) {
       return null;
     }
-    // Apply the camera's rotation to the pixels before EXIF is dropped.
+    // Apply the camera’s rotation to the pixels before EXIF is dropped.
     final upright = img.bakeOrientation(decoded);
     final shortSide = min(upright.width, upright.height);
     Uint8List? best;

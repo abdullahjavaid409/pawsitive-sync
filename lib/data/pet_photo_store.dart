@@ -11,7 +11,7 @@ import 'package:pawsitive_sync/data/pet_photo_codec.dart';
 /// - `pet_photos/<petId>.jpg` — a photo picked on this phone (works offline,
 ///   solo phones keep only this).
 /// - `pet_photo_cache/<photoKey>.jpg` — a photo another member set,
-///   downloaded once and reused until the household's key changes.
+///   downloaded once and reused until the household’s key changes.
 class PetPhotoStore {
   PetPhotoStore({Future<Directory> Function()? baseDir})
     : _baseDir = baseDir ?? getApplicationDocumentsDirectory;
@@ -98,7 +98,7 @@ class PetPhotoStore {
     _cached.add(cacheName(photoKey));
   }
 
-  /// Copies a cached household photo into this phone's own slot (used when
+  /// Copies a cached household photo into this phone’s own slot (used when
   /// the household goes away but the pet stays on the phone).
   Future<bool> adoptCached(String photoKey, String petId) async {
     await init();
@@ -179,14 +179,14 @@ class PetPhotoTransfer {
           );
 
   /// An ~60 KB body on a weak cellular link can take far longer than the
-  /// API's 10 s send timeout; one slow upload is fine, a failed one is not.
+  /// API’s 10 s send timeout; one slow upload is fine, a failed one is not.
   static const putSendTimeout = Duration(seconds: 60);
 
   final Dio _dio;
   CancelToken _downloads = CancelToken();
 
   /// Uploads [bytes] with exactly the signed [headers]. [onProgress] gets
-  /// 0..1 as the body is sent (for the avatar's progress ring).
+  /// 0..1 as the body is sent (for the avatar’s progress ring).
   Future<void> put(
     String url,
     Map<String, String> headers,

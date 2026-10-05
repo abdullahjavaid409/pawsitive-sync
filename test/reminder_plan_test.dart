@@ -109,7 +109,11 @@ void main() {
 
   group('ids', () {
     test('stable per kind + dose + day, distinct otherwise', () {
-      final a = ReminderIds.forDose(ReminderKind.dose, 'insulin.morning', '2026-10-04');
+      final a = ReminderIds.forDose(
+        ReminderKind.dose,
+        'insulin.morning',
+        '2026-10-04',
+      );
       expect(
         ReminderIds.forDose(ReminderKind.dose, 'insulin.morning', '2026-10-04'),
         a,
@@ -117,8 +121,16 @@ void main() {
       final others = {
         ReminderIds.forDose(ReminderKind.dose, 'insulin.morning', '2026-10-05'),
         ReminderIds.forDose(ReminderKind.dose, 'insulin.evening', '2026-10-04'),
-        ReminderIds.forDose(ReminderKind.followUp, 'insulin.morning', '2026-10-04'),
-        ReminderIds.forDose(ReminderKind.snooze, 'insulin.morning', '2026-10-04'),
+        ReminderIds.forDose(
+          ReminderKind.followUp,
+          'insulin.morning',
+          '2026-10-04',
+        ),
+        ReminderIds.forDose(
+          ReminderKind.snooze,
+          'insulin.morning',
+          '2026-10-04',
+        ),
       };
       expect(others, hasLength(4));
       expect(others, isNot(contains(a)));
@@ -175,7 +187,12 @@ void main() {
         now: nyNow(2026, 10, 4, 7),
         logs: [
           _log('insulin', DayPart.morning, '2026-10-04', memberId: 'dan'),
-          _log('insulin', DayPart.evening, '2026-10-04', outcome: LogOutcome.skipped),
+          _log(
+            'insulin',
+            DayPart.evening,
+            '2026-10-04',
+            outcome: LogOutcome.skipped,
+          ),
         ],
       );
       expect(result.where((n) => n.day == '2026-10-04'), isEmpty);
@@ -185,25 +202,36 @@ void main() {
       final first = plan(
         now: nyNow(2026, 10, 4, 7),
         logs: [
-          _log('insulin', DayPart.morning, '2026-10-04',
-              outcome: LogOutcome.uncertain, memberId: 'dan'),
+          _log(
+            'insulin',
+            DayPart.morning,
+            '2026-10-04',
+            outcome: LogOutcome.uncertain,
+            memberId: 'dan',
+          ),
         ],
       ).first;
       expect(first.kind, ReminderKind.dose);
-      expect(first.body, 'Dan wasn’t sure it was given — check before giving it.');
+      expect(
+        first.body,
+        'Dan wasn’t sure it was given — check before giving it.',
+      );
     });
 
-    test('warm, specific copy with the pet name; household line only when shared', () {
-      final solo = plan(now: nyNow(2026, 10, 4, 7)).first;
-      expect(solo.title, "Miso's Insulin · 8:00 AM");
-      expect(solo.body, '2 units. Tap Given when it’s done.');
-      final shared = plan(now: nyNow(2026, 10, 4, 7), shared: true).first;
-      expect(
-        shared.body,
-        '2 units. Tap Given when it’s done — we’ll let the household know.',
-      );
-      expect(solo.actionable, isTrue);
-    });
+    test(
+      'warm, specific copy with the pet name; household line only when shared',
+      () {
+        final solo = plan(now: nyNow(2026, 10, 4, 7)).first;
+        expect(solo.title, "Miso’s Insulin · 8:00 AM");
+        expect(solo.body, '2 units. Tap Given when it’s done.');
+        final shared = plan(now: nyNow(2026, 10, 4, 7), shared: true).first;
+        expect(
+          shared.body,
+          '2 units. Tap Given when it’s done — we’ll let the household know.',
+        );
+        expect(solo.actionable, isTrue);
+      },
+    );
 
     test('course end, future start, removed pet and stopped medicine', () {
       final result = plan(
@@ -226,7 +254,7 @@ void main() {
     });
 
     test('stays well under the iOS 64 pending limit with many medicines', () {
-      // Distinct minutes, so grouping can't shrink the count: the budget bites.
+      // Distinct minutes, so grouping can’t shrink the count: the budget bites.
       final meds = [
         for (var i = 0; i < 6; i++)
           _med(
@@ -271,20 +299,23 @@ void main() {
     test('8:00 AM local on both sides of the November DST change', () {
       // US DST ends Sun Nov 1 2026 at 2:00 AM.
       final doses = plan(now: nyNow(2026, 10, 30, 12))
-          .where((n) => n.kind == ReminderKind.dose && n.doseId.endsWith('morning'))
+          .where(
+            (n) => n.kind == ReminderKind.dose && n.doseId.endsWith('morning'),
+          )
           .toList();
       final before = doses.firstWhere((n) => n.day == '2026-10-31');
       final after = doses.firstWhere((n) => n.day == '2026-11-02');
       expect(before.when.hour, 8);
       expect(after.when.hour, 8);
-      // EDT (UTC-4) → EST (UTC-5): the UTC instant moves, the wall time doesn't.
+      // EDT (UTC-4) → EST (UTC-5): the UTC instant moves, the wall time doesn’t.
       expect(before.when.toUtc().hour, 12);
       expect(after.when.toUtc().hour, 13);
     });
 
     test('spring forward keeps 8:00 AM', () {
-      final doses = plan(now: nyNow(2026, 3, 7, 12))
-          .where((n) => n.kind == ReminderKind.dose && n.doseId.endsWith('morning'));
+      final doses = plan(now: nyNow(2026, 3, 7, 12)).where(
+        (n) => n.kind == ReminderKind.dose && n.doseId.endsWith('morning'),
+      );
       for (final n in doses) {
         expect(n.when.hour, 8, reason: n.day);
       }
@@ -305,7 +336,9 @@ void main() {
   group('follow-up', () {
     test('one, 30 minutes after, only within the next 24 hours', () {
       final result = plan(now: nyNow(2026, 10, 4, 7));
-      final follow = result.where((n) => n.kind == ReminderKind.followUp).toList();
+      final follow = result
+          .where((n) => n.kind == ReminderKind.followUp)
+          .toList();
       expect(
         [for (final n in follow) n.when],
         [
@@ -313,21 +346,27 @@ void main() {
           tz.TZDateTime(ny, 2026, 10, 4, 20, 30),
         ],
       );
-      expect(follow.first.title, "Still due: Miso's Insulin");
+      expect(follow.first.title, "Still due: Miso’s Insulin");
       expect(follow.first.body, 'Was it given? Tap Given once it’s done.');
     });
 
-    test('still sent when the reminder time passed but the follow-up has not', () {
-      final result = plan(now: nyNow(2026, 10, 4, 8, 10));
-      expect(result.first.kind, ReminderKind.followUp);
-      expect(result.first.when, tz.TZDateTime(ny, 2026, 10, 4, 8, 30));
-    });
+    test(
+      'still sent when the reminder time passed but the follow-up has not',
+      () {
+        final result = plan(now: nyNow(2026, 10, 4, 8, 10));
+        expect(result.first.kind, ReminderKind.followUp);
+        expect(result.first.when, tz.TZDateTime(ny, 2026, 10, 4, 8, 30));
+      },
+    );
 
     test('off in settings, or snoozed: none', () {
       expect(
         plan(
           now: nyNow(2026, 10, 4, 7),
-          settings: const ReminderSettings(followUp: false, weeklySummary: false),
+          settings: const ReminderSettings(
+            followUp: false,
+            weeklySummary: false,
+          ),
         ).where((n) => n.kind == ReminderKind.followUp),
         isEmpty,
       );
@@ -336,7 +375,12 @@ void main() {
         snoozed: {'insulin.morning|2026-10-04'},
       );
       expect(
-        snoozed.where((n) => n.kind == ReminderKind.followUp && n.day == '2026-10-04' && n.doseId == 'insulin.morning'),
+        snoozed.where(
+          (n) =>
+              n.kind == ReminderKind.followUp &&
+              n.day == '2026-10-04' &&
+              n.doseId == 'insulin.morning',
+        ),
         isEmpty,
       );
     });
@@ -349,8 +393,14 @@ void main() {
       expect(s.isQuiet(3 * 60), isTrue);
       expect(s.isQuiet(7 * 60), isFalse);
       expect(s.isQuiet(12 * 60), isFalse);
-      expect(const ReminderSettings(quietHours: false).isQuiet(23 * 60), isFalse);
-      const day = ReminderSettings(quietStartMinute: 9 * 60, quietEndMinute: 17 * 60);
+      expect(
+        const ReminderSettings(quietHours: false).isQuiet(23 * 60),
+        isFalse,
+      );
+      const day = ReminderSettings(
+        quietStartMinute: 9 * 60,
+        quietEndMinute: 17 * 60,
+      );
       expect(day.isQuiet(10 * 60), isTrue);
       expect(day.isQuiet(18 * 60), isFalse);
     });
@@ -377,7 +427,10 @@ void main() {
           quietEndMinute: 21 * 60,
         ),
       );
-      expect(result.where((n) => n.kind == ReminderKind.dose).elementAt(1).when.hour, 20);
+      expect(
+        result.where((n) => n.kind == ReminderKind.dose).elementAt(1).when.hour,
+        20,
+      );
     });
   });
 
@@ -402,8 +455,8 @@ void main() {
       );
       final weekly = result.singleWhere((n) => n.kind == ReminderKind.weekly);
       expect(weekly.when, tz.TZDateTime(ny, 2026, 10, 4, 18));
-      expect(weekly.title, "Miso's week");
-      // Sun evening dose (8 PM) isn't due by 6 PM: 13 expected, 12 given.
+      expect(weekly.title, "Miso’s week");
+      // Sun evening dose (8 PM) isn’t due by 6 PM: 13 expected, 12 given.
       expect(weekly.body, '12 of 13 doses given this week.');
     });
 
@@ -498,15 +551,20 @@ void main() {
 
     test('Pro only, next 9 AM, once per low episode', () {
       expect(
-        plan(now: nyNow(2026, 10, 4, 10), meds: [low])
-            .where((n) => n.kind == ReminderKind.refill),
+        plan(
+          now: nyNow(2026, 10, 4, 10),
+          meds: [low],
+        ).where((n) => n.kind == ReminderKind.refill),
         isEmpty,
         reason: 'Free: low-supply alerts stay a Pro feature',
       );
-      final refill = plan(now: nyNow(2026, 10, 4, 10), meds: [low], isPro: true)
-          .singleWhere((n) => n.kind == ReminderKind.refill);
+      final refill = plan(
+        now: nyNow(2026, 10, 4, 10),
+        meds: [low],
+        isPro: true,
+      ).singleWhere((n) => n.kind == ReminderKind.refill);
       expect(refill.when, tz.TZDateTime(ny, 2026, 10, 5, 9));
-      expect(refill.title, "Refill soon: Miso's Insulin");
+      expect(refill.title, "Refill soon: Miso’s Insulin");
       expect(refill.body, startsWith('About 2 doses left'));
       final shown = plan(
         now: nyNow(2026, 10, 5, 10),
@@ -529,7 +587,7 @@ void main() {
           timeLabel: '8:02 AM',
           outcome: LogOutcome.given,
         ),
-        "Sam gave Miso's Insulin at 8:02 AM — no need to give it again.",
+        "Sam gave Miso’s Insulin at 8:02 AM — no need to give it again.",
       );
       expect(
         ReminderCopy.alreadyBody(
@@ -540,7 +598,7 @@ void main() {
           timeLabel: '8:02 AM',
           outcome: LogOutcome.skipped,
         ),
-        "You marked Miso's Insulin as skipped at 8:02 AM.",
+        "You marked Miso’s Insulin as skipped at 8:02 AM.",
       );
     });
   });

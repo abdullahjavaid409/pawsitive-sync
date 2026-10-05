@@ -4,7 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// The person's notification and engagement choices. Every engagement
+/// The person’s notification and engagement choices. Every engagement
 /// feature has its own opt-out; dose reminders themselves are the master
 /// switch in [ReminderChoice].
 class ReminderSettings {
@@ -23,10 +23,10 @@ class ReminderSettings {
   /// One gentle "Still due" nudge ~30 min after a dose time.
   final bool followUp;
 
-  /// Sunday local notification with the week's given/expected counts.
+  /// Sunday local notification with the week’s given/expected counts.
   final bool weeklySummary;
 
-  /// In-app "Sam gave Miso's insulin — thanks, Sam" card.
+  /// In-app "Sam gave Miso’s insulin — thanks, Sam" card.
   final bool thanks;
 
   /// In-app count of days with every dose given (never shown as broken).

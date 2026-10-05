@@ -107,7 +107,7 @@ void main() {
     expect(pet.photoPath, endsWith('pet_photos/$petId.jpg'));
     expect(transfer.puts, isEmpty);
     expect(_field('pet.photo_saved_local')['offline'], isTrue);
-    // The picker's source rides on the one saved line (no pet.photo_set).
+    // The picker’s source rides on the one saved line (no pet.photo_set).
     expect(
       await care.setPetPhoto(petId, sampleJpeg(32, 32), source: 'camera'),
       isTrue,
@@ -218,7 +218,7 @@ void main() {
       routes['PUT /v1/pets/miso/photo']!.insert(
         0,
         const Answer(400, {
-          'error': "The photo didn't finish uploading. Try again.",
+          'error': "The photo didn’t finish uploading. Try again.",
         }),
       );
       final (care, adapter, _) = await connectedCare(dir, routes: routes);

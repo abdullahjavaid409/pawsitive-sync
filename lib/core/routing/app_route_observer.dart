@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 
-/// Records each navigation change without reading the route's arguments.
+/// Records each navigation change without reading the route’s arguments.
 class AppRouteObserver extends NavigatorObserver {
   /// go_router pages carry their path; sheets and dialogs have no name, so
   /// log what they are instead of "unnamed".
@@ -25,7 +25,7 @@ class AppRouteObserver extends NavigatorObserver {
   /// (`billing.paywall.opened` has the reason and placement).
   static const _selfLogged = {'/paywall'};
 
-  /// The first page of a tab's navigator. It's part of a navigation already
+  /// The first page of a tab’s navigator. It’s part of a navigation already
   /// logged: the shell push (launch) or `nav.tab` (first visit to a tab).
   static bool _isTabRoot(Route<dynamic> route, Route<dynamic>? previous) {
     if (previous != null) return false;

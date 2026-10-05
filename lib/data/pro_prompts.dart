@@ -4,7 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// When a free user may see an upgrade prompt the app opens by itself.
 ///
 /// Tapping a Pro feature (add a second pet, invite, vet export, refill
-/// alerts) always opens the paywall — that's the person asking. Prompts
+/// alerts) always opens the paywall — that’s the person asking. Prompts
 /// the app shows on its own follow two honest limits so Pro never nags:
 /// each trigger at most once ever, and at most one per [cooldown].
 /// Safety (logging, the double-dose check) is never interrupted: auto
@@ -50,9 +50,7 @@ abstract final class ProPrompts {
       }
       final last = prefs.getInt(_lastKey);
       if (last != null) {
-        final since = now.difference(
-          DateTime.fromMillisecondsSinceEpoch(last),
-        );
+        final since = now.difference(DateTime.fromMillisecondsSinceEpoch(last));
         // A clock set back counts as "too soon", never as a free pass.
         if (since < cooldown) {
           AppLog.event('billing.prompt.suppressed', {
@@ -67,7 +65,7 @@ abstract final class ProPrompts {
       AppLog.event('billing.prompt.shown', {'trigger': trigger});
       return true;
     } on Object catch (error, stack) {
-      // Unsure → don't interrupt. The tap-to-upgrade paths still work.
+      // Unsure → don’t interrupt. The tap-to-upgrade paths still work.
       AppLog.error('billing.prompt_failed', error, stack);
       return false;
     }
@@ -91,7 +89,7 @@ abstract final class ProPrompts {
 
   /// The trigger to show now: a queued moment first (passing [tryAuto]'s
   /// limits; left queued when only the cooldown blocks it), else the
-  /// recurring reminder when it's due. Null when nothing is due.
+  /// recurring reminder when it’s due. Null when nothing is due.
   static Future<String?> takeIdle({required DateTime now}) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -99,9 +97,8 @@ abstract final class ProPrompts {
       if (pending.isNotEmpty) {
         final trigger = pending.first;
         final shown = await tryAuto(trigger, now: now);
-        final alreadyShown = {
-          ...?prefs.getStringList(_shownKey),
-        }.contains(trigger);
+        final alreadyShown = {...?prefs.getStringList(_shownKey)}
+            .contains(trigger);
         if (shown || alreadyShown) {
           await prefs.setStringList(_pendingKey, pending.skip(1).toList());
         }
@@ -114,7 +111,7 @@ abstract final class ProPrompts {
     }
   }
 
-  /// [firstWeek] or [weekly] when it's due, else null. The first call
+  /// [firstWeek] or [weekly] when it’s due, else null. The first call
   /// only records when the app was first seen.
   static Future<String?> _takeRecurring(
     SharedPreferences prefs,
@@ -177,15 +174,17 @@ abstract final class ProPrompts {
   static Future<void> dismissLow(String medicationId) async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setStringList(_lowDismissedKey, {
-        ...?prefs.getStringList(_lowDismissedKey),
-        medicationId,
-      }.toList());
+      await prefs.setStringList(
+        _lowDismissedKey,
+        {...?prefs.getStringList(_lowDismissedKey), medicationId}.toList(),
+      );
       AppLog.event('billing.low_supply_teaser.dismissed', {
         'medicationId': medicationId,
       });
     } on Object catch (error, stack) {
-      AppLog.error('billing.prompt_failed', error, stack, {'op': 'low_dismiss'});
+      AppLog.error('billing.prompt_failed', error, stack, {
+        'op': 'low_dismiss',
+      });
     }
   }
 }

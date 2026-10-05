@@ -276,7 +276,7 @@ function failure(error) {
       : status === 400
         ? "Something went wrong sending that. Try again."
         : status === 413
-          ? "That's too much to send at once. Try again with less."
+          ? "That’s too much to send at once. Try again with less."
           : "Something went wrong on our side. Try again in a moment.";
   // 5xx: the error message (never the stack, never query parameters) plus the
   // Postgres SQLSTATE when there is one. 4xx: the InputError detail.
@@ -457,7 +457,7 @@ async function route(req, url, requestId) {
     const apple = await verifyAppleIdentityToken(body.identityToken);
     if (!apple.ok) {
       log("auth.apple_rejected", { requestId, reason: apple.reason, route: "recover" });
-      return { status: 401, body: { error: "Apple Sign-In couldn't be confirmed. Try signing in again." } };
+      return { status: 401, body: { error: "Apple Sign-In couldn’t be confirmed. Try signing in again." } };
     }
     const recovered = await recoverFromApple(pool, apple.sub);
     if (!recovered) {
@@ -503,7 +503,7 @@ async function route(req, url, requestId) {
     return { status: 202, body: await trackAnalytics(pool, body.events) };
   }
 
-  if (!path.startsWith("/v1/")) return { status: 404, body: { error: "That page doesn't exist." } };
+  if (!path.startsWith("/v1/")) return { status: 404, body: { error: "That page doesn’t exist." } };
 
   const auth = await authorize(req);
   if (!auth) {
@@ -688,7 +688,7 @@ async function route(req, url, requestId) {
     const apple = await verifyAppleIdentityToken(body.identityToken);
     if (!apple.ok) {
       log("auth.apple_rejected", { requestId, reason: apple.reason, route: "link" });
-      return { status: 401, body: { error: "Apple Sign-In couldn't be confirmed. Try signing in again." } };
+      return { status: 401, body: { error: "Apple Sign-In couldn’t be confirmed. Try signing in again." } };
     }
     const linked = await linkAppleAccount(pool, auth, apple.sub);
     log("auth.apple_linked", { requestId, householdId: auth.householdId });
@@ -783,7 +783,7 @@ async function route(req, url, requestId) {
     return { status: 200, body: { ok: true } };
   }
 
-  return { status: 404, body: { error: "That page doesn't exist." } };
+  return { status: 404, body: { error: "That page doesn’t exist." } };
 }
 
 await connectWithRetry();

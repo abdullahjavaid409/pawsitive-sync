@@ -66,7 +66,10 @@ abstract class ReminderPlatform {
   Future<bool> requestExact();
 
   Future<List<PendingReminder>> pending();
-  Future<void> schedule(PlannedNotification notification, {required bool exact});
+  Future<void> schedule(
+    PlannedNotification notification, {
+    required bool exact,
+  });
   Future<void> show(
     int id,
     String title,
@@ -101,10 +104,7 @@ abstract final class ReminderSnooze {
     if (source.day.isEmpty || (source.doseId.isEmpty && !source.isGroup)) {
       return false;
     }
-    final at = tz.TZDateTime.from(
-      (now ?? DateTime.now()).add(delay),
-      tz.UTC,
-    );
+    final at = tz.TZDateTime.from((now ?? DateTime.now()).add(delay), tz.UTC);
     // A group snoozes as one ("Snooze 15 min" for all of its doses).
     final snooze = source.isGroup
         ? ReminderGroups.build(
@@ -131,7 +131,9 @@ abstract final class ReminderSnooze {
           );
     // The follow-up would be a second nudge on top of the one asked for.
     if (source.groupKey.isNotEmpty) {
-      await platform.cancel(ReminderIds.of(ReminderKind.followUp, source.groupKey));
+      await platform.cancel(
+        ReminderIds.of(ReminderKind.followUp, source.groupKey),
+      );
     }
     for (final key in source.doseKeys) {
       final split = key.lastIndexOf('|');
@@ -213,7 +215,9 @@ Future<void> reminderBackgroundResponse(NotificationResponse response) async {
     await platform.initialize((_) {});
     await ReminderSnooze.apply(platform, payload);
   } on Object catch (error, stack) {
-    AppLog.error('reminders.snooze_failed', error, stack, {'from': 'background'});
+    AppLog.error('reminders.snooze_failed', error, stack, {
+      'from': 'background',
+    });
   }
 }
 
@@ -342,10 +346,7 @@ class PluginReminderPlatform implements ReminderPlatform {
   ];
 
   @override
-  Future<void> schedule(
-    PlannedNotification n, {
-    required bool exact,
-  }) async {
+  Future<void> schedule(PlannedNotification n, {required bool exact}) async {
     final details = await _details(
       n.kind,
       id: n.id,
@@ -381,7 +382,13 @@ class PluginReminderPlatform implements ReminderPlatform {
     required ReminderKind kind,
     String? payload,
   }) async {
-    await _plugin.show(id, title, body, await _details(kind, id: id), payload: payload);
+    await _plugin.show(
+      id,
+      title,
+      body,
+      await _details(kind, id: id),
+      payload: payload,
+    );
   }
 
   @override
@@ -539,7 +546,9 @@ class PluginReminderPlatform implements ReminderPlatform {
       final copy = await File(photo).copy(p.join(dir.path, '$id.jpg'));
       return [DarwinNotificationAttachment(copy.path)];
     } on Object catch (error) {
-      AppLog.event('reminders.photo_skipped', {'reason': '${error.runtimeType}'});
+      AppLog.event('reminders.photo_skipped', {
+        'reason': '${error.runtimeType}',
+      });
       return null;
     }
   }

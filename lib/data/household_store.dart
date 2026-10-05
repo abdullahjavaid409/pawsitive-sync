@@ -55,7 +55,7 @@ class StoredHousehold {
   /// being absent from [logs]: memory holds only a window of the history.
   final Set<String> deletedLogIds;
 
-  /// Drop every saved log first (joined another household: the old one's
+  /// Drop every saved log first (joined another household: the old one’s
   /// history must not mix in), then save [logs].
   final bool replaceLogs;
 }
@@ -66,7 +66,7 @@ class StoredHousehold {
 ///
 /// [write] compares against what it last read or wrote and touches only the
 /// rows that changed, in one transaction: logging a dose is one row insert
-/// (plus the medicine's supply), however long the history is.
+/// (plus the medicine’s supply), however long the history is.
 ///
 /// Use one store per database: the row cache assumes nothing else writes
 /// these tables.
@@ -207,7 +207,12 @@ class HouseholdStore {
       orderBy: 'day DESC, ord DESC',
       limit: limit,
     );
-    final logs = _parseRows('dose_logs', rows, LocalRows.toLog, cache: remember);
+    final logs = _parseRows(
+      'dose_logs',
+      rows,
+      LocalRows.toLog,
+      cache: remember,
+    );
     if (remember) {
       for (final log in logs) {
         _logObjects[log.id] = log;
@@ -286,7 +291,7 @@ class HouseholdStore {
     // Logs: only days whose list changed (a new or replaced log, or a
     // deletion) are looked at; their logs get ord = place within the day,
     // and only rows whose content or place moved are written. Days load
-    // and save whole, so a day's order on disk always matches memory.
+    // and save whole, so a day’s order on disk always matches memory.
     final logCache = house.replaceLogs
         ? <String, Map<String, Object?>>{}
         : (_rows['dose_logs'] ??= {});
@@ -456,7 +461,7 @@ class HouseholdStore {
   }
 
   // ---------------------------------------------------------------------------
-  // Old preferences format, for a run where the database can't be used.
+  // Old preferences format, for a run where the database can’t be used.
 
   Future<StoredHousehold?> _legacyRead() async {
     final json = await LegacyPrefsStore.readHouseholdJson();
@@ -472,7 +477,7 @@ class HouseholdStore {
     return house;
   }
 
-  /// A pre-Keychain build's plain-text token, moved to secure storage once.
+  /// A pre-Keychain build’s plain-text token, moved to secure storage once.
   Future<String?> _legacyToken(Map<String, dynamic> json) async {
     final legacy = json['token'];
     if (legacy is! String || legacy.isEmpty) return null;

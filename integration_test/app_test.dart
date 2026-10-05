@@ -137,7 +137,7 @@ void main() {
 
     await qa.step('Not sure if given marks a dose for a check', () async {
       await qa.tap(find.text('Log dose'));
-      await qa.see('Log apoquel');
+      await qa.see('Log Apoquel');
       await qa.tap(find.text('Not sure if given'));
       await qa.see('Needs a check');
       await qa.see('Luna · You are not sure — check first');
@@ -164,7 +164,7 @@ void main() {
     await qa.step('Safety: double-dose guard blocks a second log', () async {
       await qa.tap(find.text('Apoquel'));
       await qa.see('You already gave this dose');
-      await qa.tap(find.text("Got it, don't log"));
+      await qa.tap(find.text("Got it, don’t log"));
       qa.event('dose.already');
       expect(qa.count('dose.log.completed'), 1);
     });
@@ -179,7 +179,7 @@ void main() {
       qa.event('billing.paywall.opened', {'reason': 'more_meds'});
       await qa.tap(find.byTooltip('Close'));
       expect(care.medications, hasLength(1));
-      // Logging what's already scheduled stays free at the cap.
+      // Logging what’s already scheduled stays free at the cap.
       expect(care.doses.where((d) => d.petId == petId), isNotEmpty);
     });
 
@@ -219,28 +219,31 @@ void main() {
       expect(_apoquel(_care(t)).times, isEmpty);
     });
 
-    await qa.step('Custom reminder time: 7:15 AM saved, shown everywhere', () async {
-      await qa.tap(find.text('Morning reminder'));
-      await qa.tap(find.byIcon(Icons.keyboard_outlined));
-      final fields = find.descendant(
-        of: find.byType(Dialog),
-        matching: find.byType(TextField),
-      );
-      await qa.type(fields.at(0), '7');
-      await qa.type(fields.at(1), '15');
-      await qa.tap(find.text('OK'));
-      await qa.see('Morning reminder set to 7:15 AM.');
-      qa.event('medication.times.completed', {'customTimes': 1});
-      expect(_apoquel(_care(t)).times, {DayPart.morning: 7 * 60 + 15});
-      // Survives a cold reload (SQLite v2 column).
-      final reloaded = CareRepository(store: HouseholdStore());
-      await reloaded.restore();
-      expect(_apoquel(reloaded).times, {DayPart.morning: 7 * 60 + 15});
-      await qa.tap(find.text('Back'));
-      await qa.tapLabel('Today');
-      await qa.see('7:15 AM', partial: true);
-      await qa.tapLabel('Pets');
-    });
+    await qa.step(
+      'Custom reminder time: 7:15 AM saved, shown everywhere',
+      () async {
+        await qa.tap(find.text('Morning reminder'));
+        await qa.tap(find.byIcon(Icons.keyboard_outlined));
+        final fields = find.descendant(
+          of: find.byType(Dialog),
+          matching: find.byType(TextField),
+        );
+        await qa.type(fields.at(0), '7');
+        await qa.type(fields.at(1), '15');
+        await qa.tap(find.text('OK'));
+        await qa.see('Morning reminder set to 7:15 AM.');
+        qa.event('medication.times.completed', {'customTimes': 1});
+        expect(_apoquel(_care(t)).times, {DayPart.morning: 7 * 60 + 15});
+        // Survives a cold reload (SQLite v2 column).
+        final reloaded = CareRepository(store: HouseholdStore());
+        await reloaded.restore();
+        expect(_apoquel(reloaded).times, {DayPart.morning: 7 * 60 + 15});
+        await qa.tap(find.text('Back'));
+        await qa.tapLabel('Today');
+        await qa.see('7:15 AM', partial: true);
+        await qa.tapLabel('Pets');
+      },
+    );
 
     await qa.step('Pro gate: second pet opens paywall', () async {
       await qa.tap(find.byTooltip('Add pet'));
@@ -293,10 +296,13 @@ void main() {
       await qa.gone('Apoquel was stopped.', seconds: 8);
     });
 
-    await qa.step('Edge: a stopped medicine frees a slot under the cap', () async {
-      final care = _care(t);
-      expect(care.canAddMedication(care.pets.single.id), isTrue);
-    });
+    await qa.step(
+      'Edge: a stopped medicine frees a slot under the cap',
+      () async {
+        final care = _care(t);
+        expect(care.canAddMedication(care.pets.single.id), isTrue);
+      },
+    );
 
     await qa.step('Settings: restore purchases without a store', () async {
       await qa.tapLabel('Today');
@@ -460,7 +466,7 @@ void main() {
     await qa.step('Safety across phones: guard names the partner', () async {
       await qa.tap(find.text('Insulin'));
       await qa.see('Sara', partial: true);
-      await qa.tap(find.text("Got it, don't log"));
+      await qa.tap(find.text("Got it, don’t log"));
     });
 
     await qa.step('Pro: low-supply banner, refill syncs to backend', () async {
@@ -488,9 +494,11 @@ void main() {
           petsTab.evaluate().isNotEmpty ||
           find.byType(NavigationRail).evaluate().isNotEmpty &&
               find.text('Back').evaluate().isEmpty;
-      for (var i = 0;
-          i < 3 && !tabsShown() && find.text('Back').evaluate().isNotEmpty;
-          i++) {
+      for (
+        var i = 0;
+        i < 3 && !tabsShown() && find.text('Back').evaluate().isNotEmpty;
+        i++
+      ) {
         await qa.tap(find.text('Back').last);
       }
     });
@@ -548,7 +556,7 @@ Qa _qa(WidgetTester t) => Qa(
 );
 
 /// A true first launch: since the move to SQLite and the Keychain, clearing
-/// preferences alone leaves the last run's household behind (e.g. after an
+/// preferences alone leaves the last run’s household behind (e.g. after an
 /// interrupted run), so the database file and secure tokens go too.
 Future<void> _launchFresh(Qa qa) async {
   final prefs = await SharedPreferences.getInstance();

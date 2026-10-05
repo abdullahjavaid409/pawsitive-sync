@@ -142,22 +142,27 @@ void main() {
     await qa.tap(find.byTooltip('Back'));
 
     final meds = session.snapshot.medications;
-    Future<void> logAs(HouseholdApi api, HouseholdSession who, String med,
-        String amount, String time) => api.logDose(
-          DoseRecord(
-            id: newId('log'),
-            medicationId: meds.firstWhere((m) => m.name == med).id,
-            part: DayPart.morning,
-            day: dayKey(DateTime.now()),
-            memberId: who.snapshot.memberId,
-            outcome: LogOutcome.given,
-            amount: amount,
-            timeLabel: time,
-          ),
-        );
+    Future<void> logAs(
+      HouseholdApi api,
+      HouseholdSession who,
+      String med,
+      String amount,
+      String time,
+    ) => api.logDose(
+      DoseRecord(
+        id: newId('log'),
+        medicationId: meds.firstWhere((m) => m.name == med).id,
+        part: DayPart.morning,
+        day: dayKey(DateTime.now()),
+        memberId: who.snapshot.memberId,
+        outcome: LogOutcome.given,
+        amount: amount,
+        timeLabel: time,
+      ),
+    );
     await logAs(partner, session, 'Insulin', '2 units', '8:02 AM');
 
-    // A sitter joins too and covers Biscuit's morning tablet.
+    // A sitter joins too and covers Biscuit’s morning tablet.
     final sitter = HouseholdApi(Uri.parse(AppConfig.apiBaseUrl));
     final sitterSession = await sitter.join(
       code: care().inviteCode,
@@ -166,7 +171,7 @@ void main() {
     sitter.token = sitterSession.token;
     await logAs(sitter, sitterSession, 'Apoquel', '1 tablet', '7:45 AM');
 
-    // Pull everyone's doses in.
+    // Pull everyone’s doses in.
     await tab('Today');
     await qa.pullToRefresh();
     await qa.settle(2500);
@@ -175,11 +180,11 @@ void main() {
     await alignTop(find.text('Today’s schedule'));
     await shot('today_schedule');
 
-    // The safety moment: trying Miso's insulin again names who gave it.
+    // The safety moment: trying Miso’s insulin again names who gave it.
     await qa.tap(find.textContaining('Insulin · ').first);
     await qa.settle(1500);
     await shot('guard');
-    await qa.tap(find.text("Got it, don't log"));
+    await qa.tap(find.text("Got it, don’t log"));
 
     await tab('Household');
     await toTop();

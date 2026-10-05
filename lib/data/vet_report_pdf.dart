@@ -8,7 +8,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
 /// Raw TTF bytes for the PDF. Plain bytes so they can be sent to a
-/// background isolate. Noto Sans (+ Arabic fallback) because the app's Geist
+/// background isolate. Noto Sans (+ Arabic fallback) because the app’s Geist
 /// files are CFF OpenType, which the pdf package cannot embed.
 class VetReportFonts {
   const VetReportFonts({required this.latin, required this.arabic});

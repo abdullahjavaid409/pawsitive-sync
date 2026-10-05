@@ -54,11 +54,13 @@ class AppleWidgets {
                 'pet': care.petById(medicine.petId).name,
                 'medicine': medicine.name,
                 'amount': medicine.amount,
-                // Custom time aware: due from the earlier of the part's
+                // Custom time aware: due from the earlier of the part’s
                 // opening and the chosen time; scheduled at the chosen time.
                 'dueAt':
-                    _at(day, medicine.dueFromMinute(part))
-                        .millisecondsSinceEpoch /
+                    _at(
+                      day,
+                      medicine.dueFromMinute(part),
+                    ).millisecondsSinceEpoch /
                     1000,
                 'scheduledAt':
                     _at(day, medicine.minuteFor(part)).millisecondsSinceEpoch /

@@ -5,7 +5,7 @@ double _lerpDouble(double a, double b, double t) => a + (b - a) * t;
 
 /// A typography role that can be resolved into a [TextStyle] by the app theme.
 ///
-/// Keeping the role's measurements here means screens do not need to invent a
+/// Keeping the role’s measurements here means screens do not need to invent a
 /// new font size or line height when they introduce a new piece of UI.
 @immutable
 class PawsTypeStyle {

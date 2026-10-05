@@ -26,7 +26,7 @@ class _CareTabBuilderState extends State<CareTabBuilder> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // The provider instance is fixed for the app's life; listen manually so
+    // The provider instance is fixed for the app’s life; listen manually so
     // hidden screens can skip rebuilds.
     final care = Provider.of<CareRepository>(context, listen: false);
     if (!identical(care, _care)) {

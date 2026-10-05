@@ -116,8 +116,8 @@ void main() {
       final d = doses(result);
       expect(d[0].when, tz.TZDateTime(ny, 2026, 10, 4, 7));
       expect(d[1].when, tz.TZDateTime(ny, 2026, 10, 4, 19));
-      expect(d[0].title, "Miso's Insulin · 7:00 AM");
-      expect(d[1].title, "Miso's Insulin · 7:00 PM");
+      expect(d[0].title, "Miso’s Insulin · 7:00 AM");
+      expect(d[1].title, "Miso’s Insulin · 7:00 PM");
       final follow = result.firstWhere((n) => n.kind == ReminderKind.followUp);
       expect(follow.when, tz.TZDateTime(ny, 2026, 10, 4, 7, 30));
     });
@@ -134,57 +134,65 @@ void main() {
       expect(old.minuteFor(DayPart.morning), 8 * 60);
       final d = doses(plan(now: nyNow(2026, 10, 4, 6), meds: [old]));
       expect(d.first.when.hour, 8);
-      expect(d.first.title, "Miso's Insulin · 8:00 AM");
+      expect(d.first.title, "Miso’s Insulin · 8:00 AM");
     });
 
-    test('junk or unknown times from a garbled store fall back, never crash', () {
-      final parsed = medicationFromJson({
-        'id': 'x',
-        'petId': 'miso',
-        'name': 'X',
-        'parts': ['morning'],
-        'startDay': '2026-01-01',
-        'times': {
-          'morning': '25:00',
-          'evening': '19:00', // not a selected part
-          'noon': '12:00',
-        },
-      });
-      expect(parsed.times, isEmpty);
-      expect(DoseTimes.parse('nope'), isEmpty);
-      expect(DoseTimes.parseClock('7:00'), isNull);
-      expect(DoseTimes.parseClock('23:59'), 23 * 60 + 59);
-      expect(DoseTimes.parseClock('00:00'), 0);
-    });
+    test(
+      'junk or unknown times from a garbled store fall back, never crash',
+      () {
+        final parsed = medicationFromJson({
+          'id': 'x',
+          'petId': 'miso',
+          'name': 'X',
+          'parts': ['morning'],
+          'startDay': '2026-01-01',
+          'times': {
+            'morning': '25:00',
+            'evening': '19:00', // not a selected part
+            'noon': '12:00',
+          },
+        });
+        expect(parsed.times, isEmpty);
+        expect(DoseTimes.parse('nope'), isEmpty);
+        expect(DoseTimes.parseClock('7:00'), isNull);
+        expect(DoseTimes.parseClock('23:59'), 23 * 60 + 59);
+        expect(DoseTimes.parseClock('00:00'), 0);
+      },
+    );
 
-    test('23:59 today and 00:00 (start of the next day) land on the right days', () {
-      final result = doses(
-        plan(
-          now: nyNow(2026, 10, 4, 6),
-          meds: [
-            _med(
-              'late',
-              parts: [DayPart.evening],
-              times: {DayPart.evening: 23 * 60 + 59},
-            ),
-            _med(
-              'midnight',
-              name: 'Gaba',
-              parts: [DayPart.morning],
-              times: {DayPart.morning: 0},
-            ),
-          ],
-        ),
-      );
-      final late = result.firstWhere((n) => n.doseId == 'late.evening');
-      expect(late.day, '2026-10-04');
-      expect(late.when, tz.TZDateTime(ny, 2026, 10, 4, 23, 59));
-      // 00:00 today is already past at 6 AM: the first one is tomorrow's.
-      final midnight = result.firstWhere((n) => n.doseId == 'midnight.morning');
-      expect(midnight.day, '2026-10-05');
-      expect(midnight.when, tz.TZDateTime(ny, 2026, 10, 5));
-      expect(midnight.title, "Miso's Gaba · 12:00 AM");
-    });
+    test(
+      '23:59 today and 00:00 (start of the next day) land on the right days',
+      () {
+        final result = doses(
+          plan(
+            now: nyNow(2026, 10, 4, 6),
+            meds: [
+              _med(
+                'late',
+                parts: [DayPart.evening],
+                times: {DayPart.evening: 23 * 60 + 59},
+              ),
+              _med(
+                'midnight',
+                name: 'Gaba',
+                parts: [DayPart.morning],
+                times: {DayPart.morning: 0},
+              ),
+            ],
+          ),
+        );
+        final late = result.firstWhere((n) => n.doseId == 'late.evening');
+        expect(late.day, '2026-10-04');
+        expect(late.when, tz.TZDateTime(ny, 2026, 10, 4, 23, 59));
+        // 00:00 today is already past at 6 AM: the first one is tomorrow’s.
+        final midnight = result.firstWhere(
+          (n) => n.doseId == 'midnight.morning',
+        );
+        expect(midnight.day, '2026-10-05');
+        expect(midnight.when, tz.TZDateTime(ny, 2026, 10, 5));
+        expect(midnight.title, "Miso’s Gaba · 12:00 AM");
+      },
+    );
 
     test('24-hour phones read 07:00 / 19:00 in the copy', () {
       ClockFormat.use24h.value = true;
@@ -194,8 +202,8 @@ void main() {
           meds: [_med('insulin', times: _insulinTimes)],
         ),
       );
-      expect(d[0].title, "Miso's Insulin · 07:00");
-      expect(d[1].title, "Miso's Insulin · 19:00");
+      expect(d[0].title, "Miso’s Insulin · 07:00");
+      expect(d[1].title, "Miso’s Insulin · 19:00");
     });
 
     test('DST gap: 02:30 on spring-forward day fires once at the next valid instant', () {
@@ -213,9 +221,13 @@ void main() {
         ),
       );
       final gapDay = result.where((n) => n.day == '2026-03-08').toList();
-      expect(gapDay, hasLength(1), reason: 'exactly one reminder, not zero or two');
+      expect(
+        gapDay,
+        hasLength(1),
+        reason: 'exactly one reminder, not zero or two',
+      );
       final when = gapDay.single.when;
-      // 02:30 doesn't exist; 03:30 EDT (07:30 UTC) is the next valid instant.
+      // 02:30 doesn’t exist; 03:30 EDT (07:30 UTC) is the next valid instant.
       expect(when.toUtc(), DateTime.utc(2026, 3, 8, 7, 30));
       expect(when.hour, 3);
       final next = result.firstWhere((n) => n.day == '2026-03-09');
@@ -243,57 +255,83 @@ void main() {
       expect(ambiguous.single.when.minute, 30);
     });
 
-    test('time changed for today after today’s dose was logged: no reminder today', () {
-      final result = doses(
-        plan(
-          now: nyNow(2026, 10, 4, 6),
-          meds: [_med('insulin', times: {DayPart.morning: 6 * 60 + 30})],
-          logs: [_log('insulin', DayPart.morning, '2026-10-04')],
-        ),
-      );
-      expect(
-        result.where((n) => n.doseId == 'insulin.morning' && n.day == '2026-10-04'),
-        isEmpty,
-      );
-      expect(
-        result.firstWhere((n) => n.doseId == 'insulin.morning').day,
-        '2026-10-05',
-      );
-    });
+    test(
+      'time changed for today after today’s dose was logged: no reminder today',
+      () {
+        final result = doses(
+          plan(
+            now: nyNow(2026, 10, 4, 6),
+            meds: [
+              _med('insulin', times: {DayPart.morning: 6 * 60 + 30}),
+            ],
+            logs: [_log('insulin', DayPart.morning, '2026-10-04')],
+          ),
+        );
+        expect(
+          result.where(
+            (n) => n.doseId == 'insulin.morning' && n.day == '2026-10-04',
+          ),
+          isEmpty,
+        );
+        expect(
+          result.firstWhere((n) => n.doseId == 'insulin.morning').day,
+          '2026-10-05',
+        );
+      },
+    );
 
     test('time moved earlier than now: no past reminder today, tomorrow at the new time', () {
       final result = doses(
         plan(
           now: nyNow(2026, 10, 4, 9),
-          meds: [_med('insulin', parts: [DayPart.morning], times: {DayPart.morning: 7 * 60})],
+          meds: [
+            _med(
+              'insulin',
+              parts: [DayPart.morning],
+              times: {DayPart.morning: 7 * 60},
+            ),
+          ],
         ),
       );
-      expect(result.every((n) => n.when.isAfter(nyNow(2026, 10, 4, 9))), isTrue);
+      expect(
+        result.every((n) => n.when.isAfter(nyNow(2026, 10, 4, 9))),
+        isTrue,
+      );
       expect(result.first.day, '2026-10-05');
       expect(result.first.when, tz.TZDateTime(ny, 2026, 10, 5, 7));
     });
 
-    test('the dose is due from the earlier of its part opening and its time', () {
-      final m = _med(
-        'x',
-        parts: DayPart.values,
-        times: {
-          DayPart.morning: 7 * 60,
-          DayPart.afternoon: 11 * 60,
-          DayPart.evening: 15 * 60 + 30,
-        },
-      );
-      expect(m.dueFromMinute(DayPart.morning), 0);
-      expect(m.dueFromMinute(DayPart.afternoon), 11 * 60);
-      expect(m.dueFromMinute(DayPart.evening), 15 * 60 + 30);
-      // A late evening time never makes it due later than usual.
-      final late = _med('y', parts: [DayPart.evening], times: {DayPart.evening: 22 * 60});
-      expect(late.dueFromMinute(DayPart.evening), 17 * 60);
-      expect(m.timesLabel, 'Morning 7:00 AM, afternoon 11:00 AM & evening 3:30 PM');
-    });
+    test(
+      'the dose is due from the earlier of its part opening and its time',
+      () {
+        final m = _med(
+          'x',
+          parts: DayPart.values,
+          times: {
+            DayPart.morning: 7 * 60,
+            DayPart.afternoon: 11 * 60,
+            DayPart.evening: 15 * 60 + 30,
+          },
+        );
+        expect(m.dueFromMinute(DayPart.morning), 0);
+        expect(m.dueFromMinute(DayPart.afternoon), 11 * 60);
+        expect(m.dueFromMinute(DayPart.evening), 15 * 60 + 30);
+        // A late evening time never makes it due later than usual.
+        final late = _med(
+          'y',
+          parts: [DayPart.evening],
+          times: {DayPart.evening: 22 * 60},
+        );
+        expect(late.dueFromMinute(DayPart.evening), 17 * 60);
+        expect(
+          m.timesLabel,
+          'Morning 7:00 AM, afternoon 11:00 AM & evening 3:30 PM',
+        );
+      },
+    );
 
     test('weekly summary counts a custom-time dose once it is due', () {
-      // Sunday Oct 4 at 17:00; evening dose at 16:00 counts, default 20:00 wouldn't.
+      // Sunday Oct 4 at 17:00; evening dose at 16:00 counts, default 20:00 wouldn’t.
       final logs = [
         for (var d = 28; d <= 34; d++)
           _log(
@@ -305,7 +343,11 @@ void main() {
       final weekly = plan(
         now: nyNow(2026, 10, 4, 17),
         meds: [
-          _med('insulin', parts: [DayPart.evening], times: {DayPart.evening: 16 * 60}),
+          _med(
+            'insulin',
+            parts: [DayPart.evening],
+            times: {DayPart.evening: 16 * 60},
+          ),
         ],
         logs: logs,
         settings: const ReminderSettings(),
@@ -318,30 +360,49 @@ void main() {
   group('same-time doses → one notification', () {
     final sameTime = [
       _med('insulin', parts: [DayPart.morning]),
-      _med('apoquel', petId: 'biscuit', name: 'Apoquel', parts: [DayPart.morning]),
-      _med('fishoil', petId: 'biscuit', name: 'Fish oil', parts: [DayPart.morning]),
+      _med(
+        'apoquel',
+        petId: 'biscuit',
+        name: 'Apoquel',
+        parts: [DayPart.morning],
+      ),
+      _med(
+        'fishoil',
+        petId: 'biscuit',
+        name: 'Fish oil',
+        parts: [DayPart.morning],
+      ),
     ];
 
-    test('title counts the doses, body lists them per pet, ids stay unique', () {
-      final result = plan(now: nyNow(2026, 10, 4, 7), meds: sameTime);
-      final first = doses(result).first;
-      expect(first.isGroup, isTrue);
-      expect(first.title, '3 doses due · 8:00 AM');
-      expect(first.body, 'Miso: Insulin · Biscuit: Apoquel, Fish oil');
-      expect(first.groupKey, 'g|2026-10-04|480');
-      expect(first.id, ReminderIds.of(ReminderKind.dose, 'g|2026-10-04|480'));
-      expect(first.doseId, isEmpty);
-      expect(doses(result), hasLength(7), reason: 'one per day, not three');
-      expect({for (final n in result) n.id}, hasLength(result.length));
-      // Follow-ups group the same way.
-      final follow = result.firstWhere((n) => n.kind == ReminderKind.followUp);
-      expect(follow.title, 'Still due: 3 doses from 8:00 AM');
-      expect(follow.body, 'Miso: Insulin · Biscuit: Apoquel, Fish oil');
-      expect(follow.id, ReminderIds.of(ReminderKind.followUp, 'g|2026-10-04|480'));
-    });
+    test(
+      'title counts the doses, body lists them per pet, ids stay unique',
+      () {
+        final result = plan(now: nyNow(2026, 10, 4, 7), meds: sameTime);
+        final first = doses(result).first;
+        expect(first.isGroup, isTrue);
+        expect(first.title, '3 doses due · 8:00 AM');
+        expect(first.body, 'Miso: Insulin · Biscuit: Apoquel, Fish oil');
+        expect(first.groupKey, 'g|2026-10-04|480');
+        expect(first.id, ReminderIds.of(ReminderKind.dose, 'g|2026-10-04|480'));
+        expect(first.doseId, isEmpty);
+        expect(doses(result), hasLength(7), reason: 'one per day, not three');
+        expect({for (final n in result) n.id}, hasLength(result.length));
+        // Follow-ups group the same way.
+        final follow = result.firstWhere(
+          (n) => n.kind == ReminderKind.followUp,
+        );
+        expect(follow.title, 'Still due: 3 doses from 8:00 AM');
+        expect(follow.body, 'Miso: Insulin · Biscuit: Apoquel, Fish oil');
+        expect(
+          follow.id,
+          ReminderIds.of(ReminderKind.followUp, 'g|2026-10-04|480'),
+        );
+      },
+    );
 
     test('payload carries the group and round-trips', () {
-      final first = doses(plan(now: nyNow(2026, 10, 4, 7), meds: sameTime)).first;
+      final first = doses(plan(now: nyNow(2026, 10, 4, 7), meds: sameTime))
+          .first;
       final back = ReminderPayload.decode(first.payload)!;
       expect(back.isGroup, isTrue);
       expect(back.group.map((g) => g.doseId), [
@@ -354,44 +415,62 @@ void main() {
       expect(back.groupKey, first.groupKey);
     });
 
-    test('one logged → the group shrinks (same id); two logged → that dose alone', () {
-      final full = doses(plan(now: nyNow(2026, 10, 4, 7), meds: sameTime)).first;
-      final two = doses(
-        plan(
-          now: nyNow(2026, 10, 4, 7),
-          meds: sameTime,
-          logs: [_log('apoquel', DayPart.morning, '2026-10-04')],
-        ),
-      ).first;
-      expect(two.id, full.id);
-      expect(two.title, '2 doses due · 8:00 AM');
-      expect(two.body, 'Miso: Insulin · Biscuit: Fish oil');
-      expect(two.payload, isNot(full.payload), reason: 'pending copy is replaced');
-      final one = doses(
-        plan(
-          now: nyNow(2026, 10, 4, 7),
-          meds: sameTime,
-          logs: [
-            _log('apoquel', DayPart.morning, '2026-10-04'),
-            _log('fishoil', DayPart.morning, '2026-10-04'),
-          ],
-        ),
-      ).first;
-      expect(one.isGroup, isFalse);
-      expect(one.id, ReminderIds.forDose(ReminderKind.dose, 'insulin.morning', '2026-10-04'));
-      expect(one.title, "Miso's Insulin · 8:00 AM");
-    });
+    test(
+      'one logged → the group shrinks (same id); two logged → that dose alone',
+      () {
+        final full = doses(plan(now: nyNow(2026, 10, 4, 7), meds: sameTime))
+            .first;
+        final two = doses(
+          plan(
+            now: nyNow(2026, 10, 4, 7),
+            meds: sameTime,
+            logs: [_log('apoquel', DayPart.morning, '2026-10-04')],
+          ),
+        ).first;
+        expect(two.id, full.id);
+        expect(two.title, '2 doses due · 8:00 AM');
+        expect(two.body, 'Miso: Insulin · Biscuit: Fish oil');
+        expect(
+          two.payload,
+          isNot(full.payload),
+          reason: 'pending copy is replaced',
+        );
+        final one = doses(
+          plan(
+            now: nyNow(2026, 10, 4, 7),
+            meds: sameTime,
+            logs: [
+              _log('apoquel', DayPart.morning, '2026-10-04'),
+              _log('fishoil', DayPart.morning, '2026-10-04'),
+            ],
+          ),
+        ).first;
+        expect(one.isGroup, isFalse);
+        expect(
+          one.id,
+          ReminderIds.forDose(
+            ReminderKind.dose,
+            'insulin.morning',
+            '2026-10-04',
+          ),
+        );
+        expect(one.title, "Miso’s Insulin · 8:00 AM");
+      },
+    );
 
-    test('a push-resolved dose (not yet synced) leaves the group before grouping', () {
-      final result = doses(
-        plan(
-          now: nyNow(2026, 10, 4, 7),
-          meds: sameTime,
-          resolved: {'insulin.morning|2026-10-04'},
-        ),
-      );
-      expect(result.first.title, '2 doses due · 8:00 AM');
-    });
+    test(
+      'a push-resolved dose (not yet synced) leaves the group before grouping',
+      () {
+        final result = doses(
+          plan(
+            now: nyNow(2026, 10, 4, 7),
+            meds: sameTime,
+            resolved: {'insulin.morning|2026-10-04'},
+          ),
+        );
+        expect(result.first.title, '2 doses due · 8:00 AM');
+      },
+    );
 
     test('a "not sure" dose keeps its own check-first notification', () {
       final result = doses(
@@ -399,15 +478,26 @@ void main() {
           now: nyNow(2026, 10, 4, 7),
           meds: sameTime,
           logs: [
-            _log('insulin', DayPart.morning, '2026-10-04',
-                outcome: LogOutcome.uncertain, memberId: 'dan'),
+            _log(
+              'insulin',
+              DayPart.morning,
+              '2026-10-04',
+              outcome: LogOutcome.uncertain,
+              memberId: 'dan',
+            ),
           ],
         ),
       ).where((n) => n.day == '2026-10-04').toList();
       expect(result, hasLength(2));
       final unsure = result.firstWhere((n) => !n.isGroup);
-      expect(unsure.body, 'Dan wasn’t sure it was given — check before giving it.');
-      expect(result.firstWhere((n) => n.isGroup).title, '2 doses due · 8:00 AM');
+      expect(
+        unsure.body,
+        'Dan wasn’t sure it was given — check before giving it.',
+      );
+      expect(
+        result.firstWhere((n) => n.isGroup).title,
+        '2 doses due · 8:00 AM',
+      );
     });
 
     test('different minutes are never grouped', () {
@@ -416,40 +506,50 @@ void main() {
           now: nyNow(2026, 10, 4, 7),
           meds: [
             _med('insulin', parts: [DayPart.morning]),
-            _med('apoquel',
-                petId: 'biscuit',
-                name: 'Apoquel',
-                parts: [DayPart.morning],
-                times: {DayPart.morning: 8 * 60 + 1}),
+            _med(
+              'apoquel',
+              petId: 'biscuit',
+              name: 'Apoquel',
+              parts: [DayPart.morning],
+              times: {DayPart.morning: 8 * 60 + 1},
+            ),
           ],
         ),
       );
       expect(result.where((n) => n.isGroup), isEmpty);
     });
 
-    test('rebuild from a payload drops resolved doses (background, no household)', () {
-      final first = doses(plan(now: nyNow(2026, 10, 4, 7), meds: sameTime)).first;
-      final payload = ReminderPayload.decode(first.payload)!;
-      final rest = ReminderGroups.without(
-        payload,
-        {'fishoil.morning|2026-10-04'},
-        ny,
-      )!;
-      expect(rest.id, first.id);
-      expect(rest.when, first.when);
-      expect(rest.title, '2 doses due · 8:00 AM');
-      final single = ReminderGroups.without(
-        payload,
-        {'fishoil.morning|2026-10-04', 'apoquel.morning|2026-10-04'},
-        ny,
-      )!;
-      expect(single.id, ReminderIds.forDose(ReminderKind.dose, 'insulin.morning', '2026-10-04'));
-      expect(single.body, '2 units. Tap Given when it’s done.');
-      expect(
-        ReminderGroups.without(payload, payload.doseKeys.toSet(), ny),
-        isNull,
-      );
-    });
+    test(
+      'rebuild from a payload drops resolved doses (background, no household)',
+      () {
+        final first = doses(plan(now: nyNow(2026, 10, 4, 7), meds: sameTime))
+            .first;
+        final payload = ReminderPayload.decode(first.payload)!;
+        final rest = ReminderGroups.without(payload, {
+          'fishoil.morning|2026-10-04',
+        }, ny)!;
+        expect(rest.id, first.id);
+        expect(rest.when, first.when);
+        expect(rest.title, '2 doses due · 8:00 AM');
+        final single = ReminderGroups.without(payload, {
+          'fishoil.morning|2026-10-04',
+          'apoquel.morning|2026-10-04',
+        }, ny)!;
+        expect(
+          single.id,
+          ReminderIds.forDose(
+            ReminderKind.dose,
+            'insulin.morning',
+            '2026-10-04',
+          ),
+        );
+        expect(single.body, '2 units. Tap Given when it’s done.');
+        expect(
+          ReminderGroups.without(payload, payload.doseKeys.toSet(), ny),
+          isNull,
+        );
+      },
+    );
   });
 
   group('keep-reminders-going safety net', () {
@@ -460,15 +560,19 @@ void main() {
       expect(upkeep.when, lastDose.when);
       expect(upkeep.day, '2026-10-10');
       expect(upkeep.id, ReminderPlanner.upkeepId);
-      expect(upkeep.body, "Open Pawsitive to keep Miso's reminders going.");
+      expect(upkeep.body, "Open Pawsitive to keep Miso’s reminders going.");
       expect(upkeep.actionable, isFalse);
     });
 
     test('replaced, not added, when a later reschedule extends the window', () {
-      final first = plan(now: nyNow(2026, 10, 4, 6), meds: [_med('insulin')])
-          .singleWhere((n) => n.kind == ReminderKind.upkeep);
-      final later = plan(now: nyNow(2026, 10, 6, 6), meds: [_med('insulin')])
-          .singleWhere((n) => n.kind == ReminderKind.upkeep);
+      final first = plan(
+        now: nyNow(2026, 10, 4, 6),
+        meds: [_med('insulin')],
+      ).singleWhere((n) => n.kind == ReminderKind.upkeep);
+      final later = plan(
+        now: nyNow(2026, 10, 6, 6),
+        meds: [_med('insulin')],
+      ).singleWhere((n) => n.kind == ReminderKind.upkeep);
       expect(later.id, first.id, reason: 'same id → the OS replaces it');
       expect(later.when.isAfter(first.when), isTrue);
       expect(later.day, '2026-10-12');
@@ -485,7 +589,7 @@ void main() {
       );
       expect(
         result.singleWhere((n) => n.kind == ReminderKind.upkeep).body,
-        "Open Pawsitive to keep Miso and Biscuit's reminders going.",
+        "Open Pawsitive to keep Miso and Biscuit’s reminders going.",
       );
     });
 
@@ -511,7 +615,7 @@ void main() {
             },
           ),
       ];
-      // Ends Oct 6 but 52 slots don't even reach it: still nudged.
+      // Ends Oct 6 but 52 slots don’t even reach it: still nudged.
       final result = plan(now: nyNow(2026, 10, 4, 6), meds: meds);
       expect(result.where((n) => n.kind == ReminderKind.upkeep), hasLength(1));
     });
@@ -520,7 +624,10 @@ void main() {
   group('fresh plan after a long gap (reboot, app unopened for weeks)', () {
     test('starts from now: nothing in the past, a full window ahead', () {
       final now = nyNow(2026, 11, 20, 13);
-      final result = plan(now: now, meds: [_med('insulin', times: _insulinTimes)]);
+      final result = plan(
+        now: now,
+        meds: [_med('insulin', times: _insulinTimes)],
+      );
       final d = doses(result);
       expect(result.every((n) => n.when.isAfter(now)), isTrue);
       expect(d.first.when, tz.TZDateTime(ny, 2026, 11, 20, 19));

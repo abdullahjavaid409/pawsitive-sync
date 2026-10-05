@@ -13,7 +13,7 @@ import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/meds/dose_time_picker.dart';
 import 'package:provider/provider.dart';
 
-/// Shows one medication's supply, schedule, and recent doses.
+/// Shows one medication’s supply, schedule, and recent doses.
 class MedicationScreen extends StatelessWidget {
   const MedicationScreen({super.key, required this.medicationId});
 
@@ -268,7 +268,7 @@ class MedicationScreen extends StatelessWidget {
                   _Pair(label: 'Dose', value: medication.doseLabel),
                   _Pair(label: 'When', value: medication.whenLabel),
                   // One row per part; editors can change the time
-                  // (reminders re-plan as soon as it's saved).
+                  // (reminders re-plan as soon as it’s saved).
                   for (final part in medication.parts)
                     DoseTimeRow(
                       key: ValueKey('time-${part.name}'),
@@ -441,7 +441,7 @@ class MedicationScreen extends StatelessWidget {
     ];
   }
 
-  /// Picks and saves one part's reminder time. Works offline (queued);
+  /// Picks and saves one part’s reminder time. Works offline (queued);
   /// a failure keeps the old time and says why.
   Future<void> _changeTime(
     BuildContext context,

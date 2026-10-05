@@ -15,7 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// mean the screen and the repository both logged the same outcome.
 enum _Kind { opened, succeeded, failed }
 
-/// Background lines that aren't about the tap itself (store, network,
+/// Background lines that aren’t about the tap itself (store, network,
 /// billing SDK, reminders, analytics).
 const _background = {
   'store',
@@ -284,7 +284,7 @@ void main() {
       'blocked add pet',
       () => tester.tap(find.byTooltip('Add pet')),
     );
-    // No gate line of its own; the paywall's opened line names the gate.
+    // No gate line of its own; the paywall’s opened line names the gate.
     // (`offer_unavailable` is the store answer: no RevenueCat in tests.)
     expect(events.first.name, 'billing.paywall.opened');
     expect(events.first.fields['from'], 'add_pet_pets_tab');

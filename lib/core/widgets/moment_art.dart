@@ -3,6 +3,7 @@ import 'package:pawsitive_sync/core/routing/app_route_observer.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:lottie/lottie.dart';
 import 'package:pawsitive_sync/core/motion/app_motion.dart';
+import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 
 /// Plays one drawing from the Lottie pack, then holds the last frame.
 ///
@@ -54,7 +55,19 @@ class MomentArt extends StatelessWidget {
             fit: BoxFit.contain,
             repeat: false,
           );
-    final picture = RepaintBoundary(child: child);
+    Widget picture = RepaintBoundary(child: child);
+    if (Theme.of(context).brightness == Brightness.dark) {
+      // The pack is inked for light paper, so on a dark surface the strokes
+      // disappear. Give it its paper back: the inverse surface is the light
+      // background colour, with a little margin so strokes don’t touch it.
+      picture = DecoratedBox(
+        decoration: BoxDecoration(
+          color: context.paws.surfaces.inverse,
+          borderRadius: BorderRadius.circular(size / 4),
+        ),
+        child: Padding(padding: EdgeInsets.all(size / 10), child: picture),
+      );
+    }
     if (!announce) return picture;
     final label = labels[name];
     if (label == null) return picture;

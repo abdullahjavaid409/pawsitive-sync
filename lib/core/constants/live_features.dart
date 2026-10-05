@@ -6,7 +6,7 @@ abstract final class LiveFeatures {
   /// Repository + service logs that must be exercised in automated tests.
   ///
   /// One line per user action: these data-layer events are the record of
-  /// an outcome; screens don't log a second "saved"/"failed" line for it
+  /// an outcome; screens don’t log a second "saved"/"failed" line for it
   /// (see one_log_per_action_test.dart).
   static const coverage = <LiveFeatureSpec>[
     LiveFeatureSpec(

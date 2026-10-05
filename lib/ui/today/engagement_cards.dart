@@ -8,7 +8,7 @@ import 'package:pawsitive_sync/data/engagement.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-/// The app's [EngagementState], or null where it isn't provided (most
+/// The app’s [EngagementState], or null where it isn’t provided (most
 /// widget tests build only the repository): engagement UI then hides.
 EngagementState? maybeEngagement(BuildContext context, {bool listen = true}) {
   try {
@@ -135,7 +135,9 @@ class _MomentCard extends StatelessWidget {
                   children: [
                     Text(
                       title,
-                      style: text.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+                      style: text.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                     if (body != null) ...[
                       const SizedBox(height: 2),
@@ -149,7 +151,11 @@ class _MomentCard extends StatelessWidget {
               tooltip: 'Dismiss',
               visualDensity: VisualDensity.compact,
               onPressed: onDismiss,
-              icon: StrokeIcon(StrokeIconKind.close, size: 16, color: tokens.stroke),
+              icon: StrokeIcon(
+                StrokeIconKind.close,
+                size: 16,
+                color: tokens.stroke,
+              ),
             ),
           ],
         ),
@@ -158,7 +164,7 @@ class _MomentCard extends StatelessWidget {
   }
 }
 
-/// "12 days of every dose given" under the day's progress. Cumulative: it
+/// "12 days of every dose given" under the day’s progress. Cumulative: it
 /// only ever grows, so a missed day is never shown as a broken streak.
 class CareDaysNote extends StatelessWidget {
   const CareDaysNote({super.key});
@@ -224,7 +230,8 @@ class ReminderPermissionNote extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
                       TextButton(
-                        onPressed: () => engagement?.hidePermissionNudge(care.now),
+                        onPressed: () =>
+                            engagement?.hidePermissionNudge(care.now),
                         child: const Text('Not now'),
                       ),
                       TextButton(
@@ -243,7 +250,7 @@ class ReminderPermissionNote extends StatelessWidget {
   }
 }
 
-/// iOS opens this app's page in Settings; elsewhere it's best effort.
+/// iOS opens this app’s page in Settings; elsewhere it’s best effort.
 Future<void> openNotificationSettings() async {
   AppLog.event('reminders.open_settings');
   try {

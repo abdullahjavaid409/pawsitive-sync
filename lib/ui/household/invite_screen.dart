@@ -13,7 +13,7 @@ import 'package:pawsitive_sync/domain/paywall_reason.dart';
 import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
 
-/// Shows the household's invite code and shares it.
+/// Shows the household’s invite code and shares it.
 class InviteScreen extends StatefulWidget {
   const InviteScreen({super.key});
 
@@ -222,7 +222,7 @@ class _InviteScreenState extends State<InviteScreen> {
   String _sitterShareText(CareRepository care, SitterLink link) {
     final expires = link.expiresAt;
     final until = expires == null ? '' : ' until ${_shortDate(expires)}';
-    return 'Here\'s your link to see and log ${_petNames(care)}\'s doses$until: ${link.url}';
+    return 'Here’s your link to see and log ${_petNames(care)}\'s doses$until: ${link.url}';
   }
 
   Future<void> _copySitterLink(SitterLink link) async {

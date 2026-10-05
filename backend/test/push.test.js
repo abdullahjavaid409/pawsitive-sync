@@ -118,7 +118,7 @@ test("APNs alert + background requests carry the right host, headers and payload
   const http = fakeHttp2([{ status: 200 }, { status: 200 }]);
   const sender = createPushSender({ env: apnsEnv, connect: http.connect });
   const data = { type: "dose_logged", doses: [{ medicationId: "med-1", part: "morning", day: "2026-10-04" }] };
-  assert.deepEqual(await sender.send(iosDevice, { alert: { title: "Dose logged", body: "Sam gave Miso's Insulin · 8:02 AM" }, data, collapseId: "log-1" }), { ok: true });
+  assert.deepEqual(await sender.send(iosDevice, { alert: { title: "Dose logged", body: "Sam gave Miso’s Insulin · 8:02 AM" }, data, collapseId: "log-1" }), { ok: true });
   assert.deepEqual(await sender.send(iosDevice, { background: true, data }), { ok: true });
   const [alert, silent] = http.calls;
   assert.equal(alert.host, "https://api.sandbox.push.apple.com");
@@ -128,7 +128,7 @@ test("APNs alert + background requests carry the right host, headers and payload
   assert.equal(alert.headers["apns-priority"], "10");
   assert.equal(alert.headers["apns-collapse-id"], "log-1");
   assert.match(alert.headers.authorization, /^bearer [\w-]+\.[\w-]+\.[\w-]+$/);
-  assert.equal(JSON.parse(alert.body).aps.alert.body, "Sam gave Miso's Insulin · 8:02 AM");
+  assert.equal(JSON.parse(alert.body).aps.alert.body, "Sam gave Miso’s Insulin · 8:02 AM");
   assert.equal(silent.headers["apns-push-type"], "background");
   assert.equal(silent.headers["apns-priority"], "5");
   const silentBody = JSON.parse(silent.body);
@@ -204,7 +204,7 @@ test("FCM: one OAuth exchange is cached across sends; data values are strings", 
   ]);
   const sender = createPushSender({ env: { FCM_SERVICE_ACCOUNT_JSON: serviceAccount }, fetchImpl: http.fetchImpl });
   assert.equal(sender.configured().fcm, true);
-  const message = { alert: { title: "Dose logged", body: "Sam gave Miso's Insulin" }, data: { type: "dose_logged", doses: [{ day: "2026-10-04" }] } };
+  const message = { alert: { title: "Dose logged", body: "Sam gave Miso’s Insulin" }, data: { type: "dose_logged", doses: [{ day: "2026-10-04" }] } };
   assert.deepEqual(await sender.send(androidDevice, message), { ok: true });
   assert.deepEqual(await sender.send(androidDevice, message), { ok: true });
   assert.equal(http.calls.length, 3, "token exchange once, then two sends");

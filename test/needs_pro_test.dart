@@ -20,7 +20,7 @@ import 'fake_reminder_platform.dart';
 import 'support/sample_household.dart';
 import 'test_log_helpers.dart';
 
-/// A medicine the server marked "needs Pro" (saved over Free's limits by an
+/// A medicine the server marked "needs Pro" (saved over Free’s limits by an
 /// old or modified app, or Pro that ended before an offline add synced).
 Medication _locked(String today) => Medication(
   id: 'locked',
@@ -65,11 +65,17 @@ void main() {
       };
       expect(medicationFromJson(base).needsPro, isFalse);
       expect(medicationFromJson({...base, 'needsPro': true}).needsPro, isTrue);
-      expect(medicationFromJson({...base, 'needsPro': 'yes'}).needsPro, isFalse);
+      expect(
+        medicationFromJson({...base, 'needsPro': 'yes'}).needsPro,
+        isFalse,
+      );
       // Round-trips through the saved JSON; unmarked stays absent.
       final marked = medicationFromJson({...base, 'needsPro': true});
       expect(medicationFromJson(marked.toJson()).needsPro, isTrue);
-      expect(medicationFromJson(base).toJson().containsKey('needsPro'), isFalse);
+      expect(
+        medicationFromJson(base).toJson().containsKey('needsPro'),
+        isFalse,
+      );
       // copyWith keeps it unless told otherwise.
       expect(marked.copyWith(dosesLeft: 3).needsPro, isTrue);
       expect(marked.copyWith(needsPro: false).needsPro, isFalse);
@@ -147,24 +153,27 @@ void main() {
   });
 
   group('repository', () {
-    test('Free: locked, still on Today, still logs, counts toward the cap', () async {
-      final care = _care(DateTime(2026, 10, 4, 21));
-      final med = care.medicationById('locked')!;
-      expect(care.isMedicationLocked(med), isTrue);
-      expect(care.lockedMedications.map((m) => m.id), ['locked']);
-      final dose = care.doses.firstWhere((d) => d.medicationId == 'locked');
-      expect(
-        await care.logDose(
-          doseId: dose.id,
-          memberId: 'you',
-          amount: '50 mg',
-          timeLabel: '9:00 PM',
-        ),
-        isTrue,
-        reason: 'safety is free: a marked medicine always logs',
-      );
-      expect(care.canAddMedication('juniper'), isFalse);
-    });
+    test(
+      'Free: locked, still on Today, still logs, counts toward the cap',
+      () async {
+        final care = _care(DateTime(2026, 10, 4, 21));
+        final med = care.medicationById('locked')!;
+        expect(care.isMedicationLocked(med), isTrue);
+        expect(care.lockedMedications.map((m) => m.id), ['locked']);
+        final dose = care.doses.firstWhere((d) => d.medicationId == 'locked');
+        expect(
+          await care.logDose(
+            doseId: dose.id,
+            memberId: 'you',
+            amount: '50 mg',
+            timeLabel: '9:00 PM',
+          ),
+          isTrue,
+          reason: 'safety is free: a marked medicine always logs',
+        );
+        expect(care.canAddMedication('juniper'), isFalse);
+      },
+    );
 
     test('Pro: nothing is locked', () {
       final care = _care(DateTime(2026, 10, 4, 21))..debugStorePro = true;
@@ -237,28 +246,33 @@ void main() {
         )
         .first;
 
-    testWidgets('Free shows the paused-reminders banner; it opens the paywall', (
-      tester,
-    ) async {
-      await pump(tester, _care(DateTime(2026, 10, 4, 14)));
-      await tester.scrollUntilVisible(find.text(banner), 150, scrollable: scroll);
-      expect(find.text(banner), findsOneWidget);
-      await Scrollable.ensureVisible(
-        tester.element(find.text(banner)),
-        alignment: 0.3,
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.text(banner));
-      await tester.pumpAndSettle();
-      expect(find.text('Morning and evening, both covered'), findsOneWidget);
-    });
+    testWidgets(
+      'Free shows the paused-reminders banner; it opens the paywall',
+      (tester) async {
+        await pump(tester, _care(DateTime(2026, 10, 4, 14)));
+        await tester.scrollUntilVisible(
+          find.text(banner),
+          150,
+          scrollable: scroll,
+        );
+        expect(find.text(banner), findsOneWidget);
+        await Scrollable.ensureVisible(
+          tester.element(find.text(banner)),
+          alignment: 0.3,
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(banner));
+        await tester.pumpAndSettle();
+        expect(find.text('Morning and evening, both covered'), findsOneWidget);
+      },
+    );
 
     testWidgets('Pro shows no banner', (tester) async {
       await pump(
         tester,
         _care(DateTime(2026, 10, 4, 14))..debugStorePro = true,
       );
-      // Scroll the whole page so a banner further down can't hide.
+      // Scroll the whole page so a banner further down can’t hide.
       await tester.dragUntilVisible(
         find.text('Juniper').first,
         scroll,

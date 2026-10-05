@@ -106,7 +106,7 @@ void main() {
       care.reportFor('miso', 7).recent.map((e) => e.medicationName),
       contains('Antibiotic (stopped Oct 2)'),
     );
-    // The other pet's report doesn't borrow it.
+    // The other pet’s report doesn’t borrow it.
     expect(care.reportFor('rex', 7).lines, isEmpty);
     expect(
       care.activity.map((a) => a.emphasis),
@@ -144,7 +144,7 @@ void main() {
     expect(care.doses.map((d) => d.medicationId), everyElement('insulin'));
     expect(care.nextDue?.medicationId, anyOf(isNull, 'insulin'));
     expect(care.medicationById('abx'), isNull);
-    // Logging against it is refused (it's not on the schedule).
+    // Logging against it is refused (it’s not on the schedule).
     expect(
       await care.logDose(
         doseId: 'abx.morning',
@@ -263,7 +263,7 @@ void main() {
       );
       await care.join(code: 'ABC234', name: 'Me');
       await care.flushPersist();
-      // Something older than the server's window, saved earlier on this phone.
+      // Something older than the server’s window, saved earlier on this phone.
       await store.write(
         StoredHousehold(
           token: 'house-token',
@@ -289,7 +289,7 @@ void main() {
           ],
         ),
       );
-      // A dose queued offline that the server hasn't received yet.
+      // A dose queued offline that the server hasn’t received yet.
       const queued = DoseRecord(
         id: 'queued',
         medicationId: 'insulin',
@@ -345,7 +345,7 @@ void main() {
       expect(relaunched.logs.map((l) => l.id), isNot(contains('unsure')));
     });
 
-    test('joining another household drops this phone\'s old history', () async {
+    test('joining another household drops this phone’s old history', () async {
       final care = CareRepository(
         api: fakeHouseholdApi(FakeHouseholdAdapter([(200, _household())])),
         store: HouseholdStore(),

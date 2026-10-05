@@ -142,7 +142,7 @@ class PetDetailsScreen extends StatelessWidget {
   }
 }
 
-/// The pet doesn't exist yet, so the compressed photo waits in the model and
+/// The pet doesn’t exist yet, so the compressed photo waits in the model and
 /// is saved to disk by `CareRepository.applyOnboarding` once it has an id.
 Future<void> _choosePhoto(
   BuildContext context,
@@ -235,7 +235,8 @@ class _WeightField extends StatelessWidget {
           initialValue: weight,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           inputFormatters: [
-            FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+            // Comma too: a decimal keyboard in many locales has no dot.
+            FilteringTextInputFormatter.allow(RegExp(r'[0-9.,]')),
           ],
           onChanged: context.read<OnboardingViewModel>().setWeight,
           decoration: InputDecoration(

@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pawsitive_sync/core/constants/pet_limits.dart';
 import 'package:pawsitive_sync/domain/models.dart';
+import 'package:pawsitive_sync/ui/pets/widgets/pet_form_sections.dart';
+
 import 'support/sample_household.dart';
 
 void main() {
@@ -63,5 +65,16 @@ void main() {
     expect(PetLimits.isValidWeight(''), isTrue);
     expect(PetLimits.isValidWeight('4.5'), isTrue);
     expect(PetLimits.isValidWeight('999'), isFalse);
+    // A comma decimal separator is accepted and parsed as a dot.
+    expect(PetLimits.isValidWeight('4,5'), isTrue);
+    expect(PetLimits.parseWeightKg('4,5'), 4.5);
+    expect(PetLimits.isValidWeight(' 4.5 '), isTrue);
+    expect(PetLimits.isValidWeight('4.555'), isFalse);
+    expect(PetLimits.isValidWeight('abc'), isFalse);
+    expect(PetLimits.parseWeightKg(''), isNull);
+    // Age over the cap is refused at the form instead of clamped silently.
+    expect(PetFormValidation.ageError(''), isNull);
+    expect(PetFormValidation.ageError('12'), isNull);
+    expect(PetFormValidation.ageError('99'), isNotNull);
   });
 }

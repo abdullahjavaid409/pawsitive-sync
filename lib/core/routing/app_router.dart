@@ -108,10 +108,12 @@ GoRouter createRouter(OnboardingViewModel onboarding) {
       GoRoute(
         path: AppRoutes.lock,
         parentNavigatorKey: rootNavigatorKey,
-        builder: (context, state) => AdaptivePage(child: LockScreen(
-          doseId: state.uri.queryParameters['dose'],
-          day: state.uri.queryParameters['day'],
-        )),
+        builder: (context, state) => AdaptivePage(
+          child: LockScreen(
+            doseId: state.uri.queryParameters['dose'],
+            day: state.uri.queryParameters['day'],
+          ),
+        ),
       ),
       StatefulShellRoute.indexedStack(
         // Named so navigation logs say "shell" instead of an anonymous page.
@@ -196,7 +198,8 @@ GoRouter createRouter(OnboardingViewModel onboarding) {
       GoRoute(
         path: AppRoutes.settings,
         parentNavigatorKey: rootNavigatorKey,
-        builder: (context, state) => const AdaptivePage(child: SettingsScreen()),
+        builder: (context, state) =>
+            const AdaptivePage(child: SettingsScreen()),
       ),
     ],
   );

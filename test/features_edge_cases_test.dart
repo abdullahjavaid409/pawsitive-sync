@@ -30,7 +30,10 @@ void main() {
       care.applyStoreEntitlement(true, BillingPlan.yearly);
       expect(care.isPro, isTrue);
       expect(care.canAddPet, isTrue);
-      expectLogged('billing.store.entitlement_changed', fields: {'active': true});
+      expectLogged(
+        'billing.store.entitlement_changed',
+        fields: {'active': true},
+      );
     });
 
     test('pro tier respects household pet cap', () async {
@@ -67,9 +70,7 @@ void main() {
     });
 
     test('Free history and reports cover the last 30 days; Pro sees all', () {
-      final care = sampleCare(
-        clock: () => DateTime(2026, 10, 10, 14),
-      );
+      final care = sampleCare(clock: () => DateTime(2026, 10, 10, 14));
       expect(care.historyFromDay, '2026-09-11');
       care.debugStorePro = true;
       expect(care.historyFromDay, isNull);
@@ -79,7 +80,7 @@ void main() {
   group('Medication course end', () {
     test('medication with endDay is inactive after course ends', () async {
       DateTime clock() => DateTime(2026, 10, 10, 14);
-      // Pro: the sample's Miso already has Free's medicine count.
+      // Pro: the sample’s Miso already has Free’s medicine count.
       final care = sampleCare(clock: clock)..debugStorePro = true;
       final endDay = dayKey(clock().add(const Duration(days: 7)));
       await care.addMedication(
@@ -108,18 +109,13 @@ void main() {
         parts: [DayPart.morning],
         endDay: dayKey(DateTime(2026, 10, 19)),
       );
-      expect(
-        care.doses.any((d) => d.name == 'Short course'),
-        isFalse,
-      );
+      expect(care.doses.any((d) => d.name == 'Short course'), isFalse);
     });
   });
 
   group('Dose logging edge cases', () {
     test('uncertain dose stays due with check-first subtitle', () async {
-      final care = sampleCare(
-        clock: () => DateTime(2026, 10, 3, 14),
-      );
+      final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14));
       final dose = care.doses.firstWhere((d) => d.status == DoseStatus.due);
       final ok = await care.markDoseUncertain(dose.id);
       expect(ok, isTrue);
@@ -129,9 +125,7 @@ void main() {
     });
 
     test('given dose can replace uncertain log', () async {
-      final care = sampleCare(
-        clock: () => DateTime(2026, 10, 3, 14),
-      );
+      final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14));
       final dose = care.doses.firstWhere((d) => d.status == DoseStatus.due);
       await care.markDoseUncertain(dose.id);
       final ok = await care.logDose(
@@ -145,9 +139,7 @@ void main() {
     });
 
     test('double log of same dose is rejected', () async {
-      final care = sampleCare(
-        clock: () => DateTime(2026, 10, 3, 14),
-      );
+      final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14));
       final dose = care.doses.firstWhere((d) => d.status == DoseStatus.due);
       final first = await care.logDose(
         doseId: dose.id,
@@ -168,9 +160,7 @@ void main() {
     });
 
     test('skip removes dose from today list', () async {
-      final care = sampleCare(
-        clock: () => DateTime(2026, 10, 3, 14),
-      );
+      final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14));
       final dose = care.doses.firstWhere((d) => d.status == DoseStatus.due);
       final ok = await care.skipDose(dose.id);
       expect(ok, isTrue);
@@ -236,7 +226,10 @@ void main() {
       final care = sampleCare();
       final error = await care.join(code: 'ABCDEF', name: '  ');
       expect(error, isNotNull);
-      expectLogged('household.join_rejected', fields: {'reason': 'missing_name'});
+      expectLogged(
+        'household.join_rejected',
+        fields: {'reason': 'missing_name'},
+      );
     });
   });
 
@@ -258,12 +251,15 @@ void main() {
         parts: [DayPart.morning],
       );
       final dose = care.doses.firstWhere((d) => d.status == DoseStatus.due);
-      expect(await care.logDose(
-        doseId: dose.id,
-        memberId: 'you',
-        amount: '1 tablet',
-        timeLabel: '8:00 AM',
-      ), isTrue);
+      expect(
+        await care.logDose(
+          doseId: dose.id,
+          memberId: 'you',
+          amount: '1 tablet',
+          timeLabel: '8:00 AM',
+        ),
+        isTrue,
+      );
       await care.sync();
       expect(AppLog.logged('household.sync_skipped'), isTrue);
     });
@@ -288,7 +284,10 @@ void main() {
         parts: [DayPart.morning],
       );
       expect(ok, isFalse);
-      expectLogged('medication.add_rejected', fields: {'reason': 'missing_name'});
+      expectLogged(
+        'medication.add_rejected',
+        fields: {'reason': 'missing_name'},
+      );
     });
 
     test('rejects empty schedule parts', () async {
@@ -300,7 +299,10 @@ void main() {
         parts: [],
       );
       expect(ok, isFalse);
-      expectLogged('medication.add_rejected', fields: {'reason': 'missing_parts'});
+      expectLogged(
+        'medication.add_rejected',
+        fields: {'reason': 'missing_parts'},
+      );
     });
 
     test('refill restores supply count', () async {

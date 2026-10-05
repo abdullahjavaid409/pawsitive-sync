@@ -39,7 +39,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
       'One-tap logging, double-dose checks, and “not sure if given” for one pet.',
     ),
     (
-      'What\'s due today?',
+      'What’s due today?',
       'Morning, afternoon, and evening doses in one Today list with reminders.',
     ),
     (
@@ -116,7 +116,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
     if (!mounted) return;
     final care = context.read<CareRepository>();
     // Subscribers keep their real plan; resetting it would overwrite the
-    // household's billing plan on the server.
+    // household’s billing plan on the server.
     if (!care.isPro && care.plan != BillingPlan.yearly) {
       AppLog.unawaitedLogged(
         care.setPlan(BillingPlan.yearly),
@@ -156,7 +156,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
     );
   }
 
-  /// The store's localized price, or a placeholder until RevenueCat answers.
+  /// The store’s localized price, or a placeholder until RevenueCat answers.
   String _price(BillingPlan plan) =>
       _offer?.forPlan(plan)?.priceString ?? (_loadingOffer ? '…' : '—');
 
@@ -475,7 +475,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
                           : Text(_ctaLabel(care.plan)),
                     ),
                     const SizedBox(height: 8),
-                    // Apple 3.1.2 terms, only with the store's real price.
+                    // Apple 3.1.2 terms, only with the store’s real price.
                     if (_offer?.forPlan(care.plan) != null)
                       Text(
                         SubscriptionDisclosure.compactLine(
@@ -495,6 +495,8 @@ class _PaywallScreenState extends State<PaywallScreen> {
                       ),
                     Wrap(
                       alignment: WrapAlignment.center,
+                      // The dot is shorter than the buttons: centre it.
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       spacing: 8,
                       children: [
                         TextButton(

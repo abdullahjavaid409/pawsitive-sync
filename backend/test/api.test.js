@@ -68,7 +68,9 @@ async function call(method, path, { token, body } = {}) {
   return { status: response.status, body: text ? JSON.parse(text) : {} };
 }
 
-const today = "2026-10-04";
+// The server's calendar day (UTC): "ends today" courses and slot release
+// compare against it, so a fixed date goes stale the next day.
+const today = new Date().toISOString().slice(0, 10);
 
 /** Owner "Sam" + caregiver "Dan" + app sitter "Sara", one pet, one medicine. */
 async function household() {
@@ -220,7 +222,7 @@ describe("role matrix (role × route)", () => {
 });
 
 describe("member management", () => {
-  test("owner can't demote themselves, can't promote anyone to owner; unknown member is 404", async () => {
+  test("owner can’t demote themselves, can’t promote anyone to owner; unknown member is 404", async () => {
     const house = await household();
     const self = await call("PATCH", "/v1/members/you", { token: house.owner.token, body: { role: "caregiver" } });
     assert.equal(self.status, 400);
@@ -322,7 +324,7 @@ describe("sitter links", () => {
     const again = await call("DELETE", `/v1/sitter-links/${weekend.id}`, { token: house.owner.token });
     assert.deepEqual(again.body, { ok: true, revoked: false });
     let members = (await call("GET", "/v1/household", { token: house.owner.token })).body.members;
-    assert.ok(!members.some((m) => m.name === "Weekend"), "revoked link's sitter member is gone");
+    assert.ok(!members.some((m) => m.name === "Weekend"), "revoked link’s sitter member is gone");
 
     // Expire the other link: it disappears from the list and its member is cleaned up.
     await pool.query("UPDATE sitter_links SET expires_at = now() - interval '1 minute' WHERE household_id = $1", [house.id]);
@@ -333,7 +335,7 @@ describe("sitter links", () => {
     assert.equal((await call("GET", `/v1/sitter/view?day=${today}&hour=9`, { token: b.body.token })).status, 401);
   });
 
-  test("a browser sitter member's role can't be changed", async () => {
+  test("a browser sitter member’s role can’t be changed", async () => {
     const house = await household();
     await webhook(house, "you", "INITIAL_PURCHASE");
     await call("POST", "/v1/sitter-links", { token: house.owner.token, body: { label: "Browser" } });
@@ -500,7 +502,7 @@ describe("push fan-out", () => {
     assert.ok(!sender.sent.some((s) => s.token === apnsOwner), "never the member who logged");
     const toCaregiver = sender.sent.filter((s) => s.token === apnsA);
     assert.equal(toCaregiver.length, 2);
-    assert.deepEqual(toCaregiver[0].message.alert, { title: "Dose logged", body: "Sam gave Miso's Insulin · 8:02 AM" });
+    assert.deepEqual(toCaregiver[0].message.alert, { title: "Dose logged", body: "Sam gave Miso’s Insulin · 8:02 AM" });
     assert.equal(toCaregiver[1].message.background, true);
     assert.deepEqual(toCaregiver[1].message.data.doses, [
       { logId: "log-p1", medicationId: "med-1", part: "morning", day: today, outcome: "given" },
@@ -607,7 +609,7 @@ describe("custom reminder times (medications.times)", () => {
     for (const times of [{ morning: "24:00" }, { morning: "7:00" }, { evening: "19:60" }, { morning: 700 }, "07:00", [1]]) {
       const response = await call("PATCH", "/v1/medications/med-1", { token: house.owner.token, body: { times } });
       assert.equal(response.status, 400, JSON.stringify(times));
-      assert.equal(response.body.error, "That reminder time doesn't look right. Pick it again.");
+      assert.equal(response.body.error, "That reminder time doesn’t look right. Pick it again.");
     }
     const create = await call("POST", "/v1/medications", {
       token: house.owner.token,
@@ -619,7 +621,7 @@ describe("custom reminder times (medications.times)", () => {
     assert.equal(snapshot.medications.some((m) => m.id === "med-3"), false);
   });
 
-  test("an old app that never sends times can't wipe them (upsert replay, refill, PATCH without times)", async () => {
+  test("an old app that never sends times can’t wipe them (upsert replay, refill, PATCH without times)", async () => {
     const house = await household();
     await call("PATCH", "/v1/medications/med-1", { token: house.owner.token, body: { times: { morning: "07:00", evening: "19:00" } } });
     // Old app replays its addMedication (same id, no times field) from the outbox.
@@ -670,7 +672,7 @@ describe("Free limits on the server: marked, never refused", () => {
     assert.equal(pet.status, 201);
   }
 
-  test("household creation keeps the phone's data as is (Pro-era schedules)", async () => {
+  test("household creation keeps the phone’s data as is (Pro-era schedules)", async () => {
     const house = await household();
     // med-1 is morning + evening on a Free household, uploaded at creation.
     assert.equal(await marked(house.owner.token, "med-1"), false);
@@ -717,7 +719,7 @@ describe("Free limits on the server: marked, never refused", () => {
     assert.equal(added.body.medication.needsPro, undefined);
   });
 
-  test("moving the morning reminder out of the morning marks it; a kept time doesn't", async () => {
+  test("moving the morning reminder out of the morning marks it; a kept time doesn’t", async () => {
     const house = await household();
     await freshPet(house, "pet-t");
     await call("POST", "/v1/medications", { token: house.owner.token, body: med("t-1", "pet-t") });
@@ -768,7 +770,7 @@ describe("needs-Pro marks clear once the medicine fits Free again", () => {
     assert.equal((await call("POST", "/v1/pets", { token: house.owner.token, body: { id, name: id, species: "cat" } })).status, 201);
   }
 
-  test("stopping the pet's other medicine releases the oldest marked one only", async () => {
+  test("stopping the pet’s other medicine releases the oldest marked one only", async () => {
     const house = await household();
     await freshPet(house, "rel-pet");
     const t = house.owner.token;

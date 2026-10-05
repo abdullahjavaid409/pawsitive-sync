@@ -52,9 +52,10 @@ class _AddPetScreenState extends State<AddPetScreen> {
   Future<void> _save() async {
     if (_busy) return;
     final nameError = PetFormValidation.nameError(_name.text);
+    final ageError = PetFormValidation.ageError(_age.text);
     final weightError = PetFormValidation.weightError(_weight.text);
-    if (nameError != null || weightError != null) {
-      setState(() => _error = nameError ?? weightError);
+    if (nameError != null || ageError != null || weightError != null) {
+      setState(() => _error = nameError ?? ageError ?? weightError);
       return;
     }
     setState(() => _busy = true);
@@ -134,7 +135,7 @@ class _AddPetScreenState extends State<AddPetScreen> {
                     ScrollViewKeyboardDismissBehavior.onDrag,
                 padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
                 children: [
-                  Text("What's their name?", style: text.headlineSmall),
+                  Text("What’s their name?", style: text.headlineSmall),
                   const SizedBox(height: 12),
                   TextField(
                     controller: _name,

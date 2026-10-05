@@ -10,7 +10,7 @@ const _startedKey = 'apiStarted';
 const _attemptKey = 'attempt';
 const requestIdHeader = 'x-request-id';
 
-/// Method, path, request id and elapsed time for one call's log line.
+/// Method, path, request id and elapsed time for one call’s log line.
 /// Never bodies, tokens or query values.
 Map<String, Object?> apiCallFields(
   RequestOptions options, [

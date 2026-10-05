@@ -75,7 +75,7 @@ struct CareProvider: TimelineProvider {
         return snapshot
     }
     /// Widget-gallery preview and the redacted loading placeholder only
-    /// (Apple's pattern). Generic on purpose: never shown as real data.
+    /// (Apple’s pattern). Generic on purpose: never shown as real data.
     private func sample() -> CareEntry {
         let now = Date()
         let dose = CareDose(id: "preview", pet: "Your pet", medicine: "Daily medicine", amount: "1 tablet", dueAt: now.timeIntervalSince1970, scheduledAt: now.timeIntervalSince1970, state: "pending")
@@ -193,7 +193,7 @@ struct PawsitiveWidgets: Widget {
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: "PawsitiveCare", provider: CareProvider()) { entry in CareWidgetView(entry: entry) }
             .configurationDisplayName("Daily pet care")
-            .description("See the next dose and today's progress. Open the app to review and log care.")
+            .description("See the next dose and today’s progress. Open the app to review and log care.")
             .supportedFamilies(families)
     }
 }

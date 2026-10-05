@@ -37,7 +37,7 @@ class OnboardingTitle extends StatelessWidget {
   }
 }
 
-/// Original SVGs share the app's palette and remain crisp at every size.
+/// Original SVGs share the app’s palette and remain crisp at every size.
 class OnboardingArtwork extends StatelessWidget {
   const OnboardingArtwork(this.name, {super.key, required this.height});
 

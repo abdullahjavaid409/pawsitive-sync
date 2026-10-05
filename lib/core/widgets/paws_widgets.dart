@@ -107,7 +107,7 @@ class PawsSheet extends StatelessWidget {
   }
 }
 
-/// A form field that inherits the app's input tokens while keeping the common
+/// A form field that inherits the app’s input tokens while keeping the common
 /// [TextFormField] validation API in one place.
 class PawsTextFormField extends StatelessWidget {
   const PawsTextFormField({

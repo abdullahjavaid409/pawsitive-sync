@@ -121,17 +121,7 @@ class _AddCareEventSheetState extends State<_AddCareEventSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const SizedBox(height: 10),
-            Center(
-              child: Container(
-                width: 36,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: scheme.outlineVariant,
-                  borderRadius: BorderRadius.circular(3),
-                ),
-              ),
-            ),
+            // The drag handle comes from the theme (showDragHandle).
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 8, 12, 4),
               child: Row(

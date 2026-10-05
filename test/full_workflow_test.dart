@@ -48,7 +48,7 @@ void main() {
     await onboarding.finish(reminders: false);
     await OnboardingState.write(true);
     expect(onboarding.isComplete, isTrue);
-    // Setup's one log line is household.created_from_onboarding (below);
+    // Setup’s one log line is household.created_from_onboarding (below);
     // finish() only counts the funnel step.
     expectNotLogged('onboarding.finished');
 

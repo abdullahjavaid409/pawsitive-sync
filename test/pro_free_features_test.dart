@@ -78,12 +78,15 @@ void main() {
       final evening = care.doses.firstWhere(
         (d) => d.name == 'Daily' && d.part == DayPart.evening,
       );
-      expect(await care.logDose(
-        doseId: morning.id,
-        memberId: 'you',
-        amount: '1 tab',
-        timeLabel: '8:00 AM',
-      ), isTrue);
+      expect(
+        await care.logDose(
+          doseId: morning.id,
+          memberId: 'you',
+          amount: '1 tab',
+          timeLabel: '8:00 AM',
+        ),
+        isTrue,
+      );
       expect(await care.markDoseUncertain(evening.id), isTrue);
       expectLogged('dose.log.completed');
       expectLogged('dose.uncertain.completed');
@@ -211,7 +214,7 @@ void main() {
       // Every dose still shows and can be logged.
       expect(care.doses.where((d) => d.part == DayPart.evening), hasLength(2));
       final insulin = care.medications.first;
-      // The late morning time saved on Pro stays; changing another part's
+      // The late morning time saved on Pro stays; changing another part’s
       // time leaves it alone and saves.
       expect(
         await care.setMedicationTimes(insulin.id, {
@@ -280,7 +283,10 @@ void main() {
       expect(care.canShareVetReport, isTrue);
       expect(care.canShowLowSupplyAlerts, isTrue);
       expect(care.canAddPet, isTrue);
-      expectLogged('billing.store.entitlement_changed', fields: {'active': true});
+      expectLogged(
+        'billing.store.entitlement_changed',
+        fields: {'active': true},
+      );
     });
 
     test('second pet allowed on Pro', () async {

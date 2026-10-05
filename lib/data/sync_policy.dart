@@ -45,7 +45,7 @@ class SyncDecision {
 abstract final class SyncPolicy {
   static const maxAge = Duration(minutes: 15);
 
-  /// How far "last synced" may sit in the future before it's distrusted.
+  /// How far "last synced" may sit in the future before it’s distrusted.
   static const clockSkew = Duration(minutes: 2);
 
   /// After repeated offline failures: 30 s, 1, 2, 4, 8 min, capped at 10.
@@ -58,7 +58,7 @@ abstract final class SyncPolicy {
   /// Pure, so every case is table-tested.
   ///
   /// [lastSuccess] in the future means the device clock was moved back:
-  /// it can't be trusted, so the data counts as stale.
+  /// it can’t be trusted, so the data counts as stale.
   static SyncDecision decide({
     required DateTime now,
     required DateTime? lastSuccess,
@@ -72,7 +72,7 @@ abstract final class SyncPolicy {
     if (userRequested) return const SyncDecision(true, SyncReason.user);
     if (pushSaysChanged) return const SyncDecision(true, SyncReason.push);
     if (justConnected) return const SyncDecision(true, SyncReason.connected);
-    // Automatic syncs respect the offline backoff; explicit ones above don't.
+    // Automatic syncs respect the offline backoff; explicit ones above don’t.
     if (offlineFailures > 0 && lastFailure != null) {
       final wait = backoff(offlineFailures);
       final since = now.difference(lastFailure);

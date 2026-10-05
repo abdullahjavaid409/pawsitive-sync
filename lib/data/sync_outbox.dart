@@ -36,7 +36,7 @@ class SyncOutbox {
   LocalDatabase get _db => _database ?? LocalDatabase.shared;
 
   /// Ids of the ops seen in the last read/enqueue, for code that must not
-  /// drop a local change the server hasn't received yet.
+  /// drop a local change the server hasn’t received yet.
   Set<String> get pendingIds => {for (final op in _last) op.id};
 
   /// Record ids still queued, by op type: `{'logDose': {log ids}, …}`.

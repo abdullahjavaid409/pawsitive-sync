@@ -5,7 +5,7 @@ import 'package:pawsitive_sync/domain/models.dart';
 ///
 /// Wire format (server + local store): `{"morning": "07:00"}`, 24-hour
 /// `HH:mm`. Any time 00:00–23:59 is allowed for any part — the part stays
-/// the dose's name and identity (log keys never change), the time only
+/// the dose’s name and identity (log keys never change), the time only
 /// moves the reminder and when the dose counts as due (see
 /// [Medication.dueFromMinute]). Parts without a custom time use
 /// [DayPartLabel.defaultMinute].

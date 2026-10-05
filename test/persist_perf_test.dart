@@ -130,7 +130,7 @@ void main() {
       );
       await care.flushPersist();
       writeUs += write.elapsedMicroseconds;
-      // The new log row + the medicine's supply count. Nothing else.
+      // The new log row + the medicine’s supply count. Nothing else.
       expect(store.lastWriteRows, 2);
     }
     _report(

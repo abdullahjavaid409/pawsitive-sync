@@ -16,70 +16,133 @@ void main() {
   group('SyncPolicy.decide', () {
     // (description, args, expected sync, expected reason)
     final cases = <(String, SyncDecision Function(), bool, SyncReason)>[
-      ('fresh: synced 5 min ago, nothing pending',
-          () => SyncPolicy.decide(now: now, lastSuccess: now.subtract(const Duration(minutes: 5))),
-          false, SyncReason.fresh),
-      ('just under 15 min is still fresh',
-          () => SyncPolicy.decide(now: now, lastSuccess: now.subtract(const Duration(minutes: 14, seconds: 59))),
-          false, SyncReason.fresh),
-      ('15 min or older is stale',
-          () => SyncPolicy.decide(now: now, lastSuccess: now.subtract(SyncPolicy.maxAge)),
-          true, SyncReason.stale),
-      ('never synced on this install',
-          () => SyncPolicy.decide(now: now, lastSuccess: null),
-          true, SyncReason.never),
-      ('outbox has changes, even when fresh',
-          () => SyncPolicy.decide(now: now, lastSuccess: now, hasPending: true),
-          true, SyncReason.pending),
-      ('push says something changed',
-          () => SyncPolicy.decide(now: now, lastSuccess: now, pushSaysChanged: true),
-          true, SyncReason.push),
-      ('pull to refresh',
-          () => SyncPolicy.decide(now: now, lastSuccess: now, userRequested: true),
-          true, SyncReason.user),
-      ('right after connect/join',
-          () => SyncPolicy.decide(now: now, lastSuccess: now, justConnected: true),
-          true, SyncReason.connected),
-      ('offline 10 s ago: back off (pending waits too)',
-          () => SyncPolicy.decide(
-                now: now,
-                lastSuccess: null,
-                hasPending: true,
-                offlineFailures: 1,
-                lastFailure: now.subtract(const Duration(seconds: 10)),
-              ),
-          false, SyncReason.noNetwork),
-      ('offline backoff over: try again',
-          () => SyncPolicy.decide(
-                now: now,
-                lastSuccess: null,
-                offlineFailures: 1,
-                lastFailure: now.subtract(const Duration(seconds: 31)),
-              ),
-          true, SyncReason.never),
-      ('pull to refresh ignores the backoff',
-          () => SyncPolicy.decide(
-                now: now,
-                lastSuccess: null,
-                userRequested: true,
-                offlineFailures: 5,
-                lastFailure: now,
-              ),
-          true, SyncReason.user),
-      ('clock moved back: last sync "in the future" is not trusted',
-          () => SyncPolicy.decide(now: now, lastSuccess: now.add(const Duration(hours: 3))),
-          true, SyncReason.never),
-      ('a few seconds of clock correction is still fresh',
-          () => SyncPolicy.decide(now: now, lastSuccess: now.add(const Duration(seconds: 20))),
-          false, SyncReason.fresh),
-      ('failure time in the future (clock moved): no backoff',
-          () => SyncPolicy.decide(
-                now: now,
-                lastSuccess: now.subtract(const Duration(hours: 1)),
-                offlineFailures: 3,
-                lastFailure: now.add(const Duration(minutes: 5)),
-              ),
-          true, SyncReason.stale),
+      (
+        'fresh: synced 5 min ago, nothing pending',
+        () => SyncPolicy.decide(
+          now: now,
+          lastSuccess: now.subtract(const Duration(minutes: 5)),
+        ),
+        false,
+        SyncReason.fresh,
+      ),
+      (
+        'just under 15 min is still fresh',
+        () => SyncPolicy.decide(
+          now: now,
+          lastSuccess: now.subtract(const Duration(minutes: 14, seconds: 59)),
+        ),
+        false,
+        SyncReason.fresh,
+      ),
+      (
+        '15 min or older is stale',
+        () => SyncPolicy.decide(
+          now: now,
+          lastSuccess: now.subtract(SyncPolicy.maxAge),
+        ),
+        true,
+        SyncReason.stale,
+      ),
+      (
+        'never synced on this install',
+        () => SyncPolicy.decide(now: now, lastSuccess: null),
+        true,
+        SyncReason.never,
+      ),
+      (
+        'outbox has changes, even when fresh',
+        () => SyncPolicy.decide(now: now, lastSuccess: now, hasPending: true),
+        true,
+        SyncReason.pending,
+      ),
+      (
+        'push says something changed',
+        () => SyncPolicy.decide(
+          now: now,
+          lastSuccess: now,
+          pushSaysChanged: true,
+        ),
+        true,
+        SyncReason.push,
+      ),
+      (
+        'pull to refresh',
+        () =>
+            SyncPolicy.decide(now: now, lastSuccess: now, userRequested: true),
+        true,
+        SyncReason.user,
+      ),
+      (
+        'right after connect/join',
+        () =>
+            SyncPolicy.decide(now: now, lastSuccess: now, justConnected: true),
+        true,
+        SyncReason.connected,
+      ),
+      (
+        'offline 10 s ago: back off (pending waits too)',
+        () => SyncPolicy.decide(
+          now: now,
+          lastSuccess: null,
+          hasPending: true,
+          offlineFailures: 1,
+          lastFailure: now.subtract(const Duration(seconds: 10)),
+        ),
+        false,
+        SyncReason.noNetwork,
+      ),
+      (
+        'offline backoff over: try again',
+        () => SyncPolicy.decide(
+          now: now,
+          lastSuccess: null,
+          offlineFailures: 1,
+          lastFailure: now.subtract(const Duration(seconds: 31)),
+        ),
+        true,
+        SyncReason.never,
+      ),
+      (
+        'pull to refresh ignores the backoff',
+        () => SyncPolicy.decide(
+          now: now,
+          lastSuccess: null,
+          userRequested: true,
+          offlineFailures: 5,
+          lastFailure: now,
+        ),
+        true,
+        SyncReason.user,
+      ),
+      (
+        'clock moved back: last sync "in the future" is not trusted',
+        () => SyncPolicy.decide(
+          now: now,
+          lastSuccess: now.add(const Duration(hours: 3)),
+        ),
+        true,
+        SyncReason.never,
+      ),
+      (
+        'a few seconds of clock correction is still fresh',
+        () => SyncPolicy.decide(
+          now: now,
+          lastSuccess: now.add(const Duration(seconds: 20)),
+        ),
+        false,
+        SyncReason.fresh,
+      ),
+      (
+        'failure time in the future (clock moved): no backoff',
+        () => SyncPolicy.decide(
+          now: now,
+          lastSuccess: now.subtract(const Duration(hours: 1)),
+          offlineFailures: 3,
+          lastFailure: now.add(const Duration(minutes: 5)),
+        ),
+        true,
+        SyncReason.stale,
+      ),
     ];
     for (final (name, decide, sync, reason) in cases) {
       test(name, () {
@@ -196,20 +259,26 @@ void main() {
       expect(adapter.requests.single.path, '/v1/household');
     });
 
-    test('offline: one try, then backoff logs no_network (no retry storm)', () async {
-      // GETs get built-in retries (ApiRetryReadsInterceptor): all fail.
-      final (care, adapter) = await relaunch(
-        30,
-        replies: [for (var i = 0; i < 4; i++) (0, 'offline')],
-      );
-      await care.syncIfStale(source: 'launch');
-      final tried = adapter.requests.length;
-      expect(tried, inInclusiveRange(1, 3), reason: 'one sync attempt');
-      expectLogged('household.sync_failed', fields: {'kind': 'offline'});
-      AppLog.testRecords.clear();
-      await care.syncIfStale(source: 'resume');
-      expect(adapter.requests, hasLength(tried), reason: 'backing off');
-      expectLogged('household.sync_skipped', fields: {'reason': 'no_network'});
-    });
+    test(
+      'offline: one try, then backoff logs no_network (no retry storm)',
+      () async {
+        // GETs get built-in retries (ApiRetryReadsInterceptor): all fail.
+        final (care, adapter) = await relaunch(
+          30,
+          replies: [for (var i = 0; i < 4; i++) (0, 'offline')],
+        );
+        await care.syncIfStale(source: 'launch');
+        final tried = adapter.requests.length;
+        expect(tried, inInclusiveRange(1, 3), reason: 'one sync attempt');
+        expectLogged('household.sync_failed', fields: {'kind': 'offline'});
+        AppLog.testRecords.clear();
+        await care.syncIfStale(source: 'resume');
+        expect(adapter.requests, hasLength(tried), reason: 'backing off');
+        expectLogged(
+          'household.sync_skipped',
+          fields: {'reason': 'no_network'},
+        );
+      },
+    );
   });
 }

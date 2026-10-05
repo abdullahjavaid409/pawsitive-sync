@@ -66,7 +66,12 @@ void main() {
 
   test('every call carries a request id for the Railway logs', () async {
     final adapter = _FakeAdapter([
-      (200, {'household': {'inviteCode': 'ABC234'}}),
+      (
+        200,
+        {
+          'household': {'inviteCode': 'ABC234'},
+        },
+      ),
     ]);
     await _api(adapter).fetchHousehold();
     final rid = adapter.requests.single.headers['x-request-id'];
@@ -126,7 +131,12 @@ void main() {
   test('read retries are logged', () async {
     final adapter = _FakeAdapter([
       (503, {'error': 'busy'}),
-      (200, {'household': {'inviteCode': 'ABC234'}}),
+      (
+        200,
+        {
+          'household': {'inviteCode': 'ABC234'},
+        },
+      ),
     ]);
     await _api(adapter).fetchHousehold();
     expect(AppLog.logged('api.retry'), isTrue);
@@ -178,7 +188,11 @@ void main() {
       (
         200,
         {
-          'household': {'inviteCode': 'ABC234', 'isPro': true, 'plan': 'monthly'},
+          'household': {
+            'inviteCode': 'ABC234',
+            'isPro': true,
+            'plan': 'monthly',
+          },
           'memberId': 'you',
           'members': [
             {'id': 'you', 'name': 'Sara', 'role': 'owner', 'isYou': true},
@@ -213,10 +227,7 @@ void main() {
     final house = await _api(adapter).fetchHousehold();
 
     expect(adapter.requests.single.path, '/v1/household');
-    expect(
-      adapter.requests.single.headers['Authorization'],
-      'Bearer secret',
-    );
+    expect(adapter.requests.single.headers['Authorization'], 'Bearer secret');
     expect(house.inviteCode, 'ABC234');
     expect(house.isPro, isTrue);
     expect(house.plan, BillingPlan.monthly);
@@ -251,7 +262,12 @@ void main() {
   test('reads retry after a gateway error', () async {
     final adapter = _FakeAdapter([
       (503, {'error': 'busy'}),
-      (200, {'household': {'inviteCode': 'ABC234'}}),
+      (
+        200,
+        {
+          'household': {'inviteCode': 'ABC234'},
+        },
+      ),
     ]);
 
     final house = await _api(adapter).fetchHousehold();
@@ -314,7 +330,10 @@ void main() {
 
   test('a wrong invite code reads as not found', () async {
     final adapter = _FakeAdapter([
-      (404, {'error': 'That invite code was not found. Check it and try again.'}),
+      (
+        404,
+        {'error': 'That invite code was not found. Check it and try again.'},
+      ),
     ]);
 
     await expectLater(

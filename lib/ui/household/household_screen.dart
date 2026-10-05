@@ -233,7 +233,7 @@ class HouseholdScreen extends StatelessWidget {
   }
 }
 
-/// Owner: change a member's role or remove them. Each step confirms and
+/// Owner: change a member’s role or remove them. Each step confirms and
 /// reports the result in plain words.
 Future<void> _manageMember(
   BuildContext context,

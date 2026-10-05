@@ -33,7 +33,7 @@ class SyncEngine {
         applied.add(result.id);
         if (result.status == 'error') {
           // Dropped from the outbox either way: a rejected op never succeeds
-          // on retry. The returned snapshot puts the server's truth back.
+          // on retry. The returned snapshot puts the server’s truth back.
           AppLog.event('sync.batch.op_rejected', {
             'id': result.id,
             'message': result.message ?? '',
@@ -51,7 +51,7 @@ class SyncEngine {
         applied.add(result.id);
         final log = result.log;
         // Our own dose already saved (reply lost on a bad network) is not a
-        // double dose — only someone else's log is.
+        // double dose — only someone else’s log is.
         if (log != null && log.id != sentLogIds[result.id]) {
           conflictMessage =
               'Someone already logged this dose at ${log.timeLabel}.';
@@ -88,7 +88,7 @@ class BatchFlushResult {
   final String? conflictMessage;
   final DoseRecord? conflictLog;
 
-  /// Set when a queued change was refused because this member's role no
+  /// Set when a queued change was refused because this member’s role no
   /// longer allows it (changed on another phone while offline).
   final String? roleMessage;
 }

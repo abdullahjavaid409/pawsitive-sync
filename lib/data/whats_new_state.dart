@@ -1,7 +1,7 @@
 import 'package:pawsitive_sync/core/constants/release_features.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Tracks whether What's New was shown for [ReleaseFeatures.version].
+/// Tracks whether What’s New was shown for [ReleaseFeatures.version].
 abstract final class WhatsNewState {
   static const _key = 'whats_new_seen_version';
 

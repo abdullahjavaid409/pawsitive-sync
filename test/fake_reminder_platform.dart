@@ -39,7 +39,9 @@ class FakeReminderPlatform implements ReminderPlatform {
 
   @override
   Future<bool> requestPermission() async {
-    granted = askAnswer ? ReminderPermission.granted : ReminderPermission.denied;
+    granted = askAnswer
+        ? ReminderPermission.granted
+        : ReminderPermission.denied;
     return askAnswer;
   }
 

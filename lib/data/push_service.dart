@@ -172,21 +172,22 @@ abstract final class PushService {
     // iOS re-reports the same token every time the app asks for one (and
     // registering asks): an unchanged token must not register again, or
     // ask → token → register → ask… loops forever on a real device.
-    final same = _latest?.token == token.token &&
+    final same =
+        _latest?.token == token.token &&
         _latest?.environment == token.environment;
     _latest = token;
     if (same) return;
     final api = _api;
     if (api == null || api.token == null) return;
     AppLog.unawaitedLogged(
-      // The token is in hand: don't ask the OS again (that re-triggers it).
+      // The token is in hand: don’t ask the OS again (that re-triggers it).
       registerIfConnected(api, force: false, known: token),
       'push.register_failed',
     );
   }
 
   /// The server registration in flight; callers queue behind it so two
-  /// can't both pass the "unchanged" check. Asking the OS for its token is
+  /// can’t both pass the "unchanged" check. Asking the OS for its token is
   /// outside the lock, so a slow APNs never holds up a token in hand.
   static Future<void>? _inFlight;
 
@@ -220,7 +221,7 @@ abstract final class PushService {
     return prefs.getBool(_deliveryKey) ?? false;
   }
 
-  /// Forgets this device's push state and preference (account deletion,
+  /// Forgets this device’s push state and preference (account deletion,
   /// leaving): the next household registers afresh.
   static Future<void> clearLocal() async {
     final prefs = await SharedPreferences.getInstance();
@@ -282,7 +283,7 @@ abstract final class PushService {
     try {
       final enabled = await householdPushEnabled();
       final prefs = await SharedPreferences.getInstance();
-      // The session's hash only tells households apart; it is not a secret.
+      // The session’s hash only tells households apart; it is not a secret.
       final signature =
           '${session.hashCode}|${device.token}|$enabled|${device.environment}';
       if (!force && prefs.getString(_registeredKey) == signature) {
@@ -339,7 +340,7 @@ abstract final class PushService {
     ];
   }
 
-  /// A household push arrived: cancel this phone's reminder if it was for a
+  /// A household push arrived: cancel this phone’s reminder if it was for a
   /// dose someone else just gave or skipped, then let the app refresh.
   /// Safe to receive twice (alert + silent push): both steps are idempotent.
   static Future<void> handleRemoteMessage(Map<String, Object?> payload) async {

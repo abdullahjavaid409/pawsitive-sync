@@ -9,7 +9,7 @@ import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
 
-/// Joins someone's household with the 6-letter code they shared.
+/// Joins someone’s household with the 6-letter code they shared.
 class JoinScreen extends StatefulWidget {
   const JoinScreen({super.key, this.initialCode});
 

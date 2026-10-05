@@ -112,7 +112,10 @@ void main() {
     expect(find.text('Privacy'), findsOneWidget);
     expect(find.textContaining('Auto-renews'), findsOneWidget);
     expect(find.byTooltip('Close'), findsOneWidget);
-    expectLogged('billing.paywall.offer_shown', fields: {'offering': 'default'});
+    expectLogged(
+      'billing.paywall.offer_shown',
+      fields: {'offering': 'default'},
+    );
   }
 
   for (final reason in PaywallReason.values) {

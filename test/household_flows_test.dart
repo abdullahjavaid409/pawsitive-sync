@@ -191,66 +191,71 @@ void main() {
       expectLogged('sync.batch.conflict', fields: {'logId': 'log-partner'});
     });
 
-    test('a server-side failure keeps the offline dose queued until it saves', () async {
-      var attempts = 0;
-      Map<String, Object?>? saved;
-      final care = await connectedCare({
-        'POST /v1/sync/batch': (body) {
-          final op = ((body as Map)['operations'] as List).single as Map;
-          attempts += 1;
-          final payload = Map<String, Object?>.from(op['payload'] as Map);
-          // First try: the server hit a blip on its side.
-          if (attempts == 1) {
+    test(
+      'a server-side failure keeps the offline dose queued until it saves',
+      () async {
+        var attempts = 0;
+        Map<String, Object?>? saved;
+        final care = await connectedCare({
+          'POST /v1/sync/batch': (body) {
+            final op = ((body as Map)['operations'] as List).single as Map;
+            attempts += 1;
+            final payload = Map<String, Object?>.from(op['payload'] as Map);
+            // First try: the server hit a blip on its side.
+            if (attempts == 1) {
+              return (
+                200,
+                {
+                  'results': [
+                    {
+                      'id': op['id'],
+                      'status': 'retry',
+                      'message': 'Try again shortly.',
+                    },
+                  ],
+                  'household': connectHouseholdBody(),
+                },
+              );
+            }
+            saved = payload;
             return (
               200,
               {
                 'results': [
-                  {'id': op['id'], 'status': 'retry', 'message': 'Try again shortly.'},
+                  {'id': op['id'], 'status': 'ok', 'log': payload},
                 ],
-                'household': connectHouseholdBody(),
+                'household': connectHouseholdBody(logs: [payload]),
               },
             );
-          }
-          saved = payload;
-          return (
-            200,
-            {
-              'results': [
-                {'id': op['id'], 'status': 'ok', 'log': payload},
-              ],
-              'household': connectHouseholdBody(logs: [payload]),
-            },
-          );
-        },
-        'GET /v1/household': (_) => (
-          200,
-          connectHouseholdBody(logs: [?saved]),
-        ),
-      });
-      adapter.offline = true;
-      await care.logDose(
-        doseId: CareRepository.doseIdFor('insulin', DayPart.morning),
-        memberId: 'you',
-        amount: '2 u',
-        timeLabel: '2:00 PM',
-      );
-      adapter.offline = false;
-      await care.sync(force: true);
-      expectLogged('sync.batch.op_retry');
-      // Still shown on this phone while it waits.
-      expect(care.logs.where((l) => l.medicationId == 'insulin'), isNotEmpty);
-      expectNotLogged('sync.batch.op_rejected');
+          },
+          'GET /v1/household': (_) =>
+              (200, connectHouseholdBody(logs: [?saved])),
+        });
+        adapter.offline = true;
+        await care.logDose(
+          doseId: CareRepository.doseIdFor('insulin', DayPart.morning),
+          memberId: 'you',
+          amount: '2 u',
+          timeLabel: '2:00 PM',
+        );
+        adapter.offline = false;
+        await care.sync(force: true);
+        expectLogged('sync.batch.op_retry');
+        // Still shown on this phone while it waits.
+        expect(care.logs.where((l) => l.medicationId == 'insulin'), isNotEmpty);
+        expectNotLogged('sync.batch.op_rejected');
 
-      // Still queued: the next sync sends the same dose again and it saves.
-      await care.sync(force: true);
-      expect(attempts, 2);
-      final sent = adapter.bodiesFor('POST /v1/sync/batch');
-      expect(
-        (((sent.last as Map)['operations'] as List).single as Map)['type'],
-        'logDose',
-      );
-      expect(care.logs.where((l) => l.medicationId == 'insulin'), isNotEmpty);
-    });
+        // Still queued: the next sync sends the same dose again and it saves.
+        await care.sync(force: true);
+        expect(attempts, 2);
+        final sent = adapter.bodiesFor('POST /v1/sync/batch');
+        expect(
+          (((sent.last as Map)['operations'] as List).single as Map)['type'],
+          'logDose',
+        );
+        expect(care.logs.where((l) => l.medicationId == 'insulin'), isNotEmpty);
+      },
+    );
 
     test(
       'our own dose already saved is not reported as a double dose',
@@ -396,7 +401,7 @@ void main() {
 
       expect(await care.ensureSitterWebLink(force: true), isNull);
 
-      // Shares this phone's Pro once and retries once before giving up.
+      // Shares this phone’s Pro once and retries once before giving up.
       expectLogged('sitter.link_retry');
       expect(care.lastError, contains('still being set up'));
       expectLogged(

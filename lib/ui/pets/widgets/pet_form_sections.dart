@@ -135,7 +135,7 @@ class PetConditionsPicker extends StatelessWidget {
 abstract final class PetFormValidation {
   static String? nameError(String raw) {
     final trimmed = raw.trim();
-    if (trimmed.isEmpty) return "Add your pet's name.";
+    if (trimmed.isEmpty) return "Add your pet’s name.";
     if (trimmed.length > PetLimits.maxNameLength) {
       return 'Name is too long.';
     }
@@ -145,5 +145,18 @@ abstract final class PetFormValidation {
   static String? weightError(String raw) {
     if (PetLimits.isValidWeight(raw)) return null;
     return 'Use a weight like 4.5';
+  }
+
+  /// Blank is fine (age is optional). The repository clamps to
+  /// [PetLimits.maxAgeYears]; telling the person first beats a silent change.
+  static String? ageError(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return null;
+    final age = int.tryParse(trimmed);
+    if (age == null || age < 0) return 'Use a whole number of years.';
+    if (age > PetLimits.maxAgeYears) {
+      return 'Age must be ${PetLimits.maxAgeYears} years or less.';
+    }
+    return null;
   }
 }

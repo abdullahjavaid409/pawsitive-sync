@@ -41,38 +41,46 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('add medicine: pick 7:15 AM for the morning dose, saved and shown', (
-    tester,
-  ) async {
-    // Pro: the sample's Miso already has Free's medicine count.
-    final care = sampleCare(clock: () => DateTime(2026, 10, 3, 6))
-      ..debugStorePro = true;
-    final router = await _pump(tester, care);
-    router.go('${AppRoutes.schedule}?pet=miso');
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextFormField).at(0), 'Thyroid');
-    tester.testTextInput.hide();
-    // Default time shows on the tile and in its own row.
-    await _reveal(tester, find.text('Morning reminder'));
-    expect(find.text('8:00 AM'), findsWidgets);
-    await tester.tap(find.text('Morning reminder'));
-    await tester.pumpAndSettle();
-    expect(find.text('Morning reminder'), findsWidgets, reason: 'picker title');
-    await pickTime(tester, 7, 15);
-    expectLogged('medication.time_picked', fields: {'part': 'morning', 'custom': true});
-    expect(find.text('7:15 AM'), findsWidgets);
-    await _reveal(tester, find.text('Save medicine'));
-    await tester.tap(find.text('Save medicine'));
-    await tester.pumpAndSettle();
-    final med = care.medications.singleWhere((m) => m.name == 'Thyroid');
-    expect(med.times, {DayPart.morning: 7 * 60 + 15});
-    final dose = care.doseById('${med.id}.morning')!;
-    expect(dose.timeLabel, '7:15 AM');
-    expect(dose.status, DoseStatus.due, reason: 'morning opens at midnight');
-  });
+  testWidgets(
+    'add medicine: pick 7:15 AM for the morning dose, saved and shown',
+    (tester) async {
+      // Pro: the sample’s Miso already has Free’s medicine count.
+      final care = sampleCare(clock: () => DateTime(2026, 10, 3, 6))
+        ..debugStorePro = true;
+      final router = await _pump(tester, care);
+      router.go('${AppRoutes.schedule}?pet=miso');
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextFormField).at(0), 'Thyroid');
+      tester.testTextInput.hide();
+      // Default time shows on the tile and in its own row.
+      await _reveal(tester, find.text('Morning reminder'));
+      expect(find.text('8:00 AM'), findsWidgets);
+      await tester.tap(find.text('Morning reminder'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Morning reminder'),
+        findsWidgets,
+        reason: 'picker title',
+      );
+      await pickTime(tester, 7, 15);
+      expectLogged(
+        'medication.time_picked',
+        fields: {'part': 'morning', 'custom': true},
+      );
+      expect(find.text('7:15 AM'), findsWidgets);
+      await _reveal(tester, find.text('Save medicine'));
+      await tester.tap(find.text('Save medicine'));
+      await tester.pumpAndSettle();
+      final med = care.medications.singleWhere((m) => m.name == 'Thyroid');
+      expect(med.times, {DayPart.morning: 7 * 60 + 15});
+      final dose = care.doseById('${med.id}.morning')!;
+      expect(dose.timeLabel, '7:15 AM');
+      expect(dose.status, DoseStatus.due, reason: 'morning opens at midnight');
+    },
+  );
 
   testWidgets('dismissing the picker keeps the default', (tester) async {
-    // Pro: the sample's Miso already has Free's medicine count.
+    // Pro: the sample’s Miso already has Free’s medicine count.
     final care = sampleCare(clock: () => DateTime(2026, 10, 3, 6))
       ..debugStorePro = true;
     final router = await _pump(tester, care);

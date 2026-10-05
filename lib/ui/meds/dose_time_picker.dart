@@ -7,7 +7,7 @@ import 'package:pawsitive_sync/domain/models.dart';
 
 /// Opens the system time picker for [part]'s reminder, starting at
 /// [currentMinute]. Returns the picked minute of day, or null when
-/// dismissed. The picker follows the phone's 12/24-hour setting.
+/// dismissed. The picker follows the phone’s 12/24-hour setting.
 Future<int?> pickDoseTime(
   BuildContext context,
   DayPart part,

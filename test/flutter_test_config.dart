@@ -14,7 +14,7 @@ import 'fake_reminder_platform.dart';
 /// household database get a fresh in-memory copy per test, like
 /// SharedPreferences mocks do.
 ///
-/// The database runs on the host's SQLite in this isolate (no background
+/// The database runs on the host’s SQLite in this isolate (no background
 /// isolate, no file I/O), so it also works inside `testWidgets`' fake async.
 /// One connection per test stands in for the file: a new `HouseholdStore`
 /// in the same test sees what an earlier one saved, as after a relaunch.

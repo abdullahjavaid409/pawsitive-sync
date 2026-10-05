@@ -225,7 +225,8 @@ class _LogDoseSheetState extends State<_LogDoseSheet> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Log ${widget.dose.name.toLowerCase()}',
+                          // Medicine names are proper nouns ("Apoquel"): never re-cased.
+                          'Log ${widget.dose.name}',
                           style: text.headlineSmall,
                         ),
                         const SizedBox(height: 4),
@@ -426,7 +427,7 @@ class _DoubleDoseSheet extends StatelessWidget {
     final who = member?.name ?? 'Someone';
 
     final detail =
-        '${pet.name}\'s ${dose.name.toLowerCase()} was already logged. Giving it again could be unsafe.';
+        '${pet.name}’s ${dose.name} was already logged. Giving it again could be unsafe.';
     final when = [
       'Given by $who',
       pet.name,
@@ -508,7 +509,7 @@ class _DoubleDoseSheet extends StatelessWidget {
               foregroundColor: scheme.onSecondary,
             ),
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text("Got it, don't log"),
+            child: const Text("Got it, don’t log"),
           ),
         ],
       ),

@@ -12,6 +12,7 @@ import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
 import 'support/sample_household.dart';
 
 void main() {
@@ -40,7 +41,7 @@ void main() {
   testWidgets('a due dose inside a group opens confirmation without logging', (
     tester,
   ) async {
-    // Pro: the sample's Miso already has Free's medicine count.
+    // Pro: the sample’s Miso already has Free’s medicine count.
     final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14))
       ..debugStorePro = true;
     await care.addMedication(
@@ -64,7 +65,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text(dose.title));
     await tester.pumpAndSettle();
-    expect(find.text('Log gabapentin'), findsOneWidget);
+    expect(find.text('Log Gabapentin'), findsOneWidget);
     expect(care.doseById(dose.id)!.status, DoseStatus.due);
     expect(tester.takeException(), isNull);
   });
@@ -105,7 +106,7 @@ void main() {
   testWidgets('medicine form saves the selected pet, daily times and supply', (
     tester,
   ) async {
-    // Pro: Juniper already has Free's one medicine.
+    // Pro: Juniper already has Free’s one medicine.
     final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14))
       ..debugStorePro = true;
     final router = await _pump(tester, care);
@@ -156,7 +157,10 @@ void main() {
       findsOneWidget,
     );
     // Afternoon and evening say "Pro" before anyone taps them.
-    expect(find.bySemanticsLabel(RegExp(r'^Evening, .*, Pro$')), findsOneWidget);
+    expect(
+      find.bySemanticsLabel(RegExp(r'^Evening, .*, Pro$')),
+      findsOneWidget,
+    );
     expect(
       find.bySemanticsLabel(RegExp(r'^Afternoon, .*, Pro$')),
       findsOneWidget,
@@ -212,34 +216,40 @@ void main() {
     },
   );
 
-  testWidgets('first care event is discoverable, saves notes and confirms removal', (tester) async {
-    final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14));
-    await _pump(tester, care);
-    await _reveal(tester, find.text('Add event'));
-    await tester.tap(find.text('Add event'));
-    await tester.pumpAndSettle();
-    expect(find.text('Add care event'), findsOneWidget);
-    await tester.enterText(find.byType(TextField).first, 'Annual checkup');
-    await tester.enterText(find.byType(TextField).last, 'Bring the care report');
-    tester.testTextInput.hide();
-    await tester.tap(find.text('Save event'));
-    await tester.pumpAndSettle();
-    expect(care.careEvents, hasLength(1));
-    expect(care.careEvents.single.dueDay, '2026-10-10');
-    expect(care.careEvents.single.note, 'Bring the care report');
-    await _reveal(tester, find.text('Annual checkup'));
-    await tester.tap(find.byTooltip('Remove Annual checkup'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Keep event'));
-    await tester.pumpAndSettle();
-    expect(care.careEvents, hasLength(1));
-    await tester.tap(find.byTooltip('Remove Annual checkup'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Remove'));
-    await tester.pumpAndSettle();
-    expect(care.careEvents, isEmpty);
-    expect(tester.takeException(), isNull);
-  });
+  testWidgets(
+    'first care event is discoverable, saves notes and confirms removal',
+    (tester) async {
+      final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14));
+      await _pump(tester, care);
+      await _reveal(tester, find.text('Add event'));
+      await tester.tap(find.text('Add event'));
+      await tester.pumpAndSettle();
+      expect(find.text('Add care event'), findsOneWidget);
+      await tester.enterText(find.byType(TextField).first, 'Annual checkup');
+      await tester.enterText(
+        find.byType(TextField).last,
+        'Bring the care report',
+      );
+      tester.testTextInput.hide();
+      await tester.tap(find.text('Save event'));
+      await tester.pumpAndSettle();
+      expect(care.careEvents, hasLength(1));
+      expect(care.careEvents.single.dueDay, '2026-10-10');
+      expect(care.careEvents.single.note, 'Bring the care report');
+      await _reveal(tester, find.text('Annual checkup'));
+      await tester.tap(find.byTooltip('Remove Annual checkup'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Keep event'));
+      await tester.pumpAndSettle();
+      expect(care.careEvents, hasLength(1));
+      await tester.tap(find.byTooltip('Remove Annual checkup'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Remove'));
+      await tester.pumpAndSettle();
+      expect(care.careEvents, isEmpty);
+      expect(tester.takeException(), isNull);
+    },
+  );
 
   testWidgets('uncertain doses are clearly marked for review', (tester) async {
     final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14));
@@ -250,11 +260,13 @@ void main() {
     expect(find.text('Review dose'), findsOneWidget);
     await tester.tap(find.text('Review dose'));
     await tester.pumpAndSettle();
-    expect(find.text('Log ${dose.name.toLowerCase()}'), findsOneWidget);
+    expect(find.text('Log ${dose.name}'), findsOneWidget);
     expect(care.doseById(dose.id)!.status, DoseStatus.due);
   });
 
-  testWidgets('care event sheet supports large text with the keyboard open', (tester) async {
+  testWidgets('care event sheet supports large text with the keyboard open', (
+    tester,
+  ) async {
     final care = sampleCare();
     await _pump(tester, care, size: const Size(320, 640), scale: 1.6);
     await _reveal(tester, find.text('Add event'));
@@ -264,7 +276,18 @@ void main() {
     addTearDown(tester.view.resetViewInsets);
     await tester.pumpAndSettle();
     expect(find.text('Save event').hitTestable(), findsOneWidget);
-    final scroll = find.descendant(of: find.byWidgetPredicate((widget) => widget is SingleChildScrollView && widget.scrollDirection == Axis.vertical).last, matching: find.byType(Scrollable)).first;
+    final scroll = find
+        .descendant(
+          of: find
+              .byWidgetPredicate(
+                (widget) =>
+                    widget is SingleChildScrollView &&
+                    widget.scrollDirection == Axis.vertical,
+              )
+              .last,
+          matching: find.byType(Scrollable),
+        )
+        .first;
     for (var page = 0; page < 5; page++) {
       await tester.drag(scroll, const Offset(0, -180));
       await tester.pumpAndSettle();
@@ -279,9 +302,7 @@ void main() {
     testWidgets('main tabs scroll without overflow at $scenario', (
       tester,
     ) async {
-      final care = sampleCare(
-        clock: () => DateTime(2026, 10, 3, 14),
-      );
+      final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14));
       final router = await _pump(
         tester,
         care,

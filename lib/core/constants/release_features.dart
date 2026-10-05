@@ -1,6 +1,6 @@
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 
-/// Version shown in What's New and release notes. Keep in sync with pubspec.
+/// Version shown in What’s New and release notes. Keep in sync with pubspec.
 abstract final class ReleaseFeatures {
   static const version = '1.0.0';
 

@@ -192,6 +192,13 @@ flutter test integration_test/app_test.dart -d <sim> \
 
 # Real RevenueCat on a device (sandbox), server off:
 flutter run --dart-define-from-file=config/dev.json
+
+# Agent-driven manual QA: the real app plus the Flutter Driver extension, so
+# taps/typing can be sent through the Dart MCP server (flutter_driver_command).
+# Send driver commands one at a time; native iOS alerts (notification
+# permission) can't be tapped without the Simulator GUI.
+flutter run -t integration_test/support/driver_main.dart -d <sim> \
+  --dart-define-from-file=config/dev.json
 node scripts/smoke_backend.mjs                    # backend API (needs v4 deploy)
 ```
 

@@ -111,12 +111,12 @@ abstract final class RevenueCatService {
   @visibleForTesting
   static PaywallOffer? debugOffer;
 
-  /// Called whenever the store's view of Pro changes while the app runs:
+  /// Called whenever the store’s view of Pro changes while the app runs:
   /// a purchase that finishes after our timeout, Ask to Buy approval,
   /// renewal, expiry, refund. [CareRepository] wires this at launch.
   static void Function(bool isPro, BillingPlan? plan)? onEntitlementChanged;
 
-  /// When this phone's `pro` entitlement ends, from the last CustomerInfo
+  /// When this phone’s `pro` entitlement ends, from the last CustomerInfo
   /// (null = lifetime, or not Pro). The repository re-checks it on every
   /// read so a cached entitlement never outlives its expiry offline.
   static DateTime? storeProExpiresAt;
@@ -130,7 +130,9 @@ abstract final class RevenueCatService {
     required DateTime now,
   }) {
     if (!rcActive) return false;
-    final at = expirationDate == null ? null : DateTime.tryParse(expirationDate);
+    final at = expirationDate == null
+        ? null
+        : DateTime.tryParse(expirationDate);
     return at == null || at.isAfter(now);
   }
 
@@ -145,12 +147,13 @@ abstract final class RevenueCatService {
       now: DateTime.now(),
     );
     if ((entitlement?.isActive ?? false) && !active) {
-      // The SDK's cache still said active after the end (offline): not Pro.
+      // The SDK’s cache still said active after the end (offline): not Pro.
       AppLog.event('billing.rc.expired_cached', {'expiredAt': raw ?? ''});
     }
     storeProExpiresAt = active && raw != null ? DateTime.tryParse(raw) : null;
     return active;
   }
+
   static bool? _lastActive;
 
   static Future<void> initialize() async {
@@ -175,7 +178,7 @@ abstract final class RevenueCatService {
     // Billing stays off for this session; dose logging is unaffected.
     try {
       await AppLog.trace('billing.rc.init', () async {
-        // The SDK's own debug output prints subscriber attributes and full
+        // The SDK’s own debug output prints subscriber attributes and full
         // StoreKit 2 signed transactions (JWS). Keep warnings and errors only,
         // routed through AppLog with secrets redacted.
         await Purchases.setLogLevel(LogLevel.warn);
@@ -266,7 +269,7 @@ abstract final class RevenueCatService {
     if (!_initialized) return;
     try {
       // Never identified (Free, never shared): the SDK rejects logOut for an
-      // anonymous user, so there's nothing to do — not an error.
+      // anonymous user, so there’s nothing to do — not an error.
       if (await Purchases.isAnonymous.timeout(_networkTimeout)) {
         AppLog.event('billing.rc.logout', {'skipped': 'anonymous'});
         return;
@@ -503,7 +506,7 @@ abstract final class RevenueCatService {
   }
 
   /// Buys [plan]. Pass [package] from the [PaywallOffer] on screen so the
-  /// purchase matches the placement's offering and is attributed to it.
+  /// purchase matches the placement’s offering and is attributed to it.
   static Future<PurchaseResult> purchasePlan(
     BillingPlan plan, {
     Package? package,
@@ -599,7 +602,7 @@ abstract final class RevenueCatService {
 
   /// RevenueCat Customer Center: manage plan, cancel with a feedback survey
   /// and a retention offer, refund requests, restore. Returns false when the
-  /// SDK is not configured so callers can fall back to Apple's settings page.
+  /// SDK is not configured so callers can fall back to Apple’s settings page.
   static Future<bool> presentCustomerCenter() async {
     if (!_initialized) {
       AppLog.event('billing.rc.customer_center_skipped');

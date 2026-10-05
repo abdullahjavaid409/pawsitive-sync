@@ -56,7 +56,9 @@ class _PawsitiveAppState extends State<PawsitiveApp>
     WidgetsBinding.instance.addObserver(this);
     DoseReminders.pendingOpen.addListener(_openFromNotification);
     // A cold-start tap may have landed before the first frame.
-    WidgetsBinding.instance.addPostFrameCallback((_) => _openFromNotification());
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _openFromNotification(),
+    );
   }
 
   /// Notification tap or action → Today; TodayScreen opens the dose sheet
@@ -138,7 +140,7 @@ class _PawsitiveAppState extends State<PawsitiveApp>
       debugShowCheckedModeBanner: false,
       builder: (context, child) {
         final media = MediaQuery.of(context);
-        // Dose times follow the phone's 12/24-hour setting (before any
+        // Dose times follow the phone’s 12/24-hour setting (before any
         // screen builds, so this frame already uses it).
         ClockFormat.update(media.alwaysUse24HourFormat);
         return MediaQuery(
@@ -155,9 +157,9 @@ class _PawsitiveAppState extends State<PawsitiveApp>
   }
 }
 
-/// Sends framework and platform errors to Flutter's error presenter.
+/// Sends framework and platform errors to Flutter’s error presenter.
 /// Release builds show a calm fallback instead of the grey error box when a
-/// widget fails to build; debug keeps Flutter's red screen for developers.
+/// widget fails to build; debug keeps Flutter’s red screen for developers.
 void installErrorHandlers() {
   if (kReleaseMode) {
     ErrorWidget.builder = (details) => const _ScreenErrorFallback();

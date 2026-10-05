@@ -11,7 +11,7 @@ import 'package:pawsitive_sync/data/legacy_prefs_store.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:sqflite/sqflite.dart';
 
-/// The phone's copy of the household in SQLite: one row per member, pet,
+/// The phone’s copy of the household in SQLite: one row per member, pet,
 /// medicine, dose log, care event and queued sync op, so saving a dose
 /// writes one row instead of re-encoding the whole history.
 ///
@@ -19,19 +19,20 @@ import 'package:sqflite/sqflite.dart';
 /// and `SyncOutbox`. The household token is never stored here (it lives in
 /// `SecureTokens`).
 ///
-/// [open] returns null when the database can't be used this run (old data
-/// couldn't be migrated, disk full while creating it, …). Callers then fall
+/// [open] returns null when the database can’t be used this run (old data
+/// couldn’t be migrated, disk full while creating it, …). Callers then fall
 /// back to [LegacyPrefsStore] so the app keeps working on the old data.
 class LocalDatabase {
   LocalDatabase({this._factory, Future<String> Function()? path})
     : _path = path ?? _defaultPath;
 
-  /// The app's database. Tests swap it (see `flutter_test_config.dart`).
+  /// The app’s database. Tests swap it (see `flutter_test_config.dart`).
   static LocalDatabase shared = LocalDatabase();
 
   static const fileName = 'pawsitive.db';
+
   /// v2: `medications.times` (custom reminder times, JSON or NULL).
-  /// v3: `medications.needs_pro` (server marked it over Free's limits).
+  /// v3: `medications.needs_pro` (server marked it over Free’s limits).
   static const schemaVersion = 3;
 
   final DatabaseFactory? _factory;
@@ -78,7 +79,7 @@ class LocalDatabase {
         AppLog.error('store.open_failed', error, stack, {'stage': 'open'});
         return null;
       }
-      // A damaged file can't be repaired here. Keep it aside (support can
+      // A damaged file can’t be repaired here. Keep it aside (support can
       // still look at it) and start a clean one; a shared household comes
       // back from the server on the next sync.
       AppLog.error('store.corrupt_moved', error, stack);
@@ -116,7 +117,7 @@ class LocalDatabase {
       try {
         return await _openFile(path);
       } on DatabaseException catch (error) {
-        // A damaged file won't get better; the caller sets it aside.
+        // A damaged file won’t get better; the caller sets it aside.
         if (_isCorrupt(error) || attempt >= openRetryDelays.length) rethrow;
       } on Object {
         if (attempt >= openRetryDelays.length) rethrow;
@@ -147,7 +148,7 @@ class LocalDatabase {
   static bool _isCorrupt(DatabaseException error) {
     final code = error.getResultCode();
     // SQLITE_CORRUPT (11) / SQLITE_NOTADB (26), also matched by text because
-    // the result code isn't reported on every platform.
+    // the result code isn’t reported on every platform.
     return code == 11 ||
         code == 26 ||
         '$error'.contains('malformed') ||
@@ -320,9 +321,9 @@ abstract final class LocalRows {
     return parsed.copyWith(archivedAt: '${row['archived_at'] ?? ''}');
   }
 
-  /// [ord] is the log's place within its day, newest = highest, so a
-  /// restart shows a day's logs in exactly the order the app had them
-  /// (including the server's order after a sync).
+  /// [ord] is the log’s place within its day, newest = highest, so a
+  /// restart shows a day’s logs in exactly the order the app had them
+  /// (including the server’s order after a sync).
   static Map<String, Object?> log(DoseRecord log, int ord) => {
     'id': log.id,
     'medication_id': log.medicationId,
@@ -390,7 +391,7 @@ abstract final class LocalRows {
 /// Transactions whose failure reports the cause.
 extension GuardedTransaction on Database {
   /// [Database.transaction], rethrowing the error that broke it. When SQLite
-  /// has already rolled back by itself (disk full, I/O error), sqflite's own
+  /// has already rolled back by itself (disk full, I/O error), sqflite’s own
   /// ROLLBACK then fails and its "no transaction is active" would otherwise
   /// replace the real reason in the log. Either way nothing is half-saved.
   Future<T> guardedTransaction<T>(

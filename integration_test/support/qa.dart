@@ -1,5 +1,5 @@
 // Portable end-to-end QA harness. Depends only on flutter_test, so it can be
-// copied as-is into any Flutter project's integration_test/support/ folder.
+// copied as-is into any Flutter project’s integration_test/support/ folder.
 //
 // Usage:
 //   final qa = Qa(tester, hasEvent: (name, fields) => ...your log check...);
@@ -93,7 +93,7 @@ class Qa {
     }
   }
 
-  /// Drags the visible RefreshIndicator's list from the top, like a thumb.
+  /// Drags the visible RefreshIndicator’s list from the top, like a thumb.
   Future<void> pullToRefresh() async {
     final indicator = find.byType(RefreshIndicator);
     await waitFor(indicator);
@@ -159,7 +159,7 @@ class Qa {
     await settle();
   }
 
-  /// Replaces a field's text and confirms it stuck. On real devices a second
+  /// Replaces a field’s text and confirms it stuck. On real devices a second
   /// entry into a focused field can be ignored, so it refocuses and retries.
   Future<void> type(Finder field, String text) async {
     await waitFor(field);

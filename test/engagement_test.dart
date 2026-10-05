@@ -58,63 +58,85 @@ void main() {
   final now = DateTime(2026, 10, 4, 14);
 
   group('thank-you moments', () {
-    ThankYou? thanks(List<DoseRecord> logs, {bool shared = true, Set<String> dismissed = const {}}) =>
-        Engagement.thanks(
-          logs: logs,
-          today: _day(4),
-          myMemberId: 'you',
-          shared: shared,
-          dismissed: dismissed,
-          nameOf: (id) => id == 'sam' ? 'Sam' : 'You',
-          medication: (id) => _med(id, name: 'Insulin'),
-          pet: (_) => const Pet(
-            id: 'miso',
-            name: 'Miso',
-            species: Species.cat,
-            ageYears: 1,
-            breed: '',
-            sex: '',
-            conditions: [],
-            weightKg: 4,
-            onTimePercent: 100,
-            dailyMeds: 1,
-          ),
-        );
+    ThankYou? thanks(
+      List<DoseRecord> logs, {
+      bool shared = true,
+      Set<String> dismissed = const {},
+    }) => Engagement.thanks(
+      logs: logs,
+      today: _day(4),
+      myMemberId: 'you',
+      shared: shared,
+      dismissed: dismissed,
+      nameOf: (id) => id == 'sam' ? 'Sam' : 'You',
+      medication: (id) => _med(id, name: 'Insulin'),
+      pet: (_) => const Pet(
+        id: 'miso',
+        name: 'Miso',
+        species: Species.cat,
+        ageYears: 1,
+        breed: '',
+        sex: '',
+        conditions: [],
+        weightKg: 4,
+        onTimePercent: 100,
+        dailyMeds: 1,
+      ),
+    );
 
     test('newest dose someone else gave today', () {
       final t = thanks([
         _log('insulin', _day(4), memberId: 'sam', id: 'l2'),
         _log('insulin', _day(3), memberId: 'sam', id: 'l1'),
       ]);
-      expect(t?.text, "Sam gave Miso's Insulin — thanks, Sam");
+      expect(t?.text, "Sam gave Miso’s Insulin — thanks, Sam");
       expect(t?.logId, 'l2');
     });
 
-    test('not for my own doses, skips, other days, solo phones, or once dismissed', () {
-      expect(thanks([_log('insulin', _day(4))]), isNull);
-      expect(
-        thanks([_log('insulin', _day(4), memberId: 'sam', outcome: LogOutcome.skipped)]),
-        isNull,
-      );
-      expect(thanks([_log('insulin', _day(3), memberId: 'sam')]), isNull);
-      expect(thanks([_log('insulin', _day(4), memberId: 'sam')], shared: false), isNull);
-      expect(
-        thanks([_log('insulin', _day(4), memberId: 'sam', id: 'x')], dismissed: {'x'}),
-        isNull,
-      );
-    });
+    test(
+      'not for my own doses, skips, other days, solo phones, or once dismissed',
+      () {
+        expect(thanks([_log('insulin', _day(4))]), isNull);
+        expect(
+          thanks([
+            _log(
+              'insulin',
+              _day(4),
+              memberId: 'sam',
+              outcome: LogOutcome.skipped,
+            ),
+          ]),
+          isNull,
+        );
+        expect(thanks([_log('insulin', _day(3), memberId: 'sam')]), isNull);
+        expect(
+          thanks([_log('insulin', _day(4), memberId: 'sam')], shared: false),
+          isNull,
+        );
+        expect(
+          thanks(
+            [_log('insulin', _day(4), memberId: 'sam', id: 'x')],
+            dismissed: {'x'},
+          ),
+          isNull,
+        );
+      },
+    );
   });
 
   group('course completion', () {
-    List<CourseDone> courses(List<Medication> meds, List<DoseRecord> logs, {DateTime? at}) =>
-        Engagement.courses(
-          medications: meds,
-          logs: logs,
-          now: at ?? now,
-          shared: true,
-          dismissed: const {},
-          petName: (_) => 'Miso',
-        );
+    List<CourseDone> courses(
+      List<Medication> meds,
+      List<DoseRecord> logs, {
+      DateTime? at,
+    }) => Engagement.courses(
+      medications: meds,
+      logs: logs,
+      now: at ?? now,
+      shared: true,
+      dismissed: const {},
+      petName: (_) => 'Miso',
+    );
 
     final course = _med('abx', startDay: _day(1), endDay: _day(4));
     final allGiven = [for (var d = 1; d <= 4; d++) _log('abx', _day(d))];
@@ -141,14 +163,23 @@ void main() {
 
     test('ongoing medicines never; old courses drop off after 3 days', () {
       expect(courses([_med('daily')], allGiven), isEmpty);
-      expect(courses([course], allGiven, at: DateTime(2026, 10, 7, 9)), isEmpty);
+      expect(
+        courses([course], allGiven, at: DateTime(2026, 10, 7, 9)),
+        isEmpty,
+      );
     });
   });
 
   group('care count', () {
     test('counts only days where every scheduled dose was given', () {
       final days = Engagement.fullDays(
-        medications: [_med('a', parts: [DayPart.morning, DayPart.evening], startDay: _day(1))],
+        medications: [
+          _med(
+            'a',
+            parts: [DayPart.morning, DayPart.evening],
+            startDay: _day(1),
+          ),
+        ],
         logs: [
           _log('a', _day(1)),
           _log('a', _day(1), part: DayPart.evening),
@@ -162,25 +193,35 @@ void main() {
       expect(days, {_day(1), _day(3)});
     });
 
-    test('cumulative: the count never drops, even if history is later trimmed', () async {
-      SharedPreferences.setMockInitialValues({});
-      AppLog.enableTestCapture();
-      final state = EngagementState();
-      await state.load();
-      final care = sampleCare(clock: () => DateTime(2026, 10, 4, 21));
-      for (final dose in care.doses.where((d) => d.status != DoseStatus.given)) {
-        await care.logDose(doseId: dose.id, memberId: 'you', amount: '', timeLabel: '9:00 PM');
-      }
-      state.update(care);
-      expect(state.careDayCount, 1);
-      expectLogged('engagement.care_days', fields: {'count': 1});
-      // A fresh load reads the saved days; a day with gaps adds nothing.
-      final again = EngagementState();
-      await again.load();
-      again.update(sampleCare(clock: () => DateTime(2026, 10, 5, 9)));
-      expect(again.careDayCount, 1);
-      AppLog.disableTestCapture();
-    });
+    test(
+      'cumulative: the count never drops, even if history is later trimmed',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        AppLog.enableTestCapture();
+        final state = EngagementState();
+        await state.load();
+        final care = sampleCare(clock: () => DateTime(2026, 10, 4, 21));
+        for (final dose in care.doses.where(
+          (d) => d.status != DoseStatus.given,
+        )) {
+          await care.logDose(
+            doseId: dose.id,
+            memberId: 'you',
+            amount: '',
+            timeLabel: '9:00 PM',
+          );
+        }
+        state.update(care);
+        expect(state.careDayCount, 1);
+        expectLogged('engagement.care_days', fields: {'count': 1});
+        // A fresh load reads the saved days; a day with gaps adds nothing.
+        final again = EngagementState();
+        await again.load();
+        again.update(sampleCare(clock: () => DateTime(2026, 10, 5, 9)));
+        expect(again.careDayCount, 1);
+        AppLog.disableTestCapture();
+      },
+    );
 
     test('milestone copy', () {
       expect(Engagement.milestoneText(7, 'Miso'), contains('A full week'));
@@ -194,7 +235,10 @@ void main() {
       final back = ReminderSettings.fromJson(s.toJson());
       expect(back.followUp, isFalse);
       expect(back.quietStartMinute, 21 * 60);
-      final junk = ReminderSettings.fromJson({'followUp': 'yes', 'quietEnd': 99999});
+      final junk = ReminderSettings.fromJson({
+        'followUp': 'yes',
+        'quietEnd': 99999,
+      });
       expect(junk.followUp, isTrue);
       expect(junk.quietEndMinute, 7 * 60);
     });
@@ -209,7 +253,10 @@ void main() {
       DoseReminders.platform = fake;
     });
 
-    Future<EngagementState> pumpApp(WidgetTester tester, CareRepository care) async {
+    Future<EngagementState> pumpApp(
+      WidgetTester tester,
+      CareRepository care,
+    ) async {
       tester.view.physicalSize = const Size(430, 2400);
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
@@ -230,31 +277,46 @@ void main() {
       return engagement;
     }
 
-    testWidgets('a notification tap opens that dose’s log sheet on Today', (tester) async {
+    testWidgets('a notification tap opens that dose’s log sheet on Today', (
+      tester,
+    ) async {
       final care = sampleCare();
       await pumpApp(tester, care);
       final due = care.doses.firstWhere((d) => d.status == DoseStatus.due);
       DoseReminders.pendingOpen.value = ReminderOpen(doseId: due.id);
       await tester.pumpAndSettle();
-      expect(find.text('Amount given'), findsOneWidget, reason: 'the log sheet');
+      expect(
+        find.text('Amount given'),
+        findsOneWidget,
+        reason: 'the log sheet',
+      );
       expect(DoseReminders.pendingOpen.value, isNull, reason: 'handled once');
     });
 
-    testWidgets('reminders on but blocked by the OS: one honest note, dismissible', (tester) async {
-      final care = sampleCare();
-      final engagement = await pumpApp(tester, care);
-      DoseReminders.permission.value = ReminderPermission.denied;
-      await tester.pumpAndSettle();
-      final note = find.textContaining('Notifications are off for Pawsitive');
-      await tester.scrollUntilVisible(note, 200, scrollable: find.byType(Scrollable).first);
-      expect(note, findsOneWidget);
-      await tester.tap(find.text('Not now'));
-      await tester.pumpAndSettle();
-      expect(note, findsNothing);
-      expect(engagement.permissionNudgeHidden(care.now), isTrue);
-    });
+    testWidgets(
+      'reminders on but blocked by the OS: one honest note, dismissible',
+      (tester) async {
+        final care = sampleCare();
+        final engagement = await pumpApp(tester, care);
+        DoseReminders.permission.value = ReminderPermission.denied;
+        await tester.pumpAndSettle();
+        final note = find.textContaining('Notifications are off for Pawsitive');
+        await tester.scrollUntilVisible(
+          note,
+          200,
+          scrollable: find.byType(Scrollable).first,
+        );
+        expect(note, findsOneWidget);
+        await tester.tap(find.text('Not now'));
+        await tester.pumpAndSettle();
+        expect(note, findsNothing);
+        expect(engagement.permissionNudgeHidden(care.now), isTrue);
+      },
+    );
 
-    testWidgets('Settings: each engagement feature has its own opt-out', (tester) async {
+    testWidgets('Settings: each engagement feature has its own opt-out', (
+      tester,
+    ) async {
       final care = sampleCare();
       final engagement = EngagementState();
       await tester.pumpWidget(

@@ -59,7 +59,9 @@ Future<GoRouter> _pumpInvite(WidgetTester t, CareRepository care) async {
       child: MaterialApp.router(routerConfig: router),
     ),
   );
-  await t.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 50)));
+  await t.runAsync(
+    () => Future<void>.delayed(const Duration(milliseconds: 50)),
+  );
   await t.pump();
   return router;
 }
@@ -159,7 +161,7 @@ void main() {
       more: [_sitterReply],
     );
     await _pumpInvite(t, care);
-    // Centred, so the pinned Share button below the list can't cover it.
+    // Centred, so the pinned Share button below the list can’t cover it.
     await t.runAsync(
       () => Scrollable.ensureVisible(
         t.element(find.text('Create browser link')),

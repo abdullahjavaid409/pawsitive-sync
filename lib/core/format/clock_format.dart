@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// How dose times are written: "7:00 AM" or "07:00", following the phone's
+/// How dose times are written: "7:00 AM" or "07:00", following the phone’s
 /// 24-hour setting.
 ///
 /// The UI updates [use24h] from `MediaQuery.alwaysUse24HourFormat`; the value

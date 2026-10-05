@@ -18,7 +18,7 @@ import 'package:timezone/timezone.dart' as tz;
 export 'package:pawsitive_sync/data/reminders/reminder_platform.dart'
     show ReminderPermission;
 
-/// Asks the UI to open Today (and a dose's log sheet), e.g. after a
+/// Asks the UI to open Today (and a dose’s log sheet), e.g. after a
 /// notification tap. [message] is shown once as a snackbar.
 class ReminderOpen {
   const ReminderOpen({this.doseId, this.message});
@@ -57,7 +57,7 @@ abstract final class DoseReminders {
     ReminderPermission.unknown,
   );
 
-  /// Android only: false when exact alarms aren't allowed (reminders may
+  /// Android only: false when exact alarms aren’t allowed (reminders may
   /// then arrive a few minutes late).
   static final ValueNotifier<bool> exactAllowed = ValueNotifier(true);
 
@@ -142,7 +142,7 @@ abstract final class DoseReminders {
     try {
       location = tz.getLocation(name);
     } on Object {
-      // Unknown id (rare aliases): a fixed offset keeps today's times right;
+      // Unknown id (rare aliases): a fixed offset keeps today’s times right;
       // DST is then picked up on the next reschedule after the change.
       final offset = DateTime.now().timeZoneOffset;
       name = 'fixed:${offset.inMinutes}';
@@ -245,12 +245,18 @@ abstract final class DoseReminders {
       final care = _care;
       final source = '${call.arguments ?? 'native'}';
       if (call.method != 'changed') {
-        AppLog.event('reminders.clock_ignored', {'reason': 'unknown_method', 'method': call.method});
+        AppLog.event('reminders.clock_ignored', {
+          'reason': 'unknown_method',
+          'method': call.method,
+        });
         return;
       }
       if (care == null) {
-        // Before data loaded: launch's own reschedule uses the new clock.
-        AppLog.event('reminders.clock_ignored', {'reason': 'not_attached', 'source': source});
+        // Before data loaded: launch’s own reschedule uses the new clock.
+        AppLog.event('reminders.clock_ignored', {
+          'reason': 'not_attached',
+          'source': source,
+        });
         return;
       }
       await onClockChanged(care, source: source);
@@ -286,7 +292,7 @@ abstract final class DoseReminders {
   }
 
   /// Only what changes the plan or its copy: schedules (with custom
-  /// times), pets, member names ("Dan wasn't sure…"), shared mode, clock
+  /// times), pets, member names ("Dan wasn’t sure…"), shared mode, clock
   /// format, settings saves, recent logs, the day.
   @visibleForTesting
   static int signatureOf(CareRepository care) => _signatureOf(care);
@@ -421,7 +427,9 @@ abstract final class DoseReminders {
       AppLog.event('reminders.scheduled', {
         'trigger': reason,
         'doses': planned.where((n) => n.kind == ReminderKind.dose).length,
-        'followUps': planned.where((n) => n.kind == ReminderKind.followUp).length,
+        'followUps': planned
+            .where((n) => n.kind == ReminderKind.followUp)
+            .length,
         'engagement': planned.where((n) => !n.actionable).length,
         'grouped': planned.where((n) => n.isGroup).length,
         'upkeep': planned.any((n) => n.kind == ReminderKind.upkeep),
@@ -564,8 +572,11 @@ abstract final class DoseReminders {
     return (added, cancelled, kept);
   }
 
-  /// Today's group keys → their dose ids (2+ doses at one minute).
-  static Map<String, List<String>> _todayGroups(CareRepository care, String today) {
+  /// Today’s group keys → their dose ids (2+ doses at one minute).
+  static Map<String, List<String>> _todayGroups(
+    CareRepository care,
+    String today,
+  ) {
     final date = DateTime.tryParse(today);
     if (date == null) return const {};
     final byKey = <String, List<String>>{};
@@ -610,7 +621,9 @@ abstract final class DoseReminders {
           ReminderKind.followUp,
           ReminderKind.snooze,
         ]) {
-          await platform.cancel(ReminderIds.forDose(kind, dose.doseId, dose.day));
+          await platform.cancel(
+            ReminderIds.forDose(kind, dose.doseId, dose.day),
+          );
         }
       }
       await _shrinkGroups({for (final d in doses) '${d.doseId}|${d.day}'});
@@ -766,7 +779,9 @@ abstract final class DoseReminders {
         now: care.now,
         delay: Duration(minutes: minutes),
       );
-      if (ok) AppLog.event('lock.snoozed', {'minutes': minutes, 'doseId': dose.id});
+      if (ok) {
+        AppLog.event('lock.snoozed', {'minutes': minutes, 'doseId': dose.id});
+      }
       return ok;
     } catch (error, stack) {
       AppLog.error('lock.snooze_failed', error, stack);
@@ -786,7 +801,10 @@ abstract final class DoseReminders {
   }
 
   static void _onResponse(ReminderResponse response) {
-    AppLog.unawaitedLogged(handleResponse(response), 'reminders.response_failed');
+    AppLog.unawaitedLogged(
+      handleResponse(response),
+      'reminders.response_failed',
+    );
   }
 
   /// A tap → open that dose; "Given" → log it (with the double-dose
@@ -844,8 +862,8 @@ abstract final class DoseReminders {
   }
 
   /// "Given" on a notification. Same rules as the log sheet: never logs a
-  /// dose someone already logged, never logs a past day's reminder as
-  /// today's, and a double tap logs once.
+  /// dose someone already logged, never logs a past day’s reminder as
+  /// today’s, and a double tap logs once.
   static Future<void> _logFromNotification(
     CareRepository care,
     ReminderPayload payload,
@@ -853,14 +871,20 @@ abstract final class DoseReminders {
     final today = dayKey(care.now);
     final fields = {'doseId': payload.doseId, 'kind': payload.kind.name};
     if (payload.day != today) {
-      AppLog.event('reminders.given_rejected', {...fields, 'reason': 'stale_day'});
+      AppLog.event('reminders.given_rejected', {
+        ...fields,
+        'reason': 'stale_day',
+      });
       pendingOpen.value = const ReminderOpen(
         message: 'That reminder was for an earlier day, so nothing was logged.',
       );
       return;
     }
     if (!_logging.add(payload.doseKey)) {
-      AppLog.event('reminders.given_rejected', {...fields, 'reason': 'in_flight'});
+      AppLog.event('reminders.given_rejected', {
+        ...fields,
+        'reason': 'in_flight',
+      });
       return;
     }
     try {
@@ -875,7 +899,10 @@ abstract final class DoseReminders {
       }
       final dose = care.doseById(payload.doseId);
       if (dose == null) {
-        AppLog.event('reminders.given_rejected', {...fields, 'reason': 'not_scheduled'});
+        AppLog.event('reminders.given_rejected', {
+          ...fields,
+          'reason': 'not_scheduled',
+        });
         pendingOpen.value = const ReminderOpen(
           message: 'That medicine is no longer on today’s schedule.',
         );
@@ -890,7 +917,8 @@ abstract final class DoseReminders {
       if (ok) {
         AppLog.event('reminders.given', fields);
         pendingOpen.value = ReminderOpen(
-          message: 'Logged ${dose.name} for ${care.tryPetById(dose.petId)?.name ?? 'your pet'}.',
+          message:
+              'Logged ${dose.name} for ${care.tryPetById(dose.petId)?.name ?? 'your pet'}.',
         );
         return;
       }
@@ -898,7 +926,10 @@ abstract final class DoseReminders {
       final other = care.loggedDose(payload.doseId, today);
       if (other != null && other.outcome != LogOutcome.uncertain) {
         await _showAlready(care, payload, other);
-        AppLog.event('reminders.given_rejected', {...fields, 'reason': 'conflict'});
+        AppLog.event('reminders.given_rejected', {
+          ...fields,
+          'reason': 'conflict',
+        });
       } else {
         AppLog.event('reminders.given_failed', fields);
         pendingOpen.value = ReminderOpen(
@@ -929,7 +960,11 @@ abstract final class DoseReminders {
     );
     try {
       await platform.show(
-        ReminderIds.forDose(ReminderKind.alreadyLogged, payload.doseId, payload.day),
+        ReminderIds.forDose(
+          ReminderKind.alreadyLogged,
+          payload.doseId,
+          payload.day,
+        ),
         ReminderCopy.alreadyTitle,
         body,
         kind: ReminderKind.alreadyLogged,
@@ -940,8 +975,12 @@ abstract final class DoseReminders {
     pendingOpen.value = ReminderOpen(message: body);
   }
 
-  /// Shows a household update (local fallback when the server can't push).
-  static Future<void> showHousehold(String logId, String title, String body) async {
+  /// Shows a household update (local fallback when the server can’t push).
+  static Future<void> showHousehold(
+    String logId,
+    String title,
+    String body,
+  ) async {
     await prepare();
     await platform.show(
       ReminderIds.of(ReminderKind.household, logId),

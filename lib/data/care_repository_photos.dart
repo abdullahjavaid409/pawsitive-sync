@@ -4,9 +4,9 @@ part of 'care_repository.dart';
 /// connected, downloaded once per key for photos other members set.
 ///
 /// Cost: one upload (3 small calls) per photo change, one ~60 KB download per
-/// new key per phone. Nothing is re-fetched while a pet's key is unchanged.
+/// new key per phone. Nothing is re-fetched while a pet’s key is unchanged.
 extension CarePetPhotos on CareRepository {
-  /// Saves an already-compressed photo (see `PetPhotoCodec`) as this pet's
+  /// Saves an already-compressed photo (see `PetPhotoCodec`) as this pet’s
   /// photo. Works offline; the upload follows when connected. [source]
   /// (`camera`, `library`, `onboarding`) goes on the one log line for it.
   Future<bool> setPetPhoto(
@@ -27,7 +27,7 @@ extension CarePetPhotos on CareRepository {
       return false;
     }
     if (store == null) {
-      lastError = "Photos aren't available on this device.";
+      lastError = "Photos aren’t available on this device.";
       AppLog.event('pet.photo_rejected', {
         'petId': petId,
         'reason': 'no_store',
@@ -47,7 +47,7 @@ extension CarePetPhotos on CareRepository {
       await store.writeOwn(petId, jpeg);
     } on FileSystemException catch (error, stack) {
       // Usually a full disk (ENOSPC). Nothing changed, the old photo stays.
-      lastError = "Couldn't save the photo. Your phone may be out of space.";
+      lastError = "Couldn’t save the photo. Your phone may be out of space.";
       AppLog.error('pet.photo_save_failed', error, stack, {
         'petId': petId,
         'kind': 'disk',
@@ -56,7 +56,7 @@ extension CarePetPhotos on CareRepository {
       _notify();
       return false;
     } on Object catch (error, stack) {
-      lastError = "Couldn't save the photo. Try again.";
+      lastError = "Couldn’t save the photo. Try again.";
       AppLog.error('pet.photo_save_failed', error, stack, {
         'petId': petId,
         'kind': 'unknown',
@@ -88,7 +88,7 @@ extension CarePetPhotos on CareRepository {
     return true;
   }
 
-  /// Removes the pet's photo here, and from the household when connected
+  /// Removes the pet’s photo here, and from the household when connected
   /// (queued if offline).
   Future<bool> removePetPhoto(String petId) async {
     lastError = null;
@@ -135,7 +135,7 @@ extension CarePetPhotos on CareRepository {
     );
   }
 
-  /// 0..1 while this pet's photo is uploading, else null.
+  /// 0..1 while this pet’s photo is uploading, else null.
   double? photoUploadProgress(String petId) => _photoProgress[petId];
 
   Future<void> _syncPetPhotos() async {
@@ -301,7 +301,7 @@ extension CarePetPhotos on CareRepository {
           _dropPendingUpload(pet.id, version);
           return true;
         case HouseholdErrorKind.invalid when error.isRoleForbidden:
-          // This member's role no longer allows photos (changed on another
+          // This member’s role no longer allows photos (changed on another
           // phone): retrying can never succeed. The local photo stays.
           _dropPendingUpload(pet.id, version);
           return true;
@@ -380,7 +380,7 @@ extension CarePetPhotos on CareRepository {
       if (error.kind == HouseholdErrorKind.offline) return false;
       if (error.isRoleForbidden) {
         // Not allowed any more: stop retrying; the next sync shows the
-        // household's photo again.
+        // household’s photo again.
         final current = tryPetById(pet.id);
         if (current != null && current.photoSync == PhotoSync.remove) {
           _replacePet(current.withPhoto(photoSync: PhotoSync.none));
@@ -466,7 +466,7 @@ extension CarePetPhotos on CareRepository {
       for (final pet in needed()) {
         final key = pet.photoKey!;
         if (await store.verifyCached(key)) {
-          // Same key as last time: never refetch (URLs expire, keys don't).
+          // Same key as last time: never refetch (URLs expire, keys don’t).
           if (_photoCacheHitLogged.add(key)) {
             AppLog.event('pet.photo_cache_hit', {'petId': pet.id});
           }
@@ -544,7 +544,7 @@ extension CarePetPhotos on CareRepository {
     _resolvePhotoPaths();
   }
 
-  /// Fills each pet's [Pet.photoPath] from what is on disk. No file IO:
+  /// Fills each pet’s [Pet.photoPath] from what is on disk. No file IO:
   /// own photos are tracked by version, the cache by an in-memory listing.
   /// Returns true when any path changed.
   bool _resolvePhotoPaths() {
@@ -568,7 +568,7 @@ extension CarePetPhotos on CareRepository {
     return changed;
   }
 
-  /// Server pets carry no local photo state; keep this phone's pending work
+  /// Server pets carry no local photo state; keep this phone’s pending work
   /// and drop its own file when someone else set a newer photo.
   List<Pet> _mergePhotoState(List<Pet> incoming) {
     final local = {for (final pet in _pets) pet.id: pet};
@@ -608,7 +608,7 @@ extension CarePetPhotos on CareRepository {
   }
 
   /// The household is gone but the pets stay: keep each visible photo as
-  /// this phone's own, pending upload should the person share again.
+  /// this phone’s own, pending upload should the person share again.
   Future<void> _keepPhotosAfterHouseholdGone() async {
     _stopPhotoWork();
     final store = _photos;

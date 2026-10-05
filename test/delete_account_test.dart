@@ -203,7 +203,7 @@ void main() {
     });
     expect(
       await care.deleteAccount(),
-      "Couldn't confirm the delete — check your connection and try again.",
+      "Couldn’t confirm the delete — check your connection and try again.",
     );
     expect(care.pets, isNotEmpty);
     expect(
@@ -414,7 +414,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(
       find.text(
-        "Couldn't confirm the delete — check your connection and try again.",
+        "Couldn’t confirm the delete — check your connection and try again.",
       ),
       findsOneWidget,
     );

@@ -37,7 +37,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
 
   /// Times the person picked (minute of day); other parts use defaults.
   /// Kept for unselected parts too, so toggling a part off and on again
-  /// doesn't lose the pick.
+  /// doesn’t lose the pick.
   final _times = <DayPart, int>{};
 
   int _minuteFor(DayPart part) => _times[part] ?? part.defaultMinute;
@@ -384,10 +384,8 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                                             part,
                                           }),
                                           horizontal: stacked,
-                                          onPressed: () => _togglePart(
-                                            care,
-                                            part,
-                                          ),
+                                          onPressed: () =>
+                                              _togglePart(care, part),
                                         ),
                                     ];
                                     return stacked
@@ -754,7 +752,7 @@ class _PartTile extends StatelessWidget {
   });
   final DayPart part;
 
-  /// Free can't pick this part at all: shows a lock and says "Pro".
+  /// Free can’t pick this part at all: shows a lock and says "Pro".
   final bool locked;
 
   /// The reminder time for this part (custom pick or default).

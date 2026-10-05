@@ -5,7 +5,7 @@ abstract final class AppLinks {
   /// Must match the Privacy Policy URL in App Store Connect.
   static const privacy = 'https://sites.google.com/view/pawasitive/home';
 
-  /// Apple's standard EULA — the default for App Store subscriptions.
+  /// Apple’s standard EULA — the default for App Store subscriptions.
   static const terms =
       'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/';
   static const eula = terms;
