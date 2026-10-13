@@ -1,0 +1,99 @@
+=====================================================================
+PART A — App Review Notes for version 1.1.0
+Paste into App Store Connect → version 1.1.0 → App Review Information → Notes.
+(Under Apple's 4,000-character limit.)
+=====================================================================
+
+Version 1.1.0 is a substantial rework following the 4.3 / 4.2.6 rejection of 1.0, not a resubmission of the same app.
+
+WHAT CHANGED SINCE 1.0
+- New name and identity: "Gave It" (was PawsitiveSync), new icon, new visual design and typography. No paw, no pet-app template look.
+- Core screens rebuilt around the one job the app does: a shared, timestamped dose log. Doses appear as log lines with times; the day is a row of check boxes.
+- The double-dose guard is now the centre of the app: when someone tries to give a dose that was already logged, a full sheet stamped "ALREADY GIVEN" shows who gave it and when, and the only action is "Don't give it".
+- Honest free-trial timeline on the paywall, plus a real reminder notification two days before a trial ends.
+- Smaller, privacy-safe pet photos (location data removed before upload).
+
+HOW TO SEE THE CORE FEATURE (about 1 minute, no account needed)
+1. Tap Get started and finish the short setup (pet name, one medicine).
+2. On Today, tap "Gave it", then "Log dose".
+3. Tap the same dose again: the "ALREADY GIVEN" sheet names who gave it and the time. This is the stop a second caregiver sees.
+4. Tap "Gave it" on another dose and choose "Not sure if given": the dose is marked "Needs a check" so the next person verifies first.
+
+SUBSCRIPTIONS
+Gave It Pro is optional: monthly, or yearly with a 7-day free trial, via StoreKit (RevenueCat). Dose logging and the double-dose guard are always free. Use a Sandbox Apple ID; Restore is in Settings → Your plan. Household sharing, more pets and the vet report are Pro.
+
+ORIGINALITY (4.2.6)
+The app was conceived, designed and built from scratch by the account holder, in Flutter. No template, white-label product or app-generation service was used. The sync server, offline sync, double-dose guard, sitter web page, vet report and widgets are original code. It is the only app on this account.
+
+A screen recording of the full flow is attached.
+
+
+=====================================================================
+PART B — Full answers to Apple's 9 questions
+Paste into the Resolution Center reply if Apple asks again.
+Paste from this plain-text file so no words get cut.
+=====================================================================
+
+1. What the app does and the problem it solves
+
+Gave It answers one question for households that share a pet's care: "Has anyone already given this dose?"
+
+When two or more people care for a pet on daily medicine, such as insulin for a diabetic cat, or seizure, kidney or heart medicine, doses get missed or given twice because each person assumes the other one did it. A doubled insulin dose can be fatal for a pet.
+
+Gave It keeps one shared, timestamped log of every dose and who gave it, and actively prevents the mistake:
+- Double-dose guard: before a dose is logged a second time, the app stops the person and shows who already gave it and when.
+- "Not sure if given": a third outcome next to Given and Skipped, so the next caregiver is told to check before giving.
+- Shared household: family members join with a code, on iPhone or Android.
+- Sitter browser link: a pet sitter can see today's doses and log them in any browser, with no app or account.
+- One-tap logging that works offline and syncs later.
+- Vet report: a PDF of every dose and who gave it.
+No sign-in is needed to start; the first dose takes seconds.
+
+2. Intended user
+
+Households where more than one person gives a pet scheduled medicine: couples, families and roommates caring for a dog or cat with diabetes, epilepsy, kidney disease, heart disease or arthritis, or on a post-surgery course. Also owners who leave their pet with a sitter or relative while travelling. These are ordinary pet owners, often giving medicine from memory early in the morning or late at night, when it is easiest to forget whether a dose was already given.
+
+3. The gap in the market
+
+- Human medication apps (for example Medisafe) track one person's own pills. They have no shared pet household and no check that stops a second caregiver.
+- General pet trackers treat medicine as one tab among many and record doses after the fact. They do not stop a second person from giving the same dose.
+- Vet and pharmacy apps only cover their own prescriptions and clinics.
+- Most shared-care apps sync only between iPhones and require every helper to install the app.
+Gave It combines what we have not found together elsewhere: a guard that stops a repeat dose and names who gave it, a "not sure if given" state, iPhone, Android and browser-link caregivers in one household, and offline logging. It does one high-stakes job, not general pet care.
+
+4. Testing before submission
+
+We tested every flow on real devices and the iOS Simulator with real, hand-entered data, following a written QA checklist: onboarding, dose logging, the double-dose guard on one phone and across two phones, "not sure if given", offline logging and later sync, household invites and joining, sitter links, the vet report, purchase, restore and account deletion. The app and server also have an automated test suite (559 app tests and 78 server tests), including a 43-step end-to-end run on the iOS Simulator against a test server.
+
+Changes made from this testing:
+- Correct handling when a subscription lapses mid-task.
+- The app always opens and allows dose logging even when the network or billing is unavailable.
+- Clear messages when a purchase restore fails.
+- Fixed broken invite, support and legal links.
+- Removed all demo data, so the app shows only what the user enters.
+- Text and buttons that clipped at large accessibility text sizes now wrap.
+- Very large or unreadable photos are refused with a clear message instead of failing.
+
+[ADD YOUR REAL TESTFLIGHT RESULTS HERE, for example: number of households, how long they used it, and 2–3 pieces of tester feedback with the change you made for each. Only include feedback that really happened. Delete this line if you have none.]
+
+5. Standalone or part of a suite?
+
+Standalone. It is the only app on this developer account.
+
+6. Could it be an in-app purchase or feature in another app on the account?
+
+No. There is no other app on this account.
+
+7. Shared code, frameworks or assets with other apps on the account?
+
+No. It is the only app on the account; nothing is shared.
+
+8. Shared codebase, SDK or content library with any third-party app?
+
+No. The app was written from scratch in Flutter, using only standard open-source packages (local storage, notifications, PDF, image handling) and RevenueCat for subscriptions. No template, white-label product or app generator was used. The sync server, offline sync, double-dose guard, sitter web page, vet report and iOS widgets are original code.
+
+9. Built for a client, partner or third party?
+
+No. Gave It was conceived, designed, built and is maintained by us, the account holder, who owns its concept, branding and content.
+
+Thank you for reviewing. A screen recording of the full flow is attached, and we are happy to provide more detail.
