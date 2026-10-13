@@ -82,8 +82,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               width: double.infinity,
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
               decoration: BoxDecoration(
-                color: scheme.primaryContainer,
-                borderRadius: BorderRadius.circular(28),
+                color: Theme.of(context).colorScheme.surfaceContainerLowest,
+                borderRadius: BorderRadius.circular(PawsRadii.cardValue),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                ),
               ),
               child: Column(
                 children: [
@@ -94,7 +97,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                     label: 'Preview a dose reminder on the lock screen',
                     child: Material(
                       color: scheme.surfaceContainerLowest,
-                      borderRadius: BorderRadius.circular(20),
+                      borderRadius: BorderRadius.circular(PawsRadii.cardValue),
                       clipBehavior: Clip.antiAlias,
                       child: InkWell(
                         onTap: () => context.push(AppRoutes.lock),
@@ -105,22 +108,11 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                             children: [
                               Row(
                                 children: [
-                                  Container(
-                                    padding: const EdgeInsets.all(6),
-                                    decoration: BoxDecoration(
-                                      color: scheme.primary,
-                                      borderRadius: BorderRadius.circular(8),
-                                    ),
-                                    child: StrokeIcon(
-                                      StrokeIconKind.paw,
-                                      size: 14,
-                                      color: scheme.onPrimary,
-                                    ),
-                                  ),
+                                  const AppIconMark(size: 26),
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
-                                      'Pawsitive',
+                                      'Gave It',
                                       style: text.titleSmall,
                                     ),
                                   ),

@@ -560,6 +560,29 @@ class SurfaceCard extends StatelessWidget {
   }
 }
 
+/// The real app icon, masked like iOS does, for brand spots and previews of
+/// system surfaces (notifications, lock screen) so they match the device.
+class AppIconMark extends StatelessWidget {
+  const AppIconMark({super.key, required this.size});
+
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    return ExcludeSemantics(
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(size * 0.225),
+        child: Image.asset(
+          'assets/brand/app_icon.png',
+          width: size,
+          height: size,
+          filterQuality: FilterQuality.medium,
+        ),
+      ),
+    );
+  }
+}
+
 /// Brand wordmark. Larger on welcome, compact in previews.
 class AppWordmark extends StatelessWidget {
   const AppWordmark({super.key, this.compact = false, this.color});
@@ -573,7 +596,7 @@ class AppWordmark extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     return Text(
-      compact ? 'PAWSITIVE' : 'Pawsitive',
+      compact ? 'GAVE IT' : 'Gave It',
       style: text.headlineSmall?.copyWith(
         fontSize: compact ? 13 : 26,
         height: 1.1,

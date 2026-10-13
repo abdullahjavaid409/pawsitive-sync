@@ -108,7 +108,7 @@ class _VetReportScreenState extends State<VetReportScreen> {
                 padding: const EdgeInsets.all(4),
                 decoration: BoxDecoration(
                   color: scheme.surfaceContainer,
-                  borderRadius: BorderRadius.circular(16),
+                  borderRadius: BorderRadius.circular(PawsRadii.cardValue),
                 ),
                 child: Row(
                   children: [
@@ -146,8 +146,11 @@ class _VetReportScreenState extends State<VetReportScreen> {
               Container(
                 padding: const EdgeInsets.all(22),
                 decoration: BoxDecoration(
-                  color: scheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(26),
+                  color: Theme.of(context).colorScheme.surfaceContainerLowest,
+                  borderRadius: BorderRadius.circular(PawsRadii.cardValue),
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -211,7 +214,6 @@ class _VetReportScreenState extends State<VetReportScreen> {
               ),
               const SizedBox(height: 16),
               SurfaceCard(
-                radius: 20,
                 padding: const EdgeInsets.all(20),
                 child: Column(
                   children: [
@@ -271,7 +273,6 @@ class _VetReportScreenState extends State<VetReportScreen> {
               const CareSectionHeader('Care notes'),
               const SizedBox(height: 14),
               SurfaceCard(
-                radius: 20,
                 padding: const EdgeInsets.all(18),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -298,7 +299,6 @@ class _VetReportScreenState extends State<VetReportScreen> {
               ),
               const SizedBox(height: 24),
               SurfaceCard(
-                radius: 20,
                 child: SwitchListTile.adaptive(
                   value: _showWho,
                   onChanged: (value) {

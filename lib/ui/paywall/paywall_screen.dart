@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pawsitive_sync/data/reminders/trial_reminder.dart';
+import 'package:pawsitive_sync/core/widgets/ledger.dart';
 import 'package:pawsitive_sync/core/legal/app_links.dart';
 import 'package:pawsitive_sync/core/legal/subscription_disclosure.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
@@ -370,7 +372,9 @@ class _PaywallScreenState extends State<PaywallScreen> {
                     _PlanTile(
                       selected: yearly,
                       title: 'Yearly',
-                      subtitle: '${_price(BillingPlan.yearly)} per year',
+                      subtitle:
+                          '${_price(BillingPlan.yearly)} per year · '
+                          'whole household',
                       price: '$_yearlyPerMonth/mo',
                       badge: _yearlyBadge,
                       onPressed: locked
@@ -393,11 +397,20 @@ class _PaywallScreenState extends State<PaywallScreen> {
                               'billing.plan.failed',
                             ),
                     ),
+                    if (_trialDays(care.plan) case final days?) ...[
+                      const SizedBox(height: 24),
+                      _TrialTimeline(
+                        days: days,
+                        plan: care.plan,
+                        price: _price(care.plan),
+                      ),
+                    ],
                     const SizedBox(height: 24),
                     Text('Pro unlocks', style: text.titleMedium),
                     const SizedBox(height: 4),
                     Text(
-                      'For homes with more than one pet, or more than one caregiver',
+                      'One plan covers everyone who cares for your pet: '
+                      'partners, family and sitters.',
                       style: text.bodyMedium?.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),
@@ -549,7 +562,7 @@ class _FeatureCard extends StatelessWidget {
     return DecoratedBox(
       decoration: BoxDecoration(
         color: background ?? scheme.surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(PawsRadii.cardValue),
         border: Border.all(color: hairline),
       ),
       child: Padding(
@@ -629,7 +642,7 @@ class _PlanTile extends StatelessWidget {
         Material(
           color: scheme.surfaceContainerLowest,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(PawsRadii.cardValue),
             side: BorderSide(
               color: selected ? scheme.primary : scheme.outlineVariant,
               width: selected ? 2 : 1,
@@ -637,7 +650,7 @@ class _PlanTile extends StatelessWidget {
           ),
           child: InkWell(
             onTap: onPressed,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(PawsRadii.cardValue),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               child: Row(
@@ -697,6 +710,60 @@ class _PlanTile extends StatelessWidget {
               ),
             ),
           ),
+      ],
+    );
+  }
+}
+
+/// How the free trial works, as lines in the log: what happens today, when
+/// we remind, and when the plan starts. Mirrors [TrialReminder] so the
+/// promise and the notification always agree.
+class _TrialTimeline extends StatelessWidget {
+  const _TrialTimeline({
+    required this.days,
+    required this.plan,
+    required this.price,
+  });
+
+  final int days;
+  final BillingPlan plan;
+  final String price;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final reminder = TrialReminder.reminderDay(days);
+    final period = SubscriptionDisclosure.period(plan);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('How your free trial works', style: text.titleMedium),
+        const SizedBox(height: 12),
+        LedgerSheet(
+          children: [
+            const LedgerLine(
+              time: 'TODAY',
+              title: 'Full Pro access',
+              detail: 'Nothing to pay today.',
+              mark: LedgerMark.given,
+            ),
+            if (reminder != null)
+              LedgerLine(
+                time: 'DAY $reminder',
+                title: 'We remind you',
+                detail:
+                    'A notice before the trial ends, if notifications are on.',
+                mark: LedgerMark.later,
+              ),
+            LedgerLine(
+              time: 'DAY $days',
+              title: '$price per $period starts',
+              detail: 'Cancel anytime before, in your store subscriptions.',
+              mark: LedgerMark.later,
+              last: true,
+            ),
+          ],
+        ),
       ],
     );
   }

@@ -87,8 +87,11 @@ class HouseholdScreen extends StatelessWidget {
             Container(
               padding: const EdgeInsets.all(22),
               decoration: BoxDecoration(
-                color: tokens.brandSoft,
-                borderRadius: BorderRadius.circular(28),
+                color: Theme.of(context).colorScheme.surfaceContainerLowest,
+                borderRadius: BorderRadius.circular(PawsRadii.cardValue),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                ),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -163,7 +166,6 @@ class HouseholdScreen extends StatelessWidget {
             const SizedBox(height: 12),
             if (care.members.isNotEmpty)
               SurfaceCard(
-                radius: 20,
                 child: Column(
                   children: [
                     for (var i = 0; i < care.members.length; i++)
@@ -194,7 +196,6 @@ class HouseholdScreen extends StatelessWidget {
             const SizedBox(height: 16),
             if (activity.isEmpty)
               SurfaceCard(
-                radius: 20,
                 padding: const EdgeInsets.all(20),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,

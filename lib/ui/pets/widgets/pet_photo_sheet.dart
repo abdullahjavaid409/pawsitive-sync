@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/layout/adaptive.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/motion/app_motion.dart';
@@ -38,7 +39,9 @@ Future<PetPhotoChoice?> showPetPhotoSheet(
     constraints: AdaptiveLayout.sheetConstraints,
     backgroundColor: scheme.surfaceContainerLowest,
     shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      borderRadius: BorderRadius.vertical(
+        top: Radius.circular(PawsRadii.sheetValue),
+      ),
     ),
     builder: (sheetContext) {
       final text = Theme.of(sheetContext).textTheme;
@@ -97,13 +100,25 @@ Future<PetPhotoChoice?> _pick(
     // the Dart resize below works on a small file.
     final file = await ImagePicker().pickImage(
       source: source == 'camera' ? ImageSource.camera : ImageSource.gallery,
-      maxWidth: 1600,
-      maxHeight: 1600,
-      imageQuality: 90,
+      // The codec keeps 320px; a 1024px pick is plenty and decodes fast.
+      maxWidth: 1024,
+      maxHeight: 1024,
+      imageQuality: 85,
       requestFullMetadata: false,
     );
     if (file == null) {
       AppLog.event('pet.photo_cancelled', {'source': source});
+      return null;
+    }
+    // Check the size on disk before loading it into memory.
+    final size = await file.length();
+    if (size > PetPhotoCodec.maxSourceBytes) {
+      AppLog.event('pet.photo_failed', {
+        'source': source,
+        'kind': 'too_large',
+        'bytes': size,
+      });
+      tell('That photo is too large. Try another one.');
       return null;
     }
     final raw = await file.readAsBytes();

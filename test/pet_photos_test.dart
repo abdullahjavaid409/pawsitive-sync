@@ -36,11 +36,11 @@ void main() {
   });
 
   group('PetPhotoCodec', () {
-    test('big photo → 512 square JPEG under 80 KB with no EXIF', () {
+    test('big photo → 320 square JPEG under 32 KB with no EXIF', () {
       final out = PetPhotoCodec.compressSync(sampleJpeg(2400, 1600))!;
       expect(out.length, lessThanOrEqualTo(PetPhotoCodec.targetBytes));
       final decoded = img.decodeJpg(out)!;
-      expect((decoded.width, decoded.height), (512, 512));
+      expect((decoded.width, decoded.height), (320, 320));
       expect(decoded.exif.isEmpty, isTrue);
       // No APP1/"Exif" marker anywhere in the file (location stripped).
       expect(latin1.decode(out, allowInvalid: true).contains('Exif'), isFalse);
@@ -51,6 +51,30 @@ void main() {
         sampleJpeg(1600, 1600, noisy: true),
       )!;
       expect(out.length, lessThanOrEqualTo(PetPhotoCodec.targetBytes));
+    });
+
+    test(
+      'very large files are refused before decoding, never a crash',
+      () async {
+        // Over the byte cap: refused without reading pixels.
+        final huge = Uint8List(PetPhotoCodec.maxSourceBytes + 1);
+        expect(PetPhotoCodec.compressSync(huge), isNull);
+        expect(await PetPhotoCodec.compress(huge), isNull);
+        // Small file, enormous dimensions (a decompression bomb): the header
+        // check refuses it before the decoder allocates the pixels.
+        final bomb = img.encodePng(img.Image(width: 1, height: 1));
+        // Patch the PNG IHDR to claim 20000 x 20000.
+        final view = ByteData.sublistView(bomb);
+        view.setUint32(16, 20000);
+        view.setUint32(20, 20000);
+        expect(PetPhotoCodec.compressSync(bomb), isNull);
+        expect(PetPhotoCodec.compressSync(Uint8List(0)), isNull);
+      },
+    );
+
+    test('a portrait-sized photo stays tiny', () {
+      final out = PetPhotoCodec.compressSync(sampleJpeg(1024, 1024))!;
+      expect(out.length, lessThan(32 * 1024));
     });
 
     test('never upscales a small photo; corrupt bytes give null', () {

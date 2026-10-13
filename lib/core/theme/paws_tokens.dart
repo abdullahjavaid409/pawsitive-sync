@@ -14,8 +14,19 @@ class PawsTypeStyle {
     required this.height,
     required this.weight,
     this.letterSpacing = 0,
+    this.family = bodyFamily,
   });
 
+  /// Display face for titles: stamped, a little irregular, unlike UI sans.
+  static const displayFamily = 'Bricolage Grotesque';
+
+  /// Reading face, built for low-vision legibility (tired caregivers, 2 AM).
+  static const bodyFamily = 'Atkinson Hyperlegible';
+
+  /// Ledger stamps only: times and amounts, with tabular figures.
+  static const monoFamily = 'Atkinson Hyperlegible Mono';
+
+  final String family;
   final double fontSize;
   final double height;
   final FontWeight weight;
@@ -23,7 +34,7 @@ class PawsTypeStyle {
 
   TextStyle resolve({Color? color}) {
     return TextStyle(
-      fontFamily: 'Geist',
+      fontFamily: family,
       fontSize: fontSize,
       height: height,
       fontWeight: weight,
@@ -38,6 +49,7 @@ class PawsTypeStyle {
       height: _lerpDouble(height, other.height, t),
       weight: t < 0.5 ? weight : other.weight,
       letterSpacing: _lerpDouble(letterSpacing, other.letterSpacing, t),
+      family: t < 0.5 ? family : other.family,
     );
   }
 }
@@ -56,6 +68,12 @@ class PawsTypography {
     required this.bodySecondary,
     required this.caption,
     required this.labelSmall,
+    this.stamp = const PawsTypeStyle(
+      fontSize: 15,
+      height: 1.3,
+      weight: FontWeight.w500,
+      family: PawsTypeStyle.monoFamily,
+    ),
   });
 
   final PawsTypeStyle display;
@@ -69,45 +87,46 @@ class PawsTypography {
   final PawsTypeStyle caption;
   final PawsTypeStyle labelSmall;
 
+  /// Mono time/amount stamp: "8:02 AM", "2 units".
+  final PawsTypeStyle stamp;
+
   static const standard = PawsTypography(
     display: PawsTypeStyle(
-      fontSize: 28,
-      height: 1.15,
-      weight: FontWeight.w600,
+      fontSize: 32,
+      height: 1.1,
+      weight: FontWeight.w700,
       letterSpacing: -0.6,
+      family: PawsTypeStyle.displayFamily,
     ),
     headline: PawsTypeStyle(
-      fontSize: 24,
-      height: 1.2,
-      weight: FontWeight.w600,
+      fontSize: 26,
+      height: 1.15,
+      weight: FontWeight.w700,
       letterSpacing: -0.4,
+      family: PawsTypeStyle.displayFamily,
     ),
     section: PawsTypeStyle(
       fontSize: 20,
       height: 1.25,
       weight: FontWeight.w600,
-      letterSpacing: -0.3,
+      letterSpacing: -0.2,
+      family: PawsTypeStyle.displayFamily,
     ),
-    title: PawsTypeStyle(
-      fontSize: 16,
-      height: 1.3,
-      weight: FontWeight.w600,
-      letterSpacing: -0.1,
-    ),
-    subtitle: PawsTypeStyle(
-      fontSize: 15,
-      height: 1.3,
-      weight: FontWeight.w600,
-      letterSpacing: -0.1,
-    ),
-    label: PawsTypeStyle(fontSize: 14, height: 1.3, weight: FontWeight.w600),
-    body: PawsTypeStyle(fontSize: 15, height: 1.4, weight: FontWeight.w400),
+    title: PawsTypeStyle(fontSize: 17, height: 1.3, weight: FontWeight.w700),
+    subtitle: PawsTypeStyle(fontSize: 16, height: 1.3, weight: FontWeight.w600),
+    label: PawsTypeStyle(fontSize: 15, height: 1.3, weight: FontWeight.w600),
+    body: PawsTypeStyle(fontSize: 16, height: 1.45, weight: FontWeight.w400),
     bodySecondary: PawsTypeStyle(
+      fontSize: 14,
+      height: 1.4,
+      weight: FontWeight.w400,
+    ),
+    caption: PawsTypeStyle(
       fontSize: 13,
       height: 1.35,
       weight: FontWeight.w400,
+      letterSpacing: 0.1,
     ),
-    caption: PawsTypeStyle(fontSize: 12, height: 1.35, weight: FontWeight.w400),
     labelSmall: PawsTypeStyle(
       fontSize: 11,
       height: 1.2,
@@ -128,6 +147,7 @@ class PawsTypography {
       bodySecondary: bodySecondary.lerp(other.bodySecondary, t),
       caption: caption.lerp(other.caption, t),
       labelSmall: labelSmall.lerp(other.labelSmall, t),
+      stamp: stamp.lerp(other.stamp, t),
     );
   }
 }
@@ -253,22 +273,28 @@ class PawsRadii {
   final double sheet;
   final double option;
 
-  static const cardValue = 16.0;
+  static const cardValue = 10.0;
+
+  /// Rows and stamps: ledger lines, not bubbles.
+  static const rowValue = 4.0;
+
+  /// Bottom-sheet top corners.
+  static const sheetValue = 16.0;
 
   static const standard = PawsRadii(
     xs: 4,
-    sm: 8,
-    md: 12,
-    lg: 16,
-    xl: 20,
-    xxl: 28,
+    sm: 6,
+    md: 8,
+    lg: 10,
+    xl: 12,
+    xxl: 16,
     pill: 999,
     card: cardValue,
-    input: 12,
-    button: 14,
-    chip: 18,
-    sheet: 28,
-    option: 16,
+    input: 8,
+    button: 10,
+    chip: 6,
+    sheet: sheetValue,
+    option: 10,
   );
 
   BorderRadius get cardShape => BorderRadius.circular(card);
@@ -385,11 +411,11 @@ class PawsSurfaces {
 
   static const light = PawsSurfaces(
     background: AppColors.background,
-    card: AppColors.white,
-    elevated: AppColors.white,
+    card: AppColors.paper,
+    elevated: AppColors.paper,
     subtle: AppColors.neutral,
     selected: AppColors.brandSoft,
-    input: AppColors.white,
+    input: AppColors.paper,
     inverse: AppColors.ink,
   );
 
@@ -449,7 +475,7 @@ class PawsBorders {
     standard: AppColors.darkStroke,
     strong: AppColors.darkInk,
     focus: AppColors.darkBrand,
-    error: AppColors.error,
+    error: AppColors.darkError,
     warning: AppColors.darkWarningBorder,
   );
 
@@ -482,6 +508,8 @@ class PawsSemanticStates {
     required this.onError,
     required this.disabled,
     required this.disabledContent,
+    required this.unsure,
+    required this.unsureContainer,
   });
 
   final Color selected;
@@ -498,11 +526,15 @@ class PawsSemanticStates {
   final Color disabled;
   final Color disabledContent;
 
+  /// "Not sure if given": a neutral slate, distinct from given and caution.
+  final Color unsure;
+  final Color unsureContainer;
+
   static const light = PawsSemanticStates(
     selected: AppColors.brandSoft,
     selectedContent: AppColors.brandDark,
-    success: AppColors.brand,
-    successContainer: AppColors.brandSoft,
+    success: AppColors.given,
+    successContainer: AppColors.givenSoft,
     onSuccess: AppColors.white,
     warning: AppColors.warning,
     warningContainer: AppColors.warningBg,
@@ -510,24 +542,28 @@ class PawsSemanticStates {
     error: AppColors.error,
     errorContainer: AppColors.errorContainer,
     onError: AppColors.white,
-    disabled: Color(0x1F2C3531),
-    disabledContent: Color(0x612C3531),
+    disabled: Color(0x1F1A1C24),
+    disabledContent: Color(0x611A1C24),
+    unsure: AppColors.unsure,
+    unsureContainer: AppColors.unsureBg,
   );
 
   static const dark = PawsSemanticStates(
     selected: AppColors.darkBrandSoft,
     selectedContent: AppColors.darkBrand,
-    success: AppColors.darkBrand,
-    successContainer: AppColors.darkBrandSoft,
-    onSuccess: AppColors.darkSurface,
+    success: AppColors.darkGiven,
+    successContainer: AppColors.darkGivenSoft,
+    onSuccess: AppColors.darkOnGiven,
     warning: AppColors.darkWarning,
     warningContainer: AppColors.darkWarningBg,
     onWarning: AppColors.darkWarning,
-    error: AppColors.error,
+    error: AppColors.darkError,
     errorContainer: AppColors.errorContainer,
-    onError: AppColors.white,
+    onError: AppColors.darkSurface,
     disabled: Color(0x1FFFFFFF),
-    disabledContent: Color(0x61F4F6F4),
+    disabledContent: Color(0x61EDEAE3),
+    unsure: AppColors.darkUnsure,
+    unsureContainer: AppColors.darkUnsureBg,
   );
 
   PawsSemanticStates lerp(PawsSemanticStates other, double t) {
@@ -553,6 +589,8 @@ class PawsSemanticStates {
       onError: Color.lerp(onError, other.onError, t)!,
       disabled: Color.lerp(disabled, other.disabled, t)!,
       disabledContent: Color.lerp(disabledContent, other.disabledContent, t)!,
+      unsure: Color.lerp(unsure, other.unsure, t)!,
+      unsureContainer: Color.lerp(unsureContainer, other.unsureContainer, t)!,
     );
   }
 }
@@ -669,7 +707,7 @@ class PawsTokens extends ThemeExtension<PawsTokens> {
     stroke: AppColors.stroke,
     hairline: AppColors.hairline,
     divider: AppColors.divider,
-    card: AppColors.white,
+    card: AppColors.paper,
     lock: AppColors.lock,
     surfaces: PawsSurfaces.light,
     borders: PawsBorders.light,

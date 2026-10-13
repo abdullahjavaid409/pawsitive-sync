@@ -39,11 +39,14 @@ class PetDetailsScreen extends StatelessWidget {
             ),
             const SizedBox(height: 28),
             Material(
-              color: scheme.primaryContainer,
-              borderRadius: BorderRadius.circular(24),
+              color: scheme.surfaceContainerLowest,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(PawsRadii.cardValue),
+                side: BorderSide(color: scheme.outlineVariant),
+              ),
               child: InkWell(
                 onTap: () => _choosePhoto(context, model),
-                borderRadius: BorderRadius.circular(24),
+                borderRadius: BorderRadius.circular(PawsRadii.cardValue),
                 child: Padding(
                   padding: const EdgeInsets.all(20),
                   child: Row(
@@ -180,7 +183,7 @@ class _AgeStepper extends StatelessWidget {
         DecoratedBox(
           decoration: BoxDecoration(
             color: scheme.surfaceContainerLowest,
-            borderRadius: BorderRadius.circular(16),
+            borderRadius: BorderRadius.circular(PawsRadii.cardValue),
             border: Border.all(color: scheme.outlineVariant),
           ),
           child: ConstrainedBox(

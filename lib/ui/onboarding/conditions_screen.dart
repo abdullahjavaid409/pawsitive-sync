@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
@@ -38,8 +39,9 @@ class ConditionsScreen extends StatelessWidget {
             Container(
               padding: const EdgeInsets.fromLTRB(12, 8, 20, 8),
               decoration: BoxDecoration(
-                color: scheme.primaryContainer,
-                borderRadius: BorderRadius.circular(20),
+                color: scheme.surfaceContainerLowest,
+                borderRadius: BorderRadius.circular(PawsRadii.cardValue),
+                border: Border.all(color: scheme.outlineVariant),
               ),
               child: Row(
                 children: [

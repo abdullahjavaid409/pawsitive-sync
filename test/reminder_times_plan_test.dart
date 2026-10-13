@@ -560,7 +560,7 @@ void main() {
       expect(upkeep.when, lastDose.when);
       expect(upkeep.day, '2026-10-10');
       expect(upkeep.id, ReminderPlanner.upkeepId);
-      expect(upkeep.body, "Open Pawsitive to keep Miso’s reminders going.");
+      expect(upkeep.body, "Open Gave It to keep Miso’s reminders going.");
       expect(upkeep.actionable, isFalse);
     });
 
@@ -589,7 +589,7 @@ void main() {
       );
       expect(
         result.singleWhere((n) => n.kind == ReminderKind.upkeep).body,
-        "Open Pawsitive to keep Miso and Biscuit’s reminders going.",
+        "Open Gave It to keep Miso and Biscuit’s reminders going.",
       );
     });
 

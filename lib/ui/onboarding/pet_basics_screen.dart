@@ -132,7 +132,7 @@ class _SpeciesTile extends StatelessWidget {
             ? scheme.primaryContainer
             : scheme.surfaceContainerLowest,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(PawsRadii.cardValue),
           side: BorderSide(
             color: selected ? scheme.primary : scheme.outlineVariant,
             width: selected ? 1.5 : 1,
@@ -140,7 +140,7 @@ class _SpeciesTile extends StatelessWidget {
         ),
         child: InkWell(
           onTap: onPressed,
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(PawsRadii.cardValue),
           child: ExcludeSemantics(
             child: Padding(
               padding: const EdgeInsets.all(14),

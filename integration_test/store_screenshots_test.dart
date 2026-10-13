@@ -184,7 +184,7 @@ void main() {
     await qa.tap(find.textContaining('Insulin · ').first);
     await qa.settle(1500);
     await shot('guard');
-    await qa.tap(find.text("Got it, don’t log"));
+    await qa.tap(find.text('Don’t give it'));
 
     await tab('Household');
     await toTop();

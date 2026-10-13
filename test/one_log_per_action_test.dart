@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/app_router.dart';
@@ -10,6 +9,8 @@ import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
+import 'support/app_fonts.dart';
 
 /// What an event says happened. Two events of the same kind from one tap
 /// mean the screen and the repository both logged the same outcome.
@@ -91,11 +92,7 @@ void main() {
   tearDown(AppLog.disableTestCapture);
 
   testWidgets('main flows log one line per action', (tester) async {
-    final font = FontLoader('Geist');
-    for (final weight in ['Regular', 'Medium', 'SemiBold']) {
-      font.addFont(rootBundle.load('assets/fonts/Geist-$weight.ttf'));
-    }
-    await font.load();
+    await loadAppFonts();
     tester.view.physicalSize = const Size(430, 1400);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -190,7 +187,7 @@ void main() {
     await tester.pump(const Duration(seconds: 6)); // SnackBar leaves
 
     // --- Log a dose ---
-    await _action(tester, 'open dose', () => tap(find.text('Log dose')));
+    await _action(tester, 'open dose', () => tap(find.text('Gave it')));
     final logged = await _action(tester, 'log dose', () async {
       await tap(find.text('Log dose').last);
       await tester.pump(const Duration(seconds: 1)); // sheet closes itself

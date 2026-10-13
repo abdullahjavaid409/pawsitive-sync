@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/app_router.dart';
@@ -15,6 +14,8 @@ import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'test_log_helpers.dart';
+
+import 'support/app_fonts.dart';
 
 /// Every paywall moment, on small and large phones, light and dark, with
 /// large text: no overflow, honest trial copy, Apple 3.1.2 essentials present.
@@ -62,11 +63,7 @@ void main() {
     double scale = 1,
     bool dark = false,
   }) async {
-    final font = FontLoader('Geist');
-    for (final weight in ['Regular', 'Medium', 'SemiBold']) {
-      font.addFont(rootBundle.load('assets/fonts/Geist-$weight.ttf'));
-    }
-    await font.load();
+    await loadAppFonts();
     tester.view.physicalSize = size;
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -195,4 +192,74 @@ void main() {
       });
     }
   }
+
+  group('trial timeline', () {
+    testWidgets('a 7-day trial shows today, the reminder day and billing', (
+      tester,
+    ) async {
+      await pumpPaywall(tester);
+      await tester.scrollUntilVisible(
+        find.text('How your free trial works'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('TODAY'), findsOneWidget);
+      expect(find.text('DAY 5'), findsOneWidget);
+      expect(find.text('DAY 7'), findsOneWidget);
+      expect(find.text(r'$29.99 per year starts'), findsOneWidget);
+      expect(find.textContaining('whole household'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('no trial: no timeline, never a promise we can’t keep', (
+      tester,
+    ) async {
+      final care = await pumpPaywall(tester);
+      await care.setPlan(BillingPlan.monthly);
+      await tester.pumpAndSettle();
+      expect(find.text('How your free trial works'), findsNothing);
+    });
+
+    testWidgets('a 2-day trial drops the reminder line', (tester) async {
+      RevenueCatService.debugOffer = PaywallOffer(
+        offeringId: 'default',
+        packages: const [],
+        yearly: PlanOffer(
+          package: storeOffer.yearly!.package,
+          priceString: r'$29.99',
+          price: 29.99,
+          perMonthString: r'$2.49',
+          trialDays: 2,
+        ),
+        monthly: storeOffer.monthly,
+      );
+      await pumpPaywall(tester);
+      await tester.scrollUntilVisible(
+        find.text('How your free trial works'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.text('We remind you'), findsNothing);
+      expect(find.text('DAY 2'), findsOneWidget);
+    });
+
+    for (final dark in [false, true]) {
+      testWidgets('timeline fits a small phone at 2x text, dark=$dark', (
+        tester,
+      ) async {
+        await pumpPaywall(
+          tester,
+          size: const Size(320, 640),
+          scale: 2,
+          dark: dark,
+        );
+        await tester.scrollUntilVisible(
+          find.text('How your free trial works'),
+          200,
+          scrollable: find.byType(Scrollable).first,
+        );
+        expect(tester.takeException(), isNull);
+      });
+    }
+  });
 }

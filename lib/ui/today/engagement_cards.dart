@@ -116,7 +116,7 @@ class _MomentCard extends StatelessWidget {
     final text = Theme.of(context).textTheme;
     return Material(
       color: tokens.neutral,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(PawsRadii.cardValue),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 4, 12),
         child: Row(
@@ -216,18 +216,19 @@ class ReminderPermissionNote extends StatelessWidget {
           padding: const EdgeInsets.only(top: 12),
           child: Material(
             color: tokens.warningBg,
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(PawsRadii.cardValue),
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Notifications are off for Pawsitive in phone Settings, so reminders can’t appear. Logging still works.',
+                    'Notifications are off for Gave It in phone Settings, so reminders can’t appear. Logging still works.',
                     style: text.bodyMedium?.copyWith(color: tokens.warning),
                   ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
+                  // Wraps at large text sizes instead of clipping a button.
+                  Wrap(
+                    alignment: WrapAlignment.end,
                     children: [
                       TextButton(
                         onPressed: () =>

@@ -136,7 +136,7 @@ void main() {
     );
 
     await qa.step('Not sure if given marks a dose for a check', () async {
-      await qa.tap(find.text('Log dose'));
+      await qa.tap(find.text('Gave it'));
       await qa.see('Log Apoquel');
       await qa.tap(find.text('Not sure if given'));
       await qa.see('Needs a check');
@@ -163,8 +163,8 @@ void main() {
 
     await qa.step('Safety: double-dose guard blocks a second log', () async {
       await qa.tap(find.text('Apoquel'));
-      await qa.see('You already gave this dose');
-      await qa.tap(find.text("Got it, don’t log"));
+      await qa.see('ALREADY GIVEN');
+      await qa.tap(find.text('Don’t give it'));
       qa.event('dose.already');
       expect(qa.count('dose.log.completed'), 1);
     });
@@ -466,7 +466,7 @@ void main() {
     await qa.step('Safety across phones: guard names the partner', () async {
       await qa.tap(find.text('Insulin'));
       await qa.see('Sara', partial: true);
-      await qa.tap(find.text("Got it, don’t log"));
+      await qa.tap(find.text('Don’t give it'));
     });
 
     await qa.step('Pro: low-supply banner, refill syncs to backend', () async {

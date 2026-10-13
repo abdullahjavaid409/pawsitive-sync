@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
@@ -15,6 +14,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/sample_household.dart';
 
+import 'support/app_fonts.dart';
+
 void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
@@ -28,11 +29,11 @@ void main() {
     final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14));
     await _pump(tester, care);
     expect(find.text('2 doses left today'), findsOneWidget);
-    expect(find.text('Log dose'), findsOneWidget);
+    expect(find.text('Gave it'), findsOneWidget);
     await tester.tap(find.text('Juniper'));
     await tester.pumpAndSettle();
     expect(find.text('All cared for.'), findsOneWidget);
-    expect(find.text('Log dose'), findsNothing);
+    expect(find.text('Gave it'), findsNothing);
     await tester.tap(find.text('All pets'));
     await tester.pumpAndSettle();
     expect(find.text('2 doses left today'), findsOneWidget);
@@ -77,7 +78,7 @@ void main() {
     await _pump(tester, care);
     expect(find.text('Later today'), findsOneWidget);
     expect(find.text('View medicine'), findsOneWidget);
-    expect(find.text('Log dose'), findsNothing);
+    expect(find.text('Gave it'), findsNothing);
   });
 
   testWidgets('a pet with no report can switch back to a pet with records', (
@@ -364,11 +365,7 @@ Future<GoRouter> _pump(
   double scale = 1,
   bool dark = false,
 }) async {
-  final font = FontLoader('Geist');
-  for (final weight in ['Regular', 'Medium', 'SemiBold']) {
-    font.addFont(rootBundle.load('assets/fonts/Geist-$weight.ttf'));
-  }
-  await font.load();
+  await loadAppFonts();
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);

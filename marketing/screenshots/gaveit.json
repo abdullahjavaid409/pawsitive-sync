@@ -1,0 +1,54 @@
+{
+  "_note": "Gave It store pages. Shots: marketing/screenshots/raw-gaveit (scripts/store_screenshots.sh). Render: python3 scripts/compose_store_screenshots.py. Ledger style on purpose: no blue fills, phone mockups, mascots or gradients (the category's look, see docs/REDESIGN_GAVE_IT.md).",
+  "raw": "marketing/screenshots/raw-gaveit",
+  "pages": [
+    {
+      "id": "gave-it",
+      "purpose": "1.1.0 default page for the 4.3 resubmission. Leads with the guard stamp, the one screen no competitor has.",
+      "frames": [
+        {
+          "shot": "guard.png",
+          "entry": "8:02 AM · SARA",
+          "headline": "Sara already gave Miso’s insulin",
+          "subline": "The shared pet medication tracker that stops a double dose.",
+          "stamp": true
+        },
+        {
+          "shot": "today.png",
+          "entry": "TODAY · 2 OF 4 GIVEN",
+          "headline": "Did someone already give it?",
+          "subline": "One pet meds log for everyone who cares for your dog or cat."
+        },
+        {
+          "shot": "today_schedule.png",
+          "entry": "8:00 PM · DUE",
+          "headline": "One-tap medication reminder",
+          "subline": "Log each dose in a tap, even offline. No account to start."
+        },
+        {
+          "shot": "household.png",
+          "entry": "SITTER · NO APP",
+          "pro": true,
+          "headline": "Partners and sitters, one list",
+          "subline": "Sitters log from a browser link. No app, no account."
+        },
+        {
+          "shot": "reports.png",
+          "entry": "30 DAYS · VET",
+          "pro": true,
+          "headline": "A clean dose log for your vet",
+          "subline": "Insulin, pills and more: every dose, who gave it, and when."
+        },
+        {
+          "shot": "medicine_low.png",
+          "entry": "5 DOSES LEFT",
+          "pro": true,
+          "headline": "Refill reminder before it runs out",
+          "subline": "Counts the real doses left in the bottle."
+        }
+      ]
+    }
+  ],
+  "_aso": "Captions carry the searched terms from docs/ASO_KEYWORDS.md: medication reminder (3,600/mo), pet medication tracker, insulin, dog, cat, pills, refill, vet. PRO tag on paid features (App Review 2.3.2).",
+  "raw_ipad": "marketing/screenshots/raw-gaveit-ipad"
+}

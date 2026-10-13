@@ -81,7 +81,7 @@ void main() {
 
   test('a failure logs once with method, path, status, request id', () async {
     final adapter = _FakeAdapter([
-      (403, {'error': 'Browser sitter links need Pawsitive Pro.'}),
+      (403, {'error': 'Browser sitter links need Gave It Pro.'}),
     ]);
     await expectLater(
       _api(adapter).createSitterLink(),

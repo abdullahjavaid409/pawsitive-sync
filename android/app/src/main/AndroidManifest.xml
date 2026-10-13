@@ -9,7 +9,7 @@
          back to inexact delivery, never to silence. -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <application
-        android:label="Pawsitive"
+        android:label="Gave It"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:enableOnBackInvokedCallback="true">

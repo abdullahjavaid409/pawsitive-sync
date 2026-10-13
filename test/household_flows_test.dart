@@ -394,7 +394,7 @@ void main() {
     test('403 from a Free household retries once, then explains', () async {
       final care = await connectedCare({
         'POST /v1/sitter-links': (_) =>
-            (403, {'error': 'Browser sitter links need Pawsitive Pro.'}),
+            (403, {'error': 'Browser sitter links need Gave It Pro.'}),
       });
       // This phone believes it is Pro (store), but the household is not yet.
       care.debugStorePro = true;

@@ -300,7 +300,7 @@ void main() {
         final engagement = await pumpApp(tester, care);
         DoseReminders.permission.value = ReminderPermission.denied;
         await tester.pumpAndSettle();
-        final note = find.textContaining('Notifications are off for Pawsitive');
+        final note = find.textContaining('Notifications are off for Gave It');
         await tester.scrollUntilVisible(
           note,
           200,

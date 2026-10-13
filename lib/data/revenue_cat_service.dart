@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:pawsitive_sync/core/config/billing_config.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
+import 'package:pawsitive_sync/data/reminders/trial_reminder.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:purchases_ui_flutter/purchases_ui_flutter.dart';
@@ -151,7 +152,34 @@ abstract final class RevenueCatService {
       AppLog.event('billing.rc.expired_cached', {'expiredAt': raw ?? ''});
     }
     storeProExpiresAt = active && raw != null ? DateTime.tryParse(raw) : null;
+    AppLog.unawaitedLogged(
+      TrialReminder.sync(
+        trialStatus(
+          active: active,
+          isTrial: entitlement?.periodType == PeriodType.trial,
+          willRenew: entitlement?.willRenew ?? false,
+          expirationDate: raw,
+        ),
+        platformStore: Platform.isIOS ? 'Apple ID' : 'Google Play',
+      ),
+      'trial.reminder_failed',
+    );
     return active;
+  }
+
+  /// The trial reminder's view of the entitlement. Pure, unit-tested.
+  @visibleForTesting
+  static TrialStatus trialStatus({
+    required bool active,
+    required bool isTrial,
+    required bool willRenew,
+    required String? expirationDate,
+  }) {
+    final end = expirationDate == null
+        ? null
+        : DateTime.tryParse(expirationDate);
+    if (!active || !isTrial || end == null) return TrialStatus.none;
+    return TrialStatus(endsAt: end, willRenew: willRenew);
   }
 
   static bool? _lastActive;

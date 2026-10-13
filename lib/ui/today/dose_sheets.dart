@@ -5,8 +5,7 @@ import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/motion/app_motion.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/care_widgets.dart';
-import 'package:pawsitive_sync/core/widgets/moment_art.dart';
-import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
+import 'package:pawsitive_sync/core/widgets/ledger.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/domain/models.dart';
@@ -25,7 +24,9 @@ Future<void> showLogDoseSheet(BuildContext context, Dose dose) {
     constraints: AdaptiveLayout.sheetConstraints,
     backgroundColor: Theme.of(context).colorScheme.surface,
     shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      borderRadius: BorderRadius.vertical(
+        top: Radius.circular(PawsRadii.sheetValue),
+      ),
     ),
     builder: (context) => _LogDoseSheet(dose: dose),
   );
@@ -44,7 +45,9 @@ Future<void> showDoubleDoseGuard(BuildContext context, Dose dose) {
     constraints: AdaptiveLayout.sheetConstraints,
     backgroundColor: Theme.of(context).colorScheme.surface,
     shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      borderRadius: BorderRadius.vertical(
+        top: Radius.circular(PawsRadii.sheetValue),
+      ),
     ),
     builder: (context) => SafeArea(
       top: false,
@@ -261,7 +264,9 @@ class _LogDoseSheetState extends State<_LogDoseSheet> {
                           padding: const EdgeInsets.all(16),
                           decoration: BoxDecoration(
                             color: context.paws.warningBg,
-                            borderRadius: BorderRadius.circular(16),
+                            borderRadius: BorderRadius.circular(
+                              PawsRadii.cardValue,
+                            ),
                           ),
                           child: Text(
                             '${widget.dose.subtitle}. Confirm with your household before logging.',
@@ -409,6 +414,8 @@ class _LogDoseSheetState extends State<_LogDoseSheet> {
   }
 }
 
+/// The guard: a second caregiver is stopped by a stamp naming who already
+/// gave the dose and when. Logging is blocked; there is no "log anyway".
 class _DoubleDoseSheet extends StatelessWidget {
   const _DoubleDoseSheet({required this.dose});
 
@@ -418,21 +425,15 @@ class _DoubleDoseSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final care = context.watch<CareRepository>();
     final scheme = Theme.of(context).colorScheme;
-    final tokens = context.paws;
     final text = Theme.of(context).textTheme;
     final member = dose.givenById == null
         ? null
         : care.memberById(dose.givenById!);
     final pet = care.petById(dose.petId);
     final who = member?.name ?? 'Someone';
-
-    final detail =
-        '${pet.name}’s ${dose.name} was already logged. Giving it again could be unsafe.';
-    final when = [
-      'Given by $who',
-      pet.name,
-      if (dose.givenAt.isNotEmpty) dose.givenAt,
-    ].join(' · ');
+    final heading = dose.givenAt.isEmpty
+        ? '$who already gave this dose'
+        : '$who gave it at ${dose.givenAt}';
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 8, 24, 32),
@@ -450,66 +451,41 @@ class _DoubleDoseSheet extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(height: 16),
-          const MomentArt('dose.already', size: 120),
-          const SizedBox(height: 16),
-          Text('$who already gave this dose', style: text.headlineSmall),
+          const SizedBox(height: 28),
+          Center(
+            child: GivenStamp(
+              who: who,
+              time: dose.givenAt.isEmpty ? 'TODAY' : dose.givenAt,
+            ),
+          ),
+          const SizedBox(height: 28),
+          Text(heading, style: text.headlineSmall),
           const SizedBox(height: 8),
           Text(
-            detail,
-            style: text.bodyLarge?.copyWith(
-              color: scheme.onSurface,
-              height: 1.45,
-            ),
+            '${pet.name}’s ${dose.name} is already in the log. '
+            'Giving it again could be unsafe.',
+            style: text.bodyLarge?.copyWith(color: scheme.onSurfaceVariant),
           ),
-          const SizedBox(height: 24),
-          SurfaceCard(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                InitialsAvatar(
-                  label: member?.initials ?? '?',
-                  size: 40,
-                  fontSize: 16,
-                  background: tokens.brandSoft,
-                  foreground: tokens.brandDark,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(dose.title, style: text.titleMedium),
-                      const SizedBox(height: 1),
-                      Text(when, style: text.bodyMedium),
-                    ],
-                  ),
-                ),
-                Container(
-                  width: 28,
-                  height: 28,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: scheme.primary,
-                    shape: BoxShape.circle,
-                  ),
-                  child: StrokeIcon(
-                    StrokeIconKind.check,
-                    size: 14,
-                    color: scheme.onPrimary,
-                  ),
-                ),
-              ],
-            ),
+          const SizedBox(height: 20),
+          LedgerSheet(
+            children: [
+              LedgerLine(
+                time: dose.givenAt.isEmpty ? '—' : dose.givenAt,
+                title: dose.title,
+                detail: '${pet.name} · $who',
+                mark: LedgerMark.given,
+                last: true,
+              ),
+            ],
           ),
-          const SizedBox(height: 32),
+          const SizedBox(height: 28),
           FilledButton(
             style: FilledButton.styleFrom(
-              backgroundColor: scheme.secondary,
-              foregroundColor: scheme.onSecondary,
+              backgroundColor: scheme.onSurface,
+              foregroundColor: scheme.surface,
             ),
             onPressed: () => Navigator.of(context).pop(),
-            child: const Text("Got it, don’t log"),
+            child: const Text('Don’t give it'),
           ),
         ],
       ),
@@ -535,7 +511,7 @@ class _OutcomeChip extends StatelessWidget {
     return Material(
       color: selected ? scheme.primaryContainer : scheme.surfaceContainerLowest,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(PawsRadii.cardValue),
         side: BorderSide(
           color: selected ? scheme.primary : scheme.outlineVariant,
           width: selected ? 1.5 : 1,
@@ -543,7 +519,7 @@ class _OutcomeChip extends StatelessWidget {
       ),
       child: InkWell(
         onTap: onPressed,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(PawsRadii.cardValue),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
           child: Text(

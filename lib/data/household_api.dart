@@ -573,7 +573,7 @@ class HouseholdApi {
         code: code,
       ),
       403 => HouseholdException(
-        serverMessage ?? 'That needs Pawsitive Pro.',
+        serverMessage ?? 'That needs Gave It Pro.',
         kind: HouseholdErrorKind.invalid,
         status: status,
         code: code,

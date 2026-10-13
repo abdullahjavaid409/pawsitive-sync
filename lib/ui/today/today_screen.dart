@@ -8,6 +8,7 @@ import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/layout/app_art_size.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
+import 'package:pawsitive_sync/core/widgets/ledger.dart';
 import 'package:pawsitive_sync/core/widgets/care_tab_builder.dart';
 import 'package:pawsitive_sync/core/widgets/care_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/moment_art.dart';
@@ -275,7 +276,6 @@ class _TodayScreenState extends State<TodayScreen> {
                   ),
                   const SizedBox(height: 8),
                   SurfaceCard(
-                    radius: 20,
                     child: Column(
                       children: [
                         if (upcomingCare.isEmpty)
@@ -314,7 +314,6 @@ class _TodayScreenState extends State<TodayScreen> {
                   if (byPart[part]!.isNotEmpty) ...[
                     _PartLabel(part, doses: byPart[part]!),
                     SurfaceCard(
-                      radius: 20,
                       child: Column(
                         children: [
                           for (final (index, dose) in byPart[part]!.indexed)
@@ -369,7 +368,6 @@ class _TodayScreenState extends State<TodayScreen> {
                   ),
                   const SizedBox(height: 8),
                   SurfaceCard(
-                    radius: 20,
                     child: Column(
                       children: [
                         if (upcomingCare.isEmpty)
@@ -496,107 +494,36 @@ class _DayProgress extends StatelessWidget {
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
     final tokens = context.paws;
-    final complete = given == total;
-    final remaining = total - given;
+    final complete = given >= total;
+    final remaining = (total - given).clamp(0, total);
     return Container(
-      padding: const EdgeInsets.all(22),
+      padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: tokens.surfaces.selected,
-        borderRadius: BorderRadius.circular(tokens.radii.xxl),
+        color: tokens.surfaces.card,
+        borderRadius: tokens.radii.cardShape,
+        border: Border.all(color: tokens.borders.subtle),
       ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final stack =
-              constraints.maxWidth < 340 ||
-              MediaQuery.textScalerOf(context).scale(1) > 1.2;
-          final copy = Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'A little care, every day',
-                style: text.bodyMedium?.copyWith(color: tokens.brandDark),
-              ),
-              const SizedBox(height: 8),
-              Text(
-                complete
-                    ? 'All cared for.'
-                    : '$remaining ${remaining == 1 ? 'dose' : 'doses'} left today',
-                style: text.headlineSmall,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                complete
-                    ? 'Every scheduled dose is logged.'
-                    : due == 0
-                    ? '$given of $total given. The rest are later.'
-                    : '$given of $total given. $due ${due == 1 ? 'is' : 'are'} due.',
-                style: text.bodyMedium,
-              ),
-            ],
-          );
-          final progress = Semantics(
-            label: 'Daily progress',
-            value: '$given of $total doses given',
-            child: ExcludeSemantics(
-              child: SizedBox(
-                width: 76,
-                height: 76,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    SizedBox.expand(
-                      child: CircularProgressIndicator(
-                        value: total == 0 ? 0 : given / total,
-                        strokeWidth: 5,
-                        strokeCap: StrokeCap.round,
-                        backgroundColor: Theme.of(context)
-                            .colorScheme
-                            .outlineVariant,
-                      ),
-                    ),
-                    if (complete)
-                      StrokeIcon(
-                        StrokeIconKind.check,
-                        size: 30,
-                        color: tokens.brandDark,
-                      )
-                    else
-                      Padding(
-                        padding: const EdgeInsets.all(9),
-                        child: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text('$given', style: text.headlineSmall),
-                              Text('of $total', style: text.bodySmall),
-                            ],
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-          );
-          if (stack) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                copy,
-                const SizedBox(height: 18),
-                Align(alignment: Alignment.center, child: progress),
-              ],
-            );
-          }
-          return Row(
-            children: [
-              Expanded(child: copy),
-              const SizedBox(width: 16),
-              progress,
-            ],
-          );
-        },
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            complete
+                ? 'All cared for.'
+                : '$remaining ${remaining == 1 ? 'dose' : 'doses'} left today',
+            style: text.headlineSmall,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            complete
+                ? 'Every scheduled dose is logged.'
+                : due == 0
+                ? '$given of $total given. The rest are later.'
+                : '$given of $total given. $due ${due == 1 ? 'is' : 'are'} due.',
+            style: text.bodyMedium,
+          ),
+          const SizedBox(height: 16),
+          LedgerStrip(given: given, due: due, total: total),
+        ],
       ),
     );
   }
@@ -621,7 +548,6 @@ class _NextDose extends StatelessWidget {
     final isDue = dose.status == DoseStatus.due;
     final uncertain = isDue && dose.givenById != null;
     return SurfaceCard(
-      radius: 24,
       padding: const EdgeInsets.all(20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -638,15 +564,11 @@ class _NextDose extends StatelessWidget {
                   style: text.titleSmall,
                 ),
               ),
-              StrokeIcon(
-                StrokeIconKind.clock,
-                size: 15,
-                color: context.paws.brandDark,
-              ),
-              const SizedBox(width: 6),
               Text(
                 dose.timeLabel,
-                style: text.bodyMedium?.copyWith(color: context.paws.brandDark),
+                style: context.paws.typography.stamp.resolve(
+                  color: context.paws.brandDark,
+                ),
               ),
             ],
           ),
@@ -666,7 +588,7 @@ class _NextDose extends StatelessWidget {
                     shape: BoxShape.circle,
                   ),
                   child: StrokeIcon(
-                    StrokeIconKind.paw,
+                    StrokeIconKind.medicine,
                     size: 24,
                     color: context.paws.brandDark,
                   ),
@@ -698,20 +620,9 @@ class _NextDose extends StatelessWidget {
             const SizedBox(height: 12),
           ],
           if (isDue)
-            FilledButton.icon(
+            GaveItButton(
               onPressed: onLog,
-              style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(52),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                ),
-              ),
-              icon: StrokeIcon(
-                StrokeIconKind.check,
-                size: 18,
-                color: scheme.onPrimary,
-              ),
-              label: Text(uncertain ? 'Review dose' : 'Log dose'),
+              label: uncertain ? 'Review dose' : 'Gave it',
             )
           else
             OutlinedButton(
@@ -803,30 +714,6 @@ class _DoseTile extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 32,
-                height: 32,
-                alignment: Alignment.center,
-                decoration: BoxDecoration(
-                  color: given ? scheme.primaryContainer : scheme.surface,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: due ? scheme.primary : scheme.outlineVariant,
-                  ),
-                ),
-                child: StrokeIcon(
-                  uncertain
-                      ? StrokeIconKind.alert
-                      : given
-                      ? StrokeIconKind.check
-                      : StrokeIconKind.clock,
-                  size: 16,
-                  color: given || due
-                      ? context.paws.brandDark
-                      : scheme.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(width: 12),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -837,22 +724,16 @@ class _DoseTile extends StatelessWidget {
                   ],
                 ),
               ),
-              const SizedBox(width: 10),
-              if (due)
-                Text(
-                  uncertain ? 'Check' : 'Log',
-                  style: text.titleSmall?.copyWith(
-                    color: context.paws.brandDark,
-                  ),
-                )
-              else if (given)
-                const SizedBox.shrink()
-              else
-                StrokeIcon(
-                  StrokeIconKind.chevronRight,
-                  size: 20,
-                  color: scheme.onSurfaceVariant,
-                ),
+              const SizedBox(width: 12),
+              LedgerMarkBox(
+                uncertain
+                    ? LedgerMark.unsure
+                    : given
+                    ? LedgerMark.given
+                    : due
+                    ? LedgerMark.due
+                    : LedgerMark.later,
+              ),
             ],
           ),
         ),
@@ -905,7 +786,7 @@ class _LowSupplyTeaserState extends State<_LowSupplyTeaser> {
       padding: const EdgeInsets.only(top: 16),
       child: Material(
         color: context.paws.warningBg,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(PawsRadii.cardValue),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(14, 10, 4, 10),
           child: Row(
@@ -971,10 +852,10 @@ class _LowSupply extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Material(
     color: context.paws.warningBg,
-    borderRadius: BorderRadius.circular(16),
+    borderRadius: BorderRadius.circular(PawsRadii.cardValue),
     child: InkWell(
       onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(PawsRadii.cardValue),
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Row(
@@ -1019,10 +900,10 @@ class _RemindersNeedPro extends StatelessWidget {
         : '${medications.length} medicines';
     return Material(
       color: context.paws.warningBg,
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: BorderRadius.circular(PawsRadii.cardValue),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(PawsRadii.cardValue),
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Row(
@@ -1065,7 +946,7 @@ class _StartCare extends StatelessWidget {
       padding: const EdgeInsets.all(22),
       decoration: BoxDecoration(
         color: context.paws.brandSoft,
-        borderRadius: BorderRadius.circular(26),
+        borderRadius: BorderRadius.circular(PawsRadii.cardValue),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1426,10 +1307,10 @@ class _RemindersBannerState extends State<_RemindersBanner> {
       padding: const EdgeInsets.only(top: 12),
       child: Material(
         color: tokens.neutral,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(PawsRadii.cardValue),
         child: InkWell(
           onTap: _busy ? null : _turnOn,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(PawsRadii.cardValue),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
             child: Row(
@@ -1479,12 +1360,12 @@ class _DoubleDoseAlert extends StatelessWidget {
     return Material(
       color: tokens.warningBg,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(PawsRadii.cardValue),
         side: BorderSide(color: tokens.warningBorder),
       ),
       child: InkWell(
         onTap: onCheckHousehold,
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(PawsRadii.cardValue),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
           child: Row(

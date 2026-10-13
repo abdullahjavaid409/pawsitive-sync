@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
@@ -17,6 +16,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'test_log_helpers.dart';
 import 'support/sample_household.dart';
+
+import 'support/app_fonts.dart';
 
 void main() {
   setUp(() {
@@ -313,8 +314,8 @@ void main() {
       (t) async {
         final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14));
         await _pump(t, care);
-        await _reveal(t, find.text('Log dose'));
-        await t.tap(find.text('Log dose'));
+        await _reveal(t, find.text('Gave it'));
+        await t.tap(find.text('Gave it'));
         await t.pumpAndSettle();
         await t.tap(find.text('Not sure if given'));
         await t.pumpAndSettle(const Duration(seconds: 2));
@@ -374,11 +375,7 @@ Future<void> _reveal(WidgetTester tester, Finder finder) async {
 }
 
 Future<GoRouter> _pump(WidgetTester tester, CareRepository care) async {
-  final font = FontLoader('Geist');
-  for (final weight in ['Regular', 'Medium', 'SemiBold']) {
-    font.addFont(rootBundle.load('assets/fonts/Geist-$weight.ttf'));
-  }
-  await font.load();
+  await loadAppFonts();
   tester.view.physicalSize = const Size(390, 844);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);

@@ -2,7 +2,8 @@
 
 Data sources: DataForSEO Keywords Data API (Google Ads search volume, US,
 proxy for demand), DataForSEO App Data API (live App Store listing search —
-real competitor titles/subtitles/categories). Pulled 2026-10-03.
+real competitor titles/subtitles/categories). Pulled 2026-10-03;
+name check and volumes refreshed 2026-10-13 (see Rename).
 
 ## Market signal (US monthly search volume)
 
@@ -47,48 +48,100 @@ Pattern: `[Brand]: [Primary Function]` for name, `[Secondary benefit/feature]`
 for subtitle. No competitor owns "household" or "multi-pet dose sync" — that's
 the open wedge.
 
+## Rename after the 4.3 rejection (2026-10-13)
+
+Apple rejected 1.0 twice under 4.3 (spam) / 4.2.6 (app generation). The
+"PawsitiveSync" pun, the stock paw icon and the sage-green look read as one
+more lookalike in a category of ~30. The 1.1.0 build ships under a new name.
+
+### Name check (live App Store search via Apple Search Ads, 2026-10-13)
+
+| Candidate | Result |
+|---|---|
+| DoseCheck | Taken — "DoseCheck: Medication Tracker" (John Warda) |
+| Dosed / Dose\_\_\_ | Crowded — DoseDash, DoseDay (×3), DoseDone, DoseDeck, Dosed AI |
+| Pet Meds \_\_\_ | Crowded — "Pet Meds Reminder", "Pet Meds & Activity Log" |
+| Given | Crowded — "GIVEN" (Taiwan Given), "Given - Gift Manager", "Given: Baby Names", "Given: Relationship Reminders" |
+| Who Gave | Close — "Who Gave Me What" |
+| **Gave It** | No app found — chosen ("Gave" alone only matches Gavel/Gaven/Gaveta) |
+| Already Gave | No app found — backup |
+
+An empty search is not a trademark clearance: run a USPTO search for
+"Gave It" in class 9 before the build ships.
+
+### Fresh volumes (Google Ads, US, 2026-10-13)
+
+| Keyword | Volume/mo |
+|---|---|
+| pet medication tracker | 40 |
+| dog medication reminder | 10 |
+| pet medication reminder | 10 |
+| pet pill reminder | 10 |
+| cat medication reminder, pet/dog/cat insulin tracker, diabetic cat/dog app | no data |
+
+Same reading as 2026-10-03: pet-specific phrases barely register, so the
+brand can be distinctive while subtitle + keywords carry the high-volume
+tokens (medication, reminder, tracker, pill).
+
+### App Store search check (DataForSEO App Data, US, top 100, 2026-10-13)
+
+- **"pet medication tracker"** is a field of lookalikes: PetMed, PipDose,
+  PawDose, Pawzy, PetDose, PillPaw, Pawscriptions, TailCare, Muzzly, Arya.
+  At least six have "Paw" in the name and nearly all have under 30 ratings.
+  Paw icon + "Pet Med" name is the template Apple flagged under 4.3.
+- **"cat insulin"** is thinner: Feline Diabetes, PetDose (Cat Insulin),
+  CarePaws, Lumi, DiabiPets, Diabetes Tracker for Pets, Insulin Log, PillPaw.
+  The rest is cat translators and games, so few results really serve the search.
+- No ranked app leads with a shared household or "already given" claim.
+
+### Condition volumes (Google Ads, US, 2026-10-13)
+
+| Keyword | Volume/mo |
+|---|---|
+| cat insulin / feline insulin | 1,900 |
+| insulin for cats with diabetes | 880 |
+| pet medication reminder app | 20 |
+
+Owners search for the condition (insulin, diabetes), not for "pet
+medication tracker". The listing shows its purpose by naming the condition.
+
 ## Recommendation
 
-**App Name** (23/30 chars — kept well under the 30-char cap on purpose:
-maxing it out risks mid-word truncation on narrower App Store search rows;
-23 chars reads cleanly on every device):
-> `PawsitiveSync: Pet Meds`
+**App Name** (25/30):
+> `Gave It – Shared Pet Meds`
 
-**Subtitle** (30/30 chars):
-> `Shared Dog & Cat Dose Reminder`
+**Subtitle** (28/30):
+> `Shared Insulin & Pet Med Log`
 
-Together these seed the tokens: pawsitivesync, pet, meds, shared, dog, cat,
-dose, reminder — all for free, no keyword-field budget spent. "Shared" is the
-differentiator no competitor claims.
+The previous subtitle, `Dog & Cat Medication Reminder`, matched dozens of
+listings word for word. The new one names the highest-volume condition
+(insulin) and the claim no competitor makes (shared). Name + subtitle seed:
+gave, shared, pet, meds, insulin, med, log.
 
-**Keywords field** (97/100 chars, no spaces, no repeats of words already in
-Name/Subtitle, singular forms only — Apple's algorithm already matches
-plurals and recombines individual words from Name + Subtitle + Keywords):
-> `tracker,pill,medication,medicine,schedule,log,household,family,vet,refill,insulin,diabetes,kitten`
+**Keywords field** (98/100, no spaces, no words already in Name/Subtitle):
+> `dog,cat,medication,reminder,tracker,pill,medicine,dose,diabetic,feline,sitter,household,vet,refill`
 
-Covers: "medication reminder app" (3,600/mo), "pill tracker app" (390/mo),
-"pet medication tracker" / "dog medication tracker" (exact-match niche),
-"medicine schedule app" (50/mo), insulin/diabetes (the most common daily-med
-pets), household/family shared care, and vet/refill intent.
+`dog`, `cat`, `medication` and `reminder` moved here from the old subtitle,
+so "medication reminder app" (3,600/mo) and "dog medication reminder" still
+match. `diabetic` and `feline` cover the condition searches; `puppy`,
+`kitten`, `schedule`, `family` and `diabetes` dropped for space (Apple
+matches "diabetes" loosely from `diabetic`). No insulin brand names (e.g.
+ProZinc): trademarked terms in the keyword field risk rejection.
 
-Full-30 alternative name if truncation stops mattering:
-`PawsitiveSync: Pet Med Tracker` (30/30) — then swap `tracker` out of the
-keywords for `puppy,sync`.
-
-**Note:** the device home-screen icon label is a *separate* field
+**Note:** the home-screen label is a *separate* field
 (`CFBundleDisplayName` in `ios/Runner/Info.plist`, `android:label` in
-`AndroidManifest.xml`) — already set to the short `PawsitiveSync` and
-untouched by this ASO work. Only the App Store Connect "Name" metadata field
-(entered in App Store Connect, not in this repo) needs the value above.
+`AndroidManifest.xml`) — set it to `Gave It`. The bundle ID
+`com.pawsitivesync.app` stays so RevenueCat products and subscriptions keep
+working. The App Store Connect "Name" field takes the value above.
 
-**Screenshot keyword callouts** (first 3 screenshots carry the most weight —
-these don't affect indexing but drive tap-through/conversion, so lead with
-the highest-intent phrase a searcher just typed):
-1. "Did anyone give the dose today?" — mirrors the core search intent, no login wall
-2. "One tap. Offline. No account needed." — addresses the #1 differentiator vs. human pill-tracker apps
-3. "Share with your whole household" — the Pro-gate hook (multi-pet/household invite)
-4. "Vet export in one tap" — Pro feature, secondary search intent ("vet visit tracker")
-5. "Never run out — low-supply alerts" — Pro feature, ties to "refill"/"supply" keyword tokens
+**Screenshot callouts** (first 3 carry the most weight; see
+[REDESIGN_GAVE_IT.md](REDESIGN_GAVE_IT.md)):
+1. "Sara already gave Miso's insulin" — the guard stamp, the one screen no
+   ranked app shows; lead with it for the 4.3 resubmission
+2. "Did someone already give it?" — the core search intent
+3. "One tap. Logged for everyone." — works offline, no sign-in to start
+4. "Sitters log without the app" — browser link, no account
+5. "A clean log for your vet" — Pro report
 
 ## Notes / caveats
 

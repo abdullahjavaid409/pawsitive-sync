@@ -329,7 +329,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             const SizedBox(height: 24),
             Center(
               child: Text(
-                'Pawsitive $version',
+                'Gave It $version',
                 style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
               ),
             ),

@@ -261,7 +261,7 @@ class _InviteScreenState extends State<InviteScreen> {
     }
     final link = AppLinks.householdJoinLink(care.inviteCode);
     final install = link == null
-        ? 'Install Pawsitive from the App Store'
+        ? 'Install Gave It from the App Store'
         : 'Get Pawsitive: $link';
     return 'Help me with $who’s medicine on Pawsitive, so no dose is missed or given twice.\n\n'
         '$install, tap “I have an invite code”, and enter: ${care.inviteCode}';
@@ -273,7 +273,7 @@ class _InviteScreenState extends State<InviteScreen> {
     await SharePlus.instance.share(
       ShareParams(
         text: _message(care),
-        subject: 'Join our Pawsitive household',
+        subject: 'Join our Gave It household',
         sharePositionOrigin: box == null
             ? null
             : box.localToGlobal(Offset.zero) & box.size,
@@ -336,8 +336,11 @@ class _InviteScreenState extends State<InviteScreen> {
                     const SizedBox(height: 24),
                     DecoratedBox(
                       decoration: BoxDecoration(
-                        color: tokens.brandSoft,
-                        borderRadius: BorderRadius.circular(18),
+                        color: tokens.surfaces.card,
+                        borderRadius: BorderRadius.circular(
+                          PawsRadii.cardValue,
+                        ),
+                        border: Border.all(color: tokens.borders.subtle),
                       ),
                       child: Padding(
                         padding: const EdgeInsets.all(20),

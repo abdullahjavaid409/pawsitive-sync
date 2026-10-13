@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/format/day_label.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
+import 'package:pawsitive_sync/core/theme/app_colors.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/care_widgets.dart';
+import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/data/dose_reminders.dart';
@@ -60,7 +62,7 @@ class _LockScreenState extends State<LockScreen> {
     final latest = activity.isEmpty ? null : activity.first;
 
     return Scaffold(
-      backgroundColor: const Color(0xFF173326),
+      backgroundColor: AppColors.lockWallpaper,
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
@@ -99,7 +101,7 @@ class _LockScreenState extends State<LockScreen> {
                   child: Text(
                     clockLabel(care.now),
                     style: const TextStyle(
-                      fontFamily: 'Geist',
+                      fontFamily: PawsTypeStyle.displayFamily,
                       fontSize: 68,
                       fontWeight: FontWeight.w500,
                       letterSpacing: -3,
@@ -110,7 +112,7 @@ class _LockScreenState extends State<LockScreen> {
                 const SizedBox(height: 30),
                 Material(
                   color: scheme.surfaceContainerLowest,
-                  borderRadius: BorderRadius.circular(28),
+                  borderRadius: BorderRadius.circular(PawsRadii.cardValue),
                   child: Padding(
                     padding: const EdgeInsets.all(22),
                     child: Column(
@@ -118,14 +120,10 @@ class _LockScreenState extends State<LockScreen> {
                       children: [
                         Row(
                           children: [
-                            StrokeIcon(
-                              StrokeIconKind.paw,
-                              size: 19,
-                              color: context.paws.brandDark,
-                            ),
+                            const AppIconMark(size: 22),
                             const SizedBox(width: 8),
                             Expanded(
-                              child: Text('Pawsitive', style: text.titleSmall),
+                              child: Text('Gave It', style: text.titleSmall),
                             ),
                             Text(
                               given
@@ -244,7 +242,7 @@ class _LockScreenState extends State<LockScreen> {
                   padding: const EdgeInsets.all(20),
                   decoration: BoxDecoration(
                     color: Colors.white.withValues(alpha: 0.09),
-                    borderRadius: BorderRadius.circular(22),
+                    borderRadius: BorderRadius.circular(PawsRadii.cardValue),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -263,7 +261,7 @@ class _LockScreenState extends State<LockScreen> {
                             value: logged / total,
                             minHeight: 5,
                             backgroundColor: Colors.white12,
-                            color: const Color(0xFFB8D8B8),
+                            color: AppColors.lockProgress,
                           ),
                         ),
                       ],

@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:pawsitive_sync/core/theme/app_colors.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 
-/// Light and dark themes built from the shared Pawsitive palette.
+/// Light and dark themes built from the Gave It ledger palette.
 abstract final class AppTheme {
   static ThemeData light() => _build(Brightness.light);
 
@@ -20,8 +20,8 @@ abstract final class AppTheme {
     final heights = tokens.controlHeights;
     final scheme = ColorScheme(
       brightness: brightness,
-      primary: AppColors.brand,
-      onPrimary: AppColors.white,
+      primary: isLight ? AppColors.brand : AppColors.darkBrand,
+      onPrimary: isLight ? AppColors.white : AppColors.darkOnBrand,
       primaryContainer: isLight ? AppColors.brandSoft : AppColors.darkBrandSoft,
       onPrimaryContainer: isLight
           ? AppColors.brandDark
@@ -43,7 +43,7 @@ abstract final class AppTheme {
       scrim: AppColors.scrim,
       inverseSurface: surfaces.inverse,
       onInverseSurface: isLight ? AppColors.background : AppColors.ink,
-      inversePrimary: AppColors.brandSoft,
+      inversePrimary: isLight ? AppColors.darkBrand : AppColors.brand,
       surfaceTint: Colors.transparent,
       surfaceContainerLowest: surfaces.card,
       surfaceContainerLow: surfaces.background,
@@ -56,13 +56,13 @@ abstract final class AppTheme {
         ? ThemeData.light().textTheme
         : ThemeData.dark().textTheme;
     final geist = base.apply(
-      fontFamily: 'Geist',
+      fontFamily: PawsTypeStyle.bodyFamily,
       bodyColor: scheme.onSurface,
       displayColor: scheme.onSurface,
     );
     TextStyle role(TextStyle? source, PawsTypeStyle token, {Color? color}) {
       return (source ?? const TextStyle()).copyWith(
-        fontFamily: 'Geist',
+        fontFamily: token.family,
         fontSize: token.fontSize,
         height: token.height,
         fontWeight: token.weight,

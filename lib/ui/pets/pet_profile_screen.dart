@@ -105,8 +105,11 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
               Container(
                 padding: const EdgeInsets.all(22),
                 decoration: BoxDecoration(
-                  color: scheme.primaryContainer,
-                  borderRadius: BorderRadius.circular(28),
+                  color: Theme.of(context).colorScheme.surfaceContainerLowest,
+                  borderRadius: BorderRadius.circular(PawsRadii.cardValue),
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -221,7 +224,6 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
               const SizedBox(height: 8),
               if (meds.isEmpty)
                 SurfaceCard(
-                  radius: 20,
                   padding: const EdgeInsets.all(20),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -245,7 +247,6 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
                 ),
               for (final item in meds) ...[
                 SurfaceCard(
-                  radius: 20,
                   child: InkWell(
                     onTap: () => context.push(AppRoutes.medication(item.id)),
                     child: Padding(
@@ -256,7 +257,9 @@ class _PetProfileScreenState extends State<PetProfileScreen> {
                             padding: const EdgeInsets.all(11),
                             decoration: BoxDecoration(
                               color: scheme.primaryContainer,
-                              borderRadius: BorderRadius.circular(14),
+                              borderRadius: BorderRadius.circular(
+                                PawsRadii.cardValue,
+                              ),
                             ),
                             child: StrokeIcon(
                               StrokeIconKind.calendar,

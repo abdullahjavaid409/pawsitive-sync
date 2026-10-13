@@ -1,255 +1,270 @@
 #!/usr/bin/env python3
-"""Composes App Store screenshots from raw simulator captures.
+"""Composes Gave It App Store screenshots from raw simulator captures.
 
-Reads marketing/screenshots/pages.json (one entry per product page: the
-default page plus each custom product page) and writes store-ready PNGs:
+Reads marketing/screenshots/gaveit.json and writes store-ready PNGs:
 
   marketing/screenshots/out/<page>/6.9/01.png   1320x2868
   marketing/screenshots/out/<page>/6.7/01.png   1290x2796
-  marketing/screenshots/out/<page>/preview.png  side-by-side contact sheet
+  marketing/screenshots/out/<page>/preview.png  contact sheet
 
-Needs only Pillow. Fonts come from assets/fonts (Geist, the app's own font).
+The look is the app's ledger, not the category's: ruled paper, a mono entry
+stamp, left-aligned display type and the real screen as a flat clipped page.
+No device mockups, gradients, glows or mascots. Needs only Pillow; fonts come
+from assets/fonts (the app's own).
 """
 import json
+import math
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parent.parent
-RAW = ROOT / "marketing/screenshots/raw"
+CONFIG = ROOT / "marketing/screenshots/gaveit.json"
 OUT = ROOT / "marketing/screenshots/out"
 FONTS = ROOT / "assets/fonts"
 
 W, H = 1320, 2868  # 6.9" master; 6.7" is a resize (same aspect within 0.1%)
 SIZES = {"6.9": (1320, 2868), "6.7": (1290, 2796)}
-K = 1.0  # type/spacing scale; iPad renders larger text on its wider canvas
+K = 1.0  # type and spacing scale; the iPad canvas is wider
 
-# iPad 13" (2064x2752) renders from raw-ipad captures with an iPad frame.
-IPAD = {"raw": "marketing/screenshots/raw-ipad", "size": (2064, 2752), "k": 1.4, "scale": 0.74}
+# iPad 13" (2064x2752) renders from its own captures at a larger scale.
+IPAD = {"size": (2064, 2752), "k": 1.45}
 
-THEMES = {
-    # Calm off-white with a soft green wash. Most frames.
-    "light": {
-        "bg": ("#FBFBFA", "#E3EEE6"),
-        "head": "#2C3531",
-        "sub": "#4F5A54",
-        "chip_bg": "#4A7C59",
-        "chip_fg": "#FFFFFF",
-    },
-    # Deep brand green. Frame 1 and moments that need weight.
-    "brand": {
-        "bg": ("#4A7C59", "#2F5A3D"),
-        "head": "#FFFFFF",
-        "sub": "#E9F1EB",
-        "chip_bg": "#FFFFFF",
-        "chip_fg": "#3D6A4B",
-    },
-    # Warm cream for the low-supply / refill story.
-    "warm": {
-        "bg": ("#FDF7EE", "#F6E7CF"),
-        "head": "#2C3531",
-        "sub": "#5E4A2A",
-        "chip_bg": "#7A4E0E",
-        "chip_fg": "#FFFFFF",
-    },
-}
+PAPER = "#F5F1E8"
+RULE = "#ECE5D7"  # texture, not stripes
+MARGIN_RULE = "#D9D2C3"
+INK = "#1A1C24"
+MUTED = "#5E5A52"
+BRAND = "#2638C4"
+EDGE = "#D9D2C3"
+STAMP_BG = "#FBEBCF"
+STAMP_LINE = "#F2B04C"
+STAMP_INK = "#7A4A00"
+
+LEFT = 150  # text starts right of the margin rule (scaled by K)
+RULE_GAP = 88
 
 
-def font(weight: str, size: int) -> ImageFont.FreeTypeFont:
-    return ImageFont.truetype(str(FONTS / f"Geist-{weight}.ttf"), size)
-
-
-def hex_rgb(value: str) -> tuple[int, int, int]:
-    value = value.lstrip("#")
-    return tuple(int(value[i : i + 2], 16) for i in (0, 2, 4))
-
-
-def gradient(top: str, bottom: str) -> Image.Image:
-    a, b = hex_rgb(top), hex_rgb(bottom)
-    col = Image.new("RGB", (1, H))
-    for y in range(H):
-        t = (y / (H - 1)) ** 1.4
-        col.putpixel((0, y), tuple(round(a[i] + (b[i] - a[i]) * t) for i in range(3)))
-    return col.resize((W, H))
+def font(name: str, size: int) -> ImageFont.FreeTypeFont:
+    return ImageFont.truetype(str(FONTS / f"{name}.ttf"), size)
 
 
 def wrap(draw, text, fnt, max_w):
-    lines = []
-    for para in text.split("\n"):
-        words, line = para.split(), ""
-        for word in words:
-            trial = f"{line} {word}".strip()
-            if draw.textlength(trial, font=fnt) <= max_w:
-                line = trial
-            else:
-                lines.append(line)
-                line = word
+    lines, line = [], ""
+    for word in text.split():
+        trial = f"{line} {word}".strip()
+        if draw.textlength(trial, font=fnt) <= max_w or not line:
+            line = trial
+        else:
+            lines.append(line)
+            line = word
+    if line:
         lines.append(line)
     return lines
 
 
-def balanced(draw, text, fnt, max_w):
-    """Wraps into the fewest lines, then evens them out so no word sits alone."""
-    lines = wrap(draw, text, fnt, max_w)
-    if len(lines) != 2 or "\n" in text:
-        return lines
-    words = text.split()
-    best = None
-    for i in range(1, len(words)):
-        a, b = " ".join(words[:i]), " ".join(words[i:])
-        wa, wb = draw.textlength(a, font=fnt), draw.textlength(b, font=fnt)
-        if max(wa, wb) <= max_w and (best is None or max(wa, wb) < best[0]):
-            best = (max(wa, wb), [a, b])
-    return best[1] if best else lines
+def k(value: float) -> int:
+    return round(value * K)
 
 
-def rounded_mask(size, radius):
-    mask = Image.new("L", size, 0)
-    ImageDraw.Draw(mask).rounded_rectangle((0, 0, *size), radius, fill=255)
-    return mask
+def paper() -> Image.Image:
+    img = Image.new("RGB", (W, H), PAPER)
+    d = ImageDraw.Draw(img)
+    for y in range(k(RULE_GAP), H, k(RULE_GAP)):
+        d.line([(0, y), (W, y)], fill=RULE, width=2)
+    d.line([(k(LEFT) - 40, 0), (k(LEFT) - 40, H)], fill=MARGIN_RULE, width=3)
+    return img.convert("RGBA")
 
 
-def device(shot: Image.Image, width: int) -> Image.Image:
-    """Draws a modern iPhone around the capture: thin titanium-dark bezel."""
-    tablet = shot.height / shot.width < 1.6
-    bezel = round(width * (0.022 if tablet else 0.028))
-    screen_w = width - 2 * bezel
-    screen = shot.resize((screen_w, round(shot.height * screen_w / shot.width)), Image.LANCZOS)
-    height = screen.height + 2 * bezel
-    outer_r = round(width * (0.055 if tablet else 0.155))
-    inner_r = outer_r - bezel
-
-    frame = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-    d = ImageDraw.Draw(frame)
-    d.rounded_rectangle((0, 0, width - 1, height - 1), outer_r, fill="#1E2220")
-    # Hairline highlight on the rim so it reads as metal, not a flat outline.
-    d.rounded_rectangle((2, 2, width - 3, height - 3), outer_r - 2, outline="#5A605C", width=3)
-    frame.paste(screen, (bezel, bezel), rounded_mask(screen.size, inner_r))
-    return frame
+def without_status_bar(shot: Image.Image) -> Image.Image:
+    """Drops the system status bar (time, signal, battery): the page starts
+    at the app's own content, like a clipped entry, not a phone."""
+    phone = shot.height / shot.width > 1.6
+    bar = round(shot.height * (0.052 if phone else 0.026))
+    return shot.crop((0, bar, shot.width, shot.height))
 
 
-def shadow(size, radius, blur, opacity):
-    pad = blur * 3
-    layer = Image.new("RGBA", (size[0] + 2 * pad, size[1] + 2 * pad), (0, 0, 0, 0))
-    ImageDraw.Draw(layer).rounded_rectangle(
-        (pad, pad, pad + size[0], pad + size[1]), radius, fill=(20, 40, 28, opacity)
-    )
-    return layer.filter(ImageFilter.GaussianBlur(blur)), pad
+def content_column(shot: Image.Image) -> Image.Image:
+    """iPad: keep the app's centred content column (measured x 400-1784 of
+    2064) so the UI shows at a readable size. Phones are already one column."""
+    if shot.height / shot.width > 1.6:
+        return shot
+    return shot.crop((round(shot.width * 0.18), 0, round(shot.width * 0.875), shot.height))
 
 
-def chip(text, theme) -> Image.Image:
-    fnt = font("SemiBold", 46)
+def below_stamp(shot: Image.Image) -> Image.Image:
+    """Crops a guard screen just below the app's own amber stamp, so the
+    frame's big stamp is the only one. Falls back to the whole screen."""
+    small = shot.resize((shot.width // 4, shot.height // 4))
+    last = None
+    for y in range(small.height // 3, small.height):
+        for x in range(small.width // 5, small.width * 4 // 5, 2):
+            r, g, b = small.getpixel((x, y))[:3]
+            if abs(r - 242) < 20 and abs(g - 176) < 25 and b < 110:
+                last = y
+                break
+    if last is None:
+        return shot
+    sheet = shot.crop((0, (last + 8) * 4, shot.width, shot.height))
+    return trim_dim_edges(sheet)
+
+
+def trim_dim_edges(shot: Image.Image) -> Image.Image:
+    """Cuts the dimmed backdrop beside a sheet (wide iPad layouts)."""
+    gray = shot.convert("L").resize((shot.width // 4, 40))
+    def light(x):
+        return sum(gray.getpixel((x, y)) for y in range(40)) / 40 > 170
+    cols = [x for x in range(gray.width) if light(x)]
+    if not cols:
+        return shot
+    return shot.crop((cols[0] * 4, 0, (cols[-1] + 1) * 4, shot.height))
+
+
+def stamp(who_time: str, scale: float = 1.0) -> Image.Image:
+    """The ALREADY GIVEN stamp, drawn like the app's GivenStamp."""
+    top = font("AtkinsonHyperlegibleNext-Bold", round(44 * scale))
+    mono = font("AtkinsonHyperlegibleMono-Medium", round(50 * scale))
     probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
-    tw = probe.textlength(text, font=fnt)
-    w, h = round(tw + 120), 104
+    w = round(max(probe.textlength("ALREADY GIVEN", font=top) + 14 * 12 * scale / 4,
+                  probe.textlength(who_time, font=mono)) + 90 * scale)
+    h = round(190 * scale)
     img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    d.rounded_rectangle((0, 0, w - 1, h - 1), h // 2, fill=theme["chip_bg"])
-    # Small check mark disc: the app's "done" language.
-    cx, cy, r = 56, h // 2, 24
-    d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=theme["chip_fg"])
-    d.line([(cx - 11, cy + 1), (cx - 3, cy + 9), (cx + 12, cy - 8)], fill=theme["chip_bg"], width=6, joint="curve")
-    d.text((94, h // 2), text, font=fnt, fill=theme["chip_fg"], anchor="lm")
-    return img
+    d.rounded_rectangle((3, 3, w - 4, h - 4), round(12 * scale), fill=STAMP_BG,
+                        outline=STAMP_LINE, width=round(7 * scale))
+    # Letter-spaced label, like the in-app stamp.
+    x = (w - (probe.textlength("ALREADY GIVEN", font=top) + 12 * 12 * scale / 4)) / 2
+    for ch in "ALREADY GIVEN":
+        d.text((x, round(40 * scale)), ch, font=top, fill=STAMP_INK)
+        x += probe.textlength(ch, font=top) + 3 * scale
+    d.text((w / 2, round(118 * scale)), who_time, font=mono, fill=STAMP_INK, anchor="mt")
+    return img.rotate(4, resample=Image.BICUBIC, expand=True)
 
 
-def compose(frame: dict) -> Image.Image:
-    theme = THEMES[frame.get("theme", "light")]
-    canvas = gradient(*theme["bg"]).convert("RGBA")
+def clipped_page(shot: Image.Image, width: int) -> Image.Image:
+    """The real screen as a page clipped into the log: flat, hairline edge,
+    and a hard offset edge instead of a soft shadow."""
+    screen = shot.resize((width, round(shot.height * width / shot.width)), Image.LANCZOS)
+    radius = k(40)
+    offset = k(14)
+    out = Image.new("RGBA", (width + offset, screen.height + offset), (0, 0, 0, 0))
+    d = ImageDraw.Draw(out)
+    d.rounded_rectangle((offset, offset, width + offset - 1, screen.height + offset - 1),
+                        radius, fill=EDGE)
+    mask = Image.new("L", screen.size, 0)
+    ImageDraw.Draw(mask).rounded_rectangle((0, 0, *screen.size), radius, fill=255)
+    out.paste(screen, (0, 0), mask)
+    d.rounded_rectangle((0, 0, width - 1, screen.height - 1), radius, outline=EDGE, width=4)
+    return out
+
+
+def compose(frame: dict, raw_dir: Path) -> Image.Image:
+    canvas = paper()
     d = ImageDraw.Draw(canvas)
-    margin = round(96 * K)
+    left = k(LEFT)
+    max_w = W - left - k(110)
 
-    # Headline: big, tight, two lines max.
-    size = round(124 * K)
-    head_font = font("SemiBold", size)
-    lines = balanced(d, frame["headline"], head_font, W - 2 * margin)
-    while len(lines) > 2 and size > 92 * K:
+    # The entry stamp: time and who, the way a log line reads.
+    y = 2 * k(RULE_GAP) + k(40)
+    mono = font("AtkinsonHyperlegibleMono-Medium", k(46))
+    d.text((left, y), frame["entry"], font=mono, fill=BRAND)
+    if frame.get("pro"):
+        # Paid features say so on the frame (App Review Guideline 2.3.2).
+        x = left + d.textlength(frame["entry"], font=mono) + k(30)
+        tag = font("AtkinsonHyperlegibleNext-Bold", k(34))
+        tw = d.textlength("PRO", font=tag)
+        d.rounded_rectangle((x, y - k(4), x + tw + k(32), y + k(52)), k(8), outline=BRAND, width=3)
+        d.text((x + k(16), y + k(24)), "PRO", font=tag, fill=BRAND, anchor="lm")
+    y += k(100)
+
+    size = k(132)
+    head = font("BricolageGrotesque-Bold", size)
+    lines = wrap(d, frame["headline"], head, max_w)
+    while len(lines) > 3 and size > k(100):
         size -= 6
-        head_font = font("SemiBold", size)
-        lines = balanced(d, frame["headline"], head_font, W - 2 * margin)
-    y = round(250 * K)
+        head = font("BricolageGrotesque-Bold", size)
+        lines = wrap(d, frame["headline"], head, max_w)
     for line in lines:
-        d.text((W // 2, y), line, font=head_font, fill=theme["head"], anchor="mt")
-        y += round(size * 1.08)
+        d.text((left, y), line, font=head, fill=INK)
+        y += round(size * 1.04)
 
-    sub_font = font("Regular", round(54 * K))
-    y += round(34 * K)
-    for line in balanced(d, frame.get("subline", ""), sub_font, W - 2 * margin - 40):
-        if line:
-            d.text((W // 2, y), line, font=sub_font, fill=theme["sub"], anchor="mt")
-            y += round(70 * K)
+    y += k(44)
+    sub = font("AtkinsonHyperlegibleNext-Regular", k(54))
+    for line in wrap(d, frame.get("subline", ""), sub, max_w):
+        d.text((left, y), line, font=sub, fill=MUTED)
+        y += k(74)
 
-    # Device bleeds off the bottom edge: reads larger and more premium than a
-    # fully shown phone, and keeps the top of the UI (the story) in view.
-    shot = Image.open(RAW / frame["shot"]).convert("RGB")
-    phone_w = round(W * frame.get("scale", 0.80))
-    phone = device(shot, phone_w)
-    # Fixed position so the phones line up when the set is swiped.
-    top = max(y + round(70 * K), round(760 * K))
-    left = (W - phone_w) // 2
-    blur_img, pad = shadow(phone.size, round(phone_w * (0.055 if shot.height / shot.width < 1.6 else 0.155)), 48, 70)
-    canvas.alpha_composite(blur_img, (left - pad, top - pad + 36))
-    canvas.alpha_composite(phone, (left, top))
+    shot = Image.open(raw_dir / frame["shot"]).convert("RGB")
+    if frame.get("stamp"):
+        shot = below_stamp(shot)
+    else:
+        shot = without_status_bar(shot)
+    if not frame.get("stamp"):
+        shot = content_column(shot)
+    page_w = W - left - 40
+    page = clipped_page(shot, page_w)
+    top = max(y + k(80), k(940))
 
-    if frame.get("pop"):
-        card, cy = pop_card(frame["pop"], shot, phone, top)
-        cx = (W - card.width) // 2
-        blur_img, pad = shadow(card.size, 44, 40, 95)
-        canvas.alpha_composite(blur_img, (cx - pad, cy - pad + 28))
-        canvas.alpha_composite(card, (cx, cy))
+    if frame.get("stamp"):
+        # The stamp gets its own space: it never covers the screen's text.
+        s = stamp(frame["entry"], 1.6 * K)
+        canvas.alpha_composite(s, ((W - s.width) // 2 + k(30), top))
+        top += s.height + k(60)
 
-    if frame.get("chip"):
-        c = chip(frame["chip"], theme)
-        cy = top + round(phone.height * frame.get("chip_y", 0.42))
-        canvas.alpha_composite(shadow_chip(c), ((W - c.width) // 2 - 30, cy - 30 + 14))
-        canvas.alpha_composite(c, ((W - c.width) // 2, cy))
+    canvas.alpha_composite(page, (left - 30, top))
 
     return canvas.convert("RGB")
 
 
-def pop_card(pop: dict, shot: Image.Image, phone: Image.Image, top: int):
-    """Lifts one region of the UI out of the phone, larger, so the proof
-    reads at search-result thumbnail size. Returns the card and its y."""
-    source = Image.open(RAW / pop["from"]).convert("RGB") if pop.get("from") else shot
-    x0, y0, x1, y1 = pop["box"]
-    region = source.crop((x0, y0, x1, y1))
-    width = round(W * pop.get("width", 0.92))
-    region = region.resize((width, round(region.height * width / region.width)), Image.LANCZOS)
-    card = Image.new("RGBA", region.size, (0, 0, 0, 0))
-    card.paste(region, (0, 0), rounded_mask(region.size, 44))
-    ImageDraw.Draw(card).rounded_rectangle(
-        (0, 0, card.width - 1, card.height - 1), 44, outline="#E4E5E1", width=3
-    )
-    # Default: float where the region sits on the phone, so it "lifts out".
-    at = pop.get("at", (y0 + y1) / 2 / source.height)
-    cy = top + round(phone.height * at) - card.height // 2
-    return card, min(max(cy, top + 40), H - card.height - 90)
-
-
-def shadow_chip(c: Image.Image) -> Image.Image:
-    layer = Image.new("RGBA", (c.width + 60, c.height + 60), (0, 0, 0, 0))
-    ImageDraw.Draw(layer).rounded_rectangle(
-        (30, 30, 30 + c.width, 30 + c.height), c.height // 2, fill=(20, 40, 28, 90)
-    )
-    return layer.filter(ImageFilter.GaussianBlur(18))
-
-
 def contact_sheet(images, path):
     thumb_w = 440
-    thumbs = [im.resize((thumb_w, round(im.height * thumb_w / im.width)), Image.LANCZOS) for im in images]
+    thumbs = [im.resize((thumb_w, round(im.height * thumb_w / im.width)), Image.LANCZOS)
+              for im in images]
     gap = 40
-    sheet = Image.new("RGB", (len(thumbs) * (thumb_w + gap) + gap, thumbs[0].height + 2 * gap), "#ECEDEA")
+    sheet = Image.new("RGB", (len(thumbs) * (thumb_w + gap) + gap,
+                              thumbs[0].height + 2 * gap), "#E9E4D8")
     for i, t in enumerate(thumbs):
         sheet.paste(t, (gap + i * (thumb_w + gap), gap))
     sheet.save(path, optimize=True)
 
 
+def render_ipad(config):
+    """iPad 13" set from its own captures; skipped until they exist."""
+    global W, H, K
+    raw_dir = ROOT / config.get("raw_ipad", "")
+    if not config.get("raw_ipad") or not raw_dir.exists():
+        return
+    missing = sorted({
+        f["shot"] for page in config["pages"] for f in page["frames"]
+        if not (raw_dir / f["shot"]).exists()
+    })
+    if missing:
+        print(f"iPad skipped, captures missing: {', '.join(missing)}")
+        return
+    saved = (W, H, K)
+    (W, H), K = IPAD["size"], IPAD["k"]
+    try:
+        for page in config["pages"]:
+            rendered = []
+            for i, frame in enumerate(page["frames"], 1):
+                img = compose(frame, raw_dir)
+                rendered.append(img)
+                folder = OUT / page["id"] / "ipad-13"
+                folder.mkdir(parents=True, exist_ok=True)
+                img.save(folder / f"{i:02d}.png", optimize=True)
+            contact_sheet(rendered, OUT / page["id"] / "preview-ipad.png")
+            print(f"{page['id']}: {len(rendered)} iPad frames")
+    finally:
+        W, H, K = saved
+
+
 def main():
-    pages = json.loads((ROOT / "marketing/screenshots/pages.json").read_text())
-    for page in pages["pages"]:
+    config = json.loads(CONFIG.read_text())
+    raw_dir = ROOT / config["raw"]
+    for page in config["pages"]:
         rendered = []
         for i, frame in enumerate(page["frames"], 1):
-            img = compose(frame)
+            img = compose(frame, raw_dir)
             rendered.append(img)
             for label, size in SIZES.items():
                 folder = OUT / page["id"] / label
@@ -258,37 +273,7 @@ def main():
                 out.save(folder / f"{i:02d}.png", optimize=True)
         contact_sheet(rendered, OUT / page["id"] / "preview.png")
         print(f"{page['id']}: {len(rendered)} frames")
-    render_ipad(pages)
-
-
-def render_ipad(pages):
-    """iPad 13" set from raw-ipad captures. Pop-outs use each frame's
-    "ipad_box" (iPad pixel coordinates); frames without one show the screen."""
-    global RAW, W, H, K
-    raw_dir = ROOT / IPAD["raw"]
-    if not raw_dir.exists():
-        return
-    saved = (RAW, W, H, K)
-    RAW, (W, H), K = raw_dir, IPAD["size"], IPAD["k"]
-    try:
-        for page in pages["pages"]:
-            rendered = []
-            for i, frame in enumerate(page["frames"], 1):
-                ipad_frame = {k: v for k, v in frame.items() if k != "pop"}
-                if frame.get("pop", {}).get("ipad_box"):
-                    pop = dict(frame["pop"], box=frame["pop"]["ipad_box"])
-                    pop.pop("at", None)  # iPad layout differs; lift from its own spot
-                    ipad_frame["pop"] = pop
-                ipad_frame["scale"] = IPAD["scale"]
-                img = compose(ipad_frame)
-                rendered.append(img)
-                folder = OUT / page["id"] / "ipad-13"
-                folder.mkdir(parents=True, exist_ok=True)
-                img.save(folder / f"{i:02d}.png", optimize=True)
-            contact_sheet(rendered, OUT / page["id"] / "preview-ipad.png")
-            print(f"{page['id']}: {len(rendered)} iPad frames")
-    finally:
-        RAW, W, H, K = saved
+    render_ipad(config)
 
 
 if __name__ == "__main__":

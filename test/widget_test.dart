@@ -28,8 +28,8 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.text('See who already gave it.'), findsOneWidget);
-    expect(find.text('Pawsitive'), findsOneWidget);
+    expect(find.textContaining('Did anyone give'), findsOneWidget);
+    expect(find.text('Gave It'), findsOneWidget);
 
     await tester.ensureVisible(find.text('Get started'));
     await tester.tap(find.text('Get started'));
@@ -100,7 +100,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('See who already gave it.'), findsOneWidget);
+    expect(find.textContaining('Did anyone give'), findsOneWidget);
     final overflows = errors.where((error) => error.contains('overflowed'));
     expect(overflows, isEmpty, reason: overflows.join('\n'));
   });

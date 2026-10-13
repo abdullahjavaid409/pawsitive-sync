@@ -492,6 +492,23 @@ class PluginReminderPlatform implements ReminderPlatform {
             interruptionLevel: InterruptionLevel.passive,
           ),
         );
+      case ReminderKind.trial:
+        // A billing notice: shown, but no sound and never time-sensitive.
+        return const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'care_updates',
+            'Care updates',
+            channelDescription: 'Weekly summary and refill heads-ups.',
+            importance: Importance.defaultImportance,
+            priority: Priority.defaultPriority,
+          ),
+          iOS: DarwinNotificationDetails(
+            presentAlert: true,
+            presentBadge: false,
+            presentSound: false,
+            threadIdentifier: 'care',
+          ),
+        );
       case ReminderKind.upkeep:
         // Quiet: no sound, no banner urgency. It only asks for an app open.
         return const NotificationDetails(

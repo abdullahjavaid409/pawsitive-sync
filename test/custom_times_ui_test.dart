@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/format/clock_format.dart';
@@ -15,6 +14,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'test_log_helpers.dart';
 import 'support/sample_household.dart';
+
+import 'support/app_fonts.dart';
 
 void main() {
   setUp(() {
@@ -140,11 +141,7 @@ Future<void> _reveal(WidgetTester tester, Finder finder) async {
 }
 
 Future<GoRouter> _pump(WidgetTester tester, CareRepository care) async {
-  final font = FontLoader('Geist');
-  for (final weight in ['Regular', 'Medium', 'SemiBold']) {
-    font.addFont(rootBundle.load('assets/fonts/Geist-$weight.ttf'));
-  }
-  await font.load();
+  await loadAppFonts();
   tester.view.physicalSize = const Size(390, 844);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.resetPhysicalSize);

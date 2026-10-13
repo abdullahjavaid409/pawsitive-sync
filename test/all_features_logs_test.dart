@@ -641,7 +641,7 @@ void main() {
       final adapter = FakeHouseholdAdapter([
         (201, connectHouseholdBody()),
         (200, {'ok': true}), // push device register
-        (403, {'error': 'Browser sitter links need Pawsitive Pro.'}),
+        (403, {'error': 'Browser sitter links need Gave It Pro.'}),
       ]);
       final care = CareRepository(
         api: fakeHouseholdApi(adapter),

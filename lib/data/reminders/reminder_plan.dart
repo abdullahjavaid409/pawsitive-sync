@@ -19,6 +19,10 @@ enum ReminderKind {
 
   /// The quiet "open the app to keep reminders going" safety net.
   upkeep,
+
+  /// One notice before a free trial becomes a paid plan. Appended last so
+  /// existing ids keep their kind.
+  trial,
 }
 
 /// Stable notification ids: `(kind + 1) << 27 | fnv1a(key) & 0x7FFFFFF`.
@@ -363,7 +367,7 @@ abstract final class ReminderCopy {
 
   static const upkeepTitle = 'Keep reminders going';
 
-  /// "Open Pawsitive to keep Miso’s reminders going."
+  /// "Open Gave It to keep Miso’s reminders going."
   static String upkeepBody(List<String> petNames) {
     final who = switch (petNames.length) {
       0 => 'your',
@@ -371,7 +375,7 @@ abstract final class ReminderCopy {
       2 => "${petNames[0]} and ${_possessive(petNames[1])}",
       _ => 'your pets’',
     };
-    return 'Open Pawsitive to keep $who reminders going.';
+    return 'Open Gave It to keep $who reminders going.';
   }
 
   static String doseBody({

@@ -9,6 +9,7 @@ import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/app_router.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/app_colors.dart';
+import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/theme/app_theme.dart';
 import 'package:pawsitive_sync/core/widgets/dismiss_keyboard.dart';
 import 'package:pawsitive_sync/data/analytics_service.dart';
@@ -18,7 +19,7 @@ import 'package:pawsitive_sync/data/apple_widgets.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
 
-/// Applies the Pawsitive theme and router.
+/// Applies the Gave It theme and router.
 class PawsitiveApp extends StatefulWidget {
   const PawsitiveApp({super.key});
 
@@ -132,7 +133,7 @@ class _PawsitiveAppState extends State<PawsitiveApp>
   @override
   Widget build(BuildContext context) {
     return MaterialApp.router(
-      title: 'Pawsitive',
+      title: 'Gave It',
       theme: AppTheme.light(),
       darkTheme: AppTheme.dark(),
       themeMode: ThemeMode.system,
@@ -195,7 +196,7 @@ class _ScreenErrorFallback extends StatelessWidget {
               'Something went wrong on this screen — go back and try again.',
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontFamily: 'Geist',
+                fontFamily: PawsTypeStyle.bodyFamily,
                 fontSize: 16,
                 height: 1.4,
                 color: AppColors.ink,

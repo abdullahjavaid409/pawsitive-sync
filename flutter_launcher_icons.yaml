@@ -1,0 +1,19 @@
+# App icon — regenerate with: dart run flutter_launcher_icons
+# Source art and rules: docs/REDESIGN_GAVE_IT.md (Apple HIG "App icons",
+# Android adaptive icon guidelines, per docs.flutter.dev/deployment).
+flutter_launcher_icons:
+  image_path: "marketing/icon/gave-it-icon-1024.png"
+
+  ios: true
+  # App Store icon must be opaque.
+  remove_alpha_ios: true
+  background_color_ios: "#2638C4"
+  # iOS 18+ appearances: the system draws the dark/tinted background.
+  image_path_ios_dark_transparent: "marketing/icon/gave-it-foreground.png"
+  image_path_ios_tinted_grayscale: "marketing/icon/gave-it-foreground.png"
+  desaturate_tinted_to_grayscale_ios: true
+
+  android: true
+  adaptive_icon_background: "#2638C4"
+  adaptive_icon_foreground: "marketing/icon/gave-it-foreground.png"
+  adaptive_icon_monochrome: "marketing/icon/gave-it-monochrome.png"

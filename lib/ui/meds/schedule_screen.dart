@@ -521,7 +521,9 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                                   color: scheme.surfaceContainerLowest,
                                   clipBehavior: Clip.antiAlias,
                                   shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(20),
+                                    borderRadius: BorderRadius.circular(
+                                      PawsRadii.cardValue,
+                                    ),
                                     side: BorderSide(
                                       color: scheme.outlineVariant,
                                     ),
@@ -614,7 +616,9 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
                                     padding: const EdgeInsets.all(18),
                                     decoration: BoxDecoration(
                                       color: context.paws.brandSoft,
-                                      borderRadius: BorderRadius.circular(20),
+                                      borderRadius: BorderRadius.circular(
+                                        PawsRadii.cardValue,
+                                      ),
                                     ),
                                     child: Row(
                                       crossAxisAlignment:
@@ -810,7 +814,7 @@ class _PartTile extends StatelessWidget {
             ? context.paws.brandSoft
             : scheme.surfaceContainerLowest,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(PawsRadii.cardValue),
           side: BorderSide(
             color: selected ? scheme.primary : scheme.outlineVariant,
             width: selected ? 1.5 : 1,

@@ -186,7 +186,7 @@ Future<void> _exerciseAllLiveFeatures() async {
       ),
     ),
     (503, {'error': 'busy'}),
-    (403, {'error': 'Browser sitter links need Pawsitive Pro.'}),
+    (403, {'error': 'Browser sitter links need Gave It Pro.'}),
   ]);
   final connected = CareRepository(
     api: fakeHouseholdApi(adapter),
@@ -236,7 +236,7 @@ Future<void> _exerciseAllLiveFeatures() async {
   final failAdapter = FakeHouseholdAdapter([
     (201, connectHouseholdBody(inviteCode: 'FAIL01')),
     (200, {'ok': true}),
-    (403, {'error': 'Browser sitter links need Pawsitive Pro.'}),
+    (403, {'error': 'Browser sitter links need Gave It Pro.'}),
   ]);
   final failLink = CareRepository(
     api: fakeHouseholdApi(failAdapter),

@@ -10,6 +10,7 @@ import 'package:pawsitive_sync/data/reminder_choice.dart';
 import 'package:pawsitive_sync/data/reminders/reminder_plan.dart';
 import 'package:pawsitive_sync/data/reminders/reminder_platform.dart';
 import 'package:pawsitive_sync/data/reminders/reminder_settings.dart';
+import 'package:pawsitive_sync/data/reminders/trial_reminder.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/data/latest.dart' as tzdata;
@@ -214,6 +215,8 @@ abstract final class DoseReminders {
       await prepare();
       await platform.cancelAll();
       _signature = null;
+      // cancelAll took the trial notice too; re-arm on the next store update.
+      TrialReminder.invalidate();
       AppLog.event('reminders.cancelled');
     } catch (error, stack) {
       AppLog.error('reminders.cancel_failed', error, stack);
@@ -493,6 +496,8 @@ abstract final class DoseReminders {
       if (wanted.containsKey(p.id)) continue;
       final kind = ReminderIds.kindOf(p.id);
       if (kind == null && p.id != ReminderIds.legacy) continue;
+      // Owned by TrialReminder, never part of the dose plan.
+      if (kind == ReminderKind.trial) continue;
       if (kind == ReminderKind.snooze) {
         // A snooze the person asked for stays until the dose is resolved.
         final payload = ReminderPayload.decode(p.payload);
@@ -602,7 +607,10 @@ abstract final class DoseReminders {
 
   static Future<void> _cancelOwned() async {
     for (final p in await platform.pending()) {
-      if (ReminderIds.kindOf(p.id) != null || p.id == ReminderIds.legacy) {
+      final kind = ReminderIds.kindOf(p.id);
+      // The trial notice is owned by TrialReminder, not the dose plan.
+      if (kind == ReminderKind.trial) continue;
+      if (kind != null || p.id == ReminderIds.legacy) {
         await platform.cancel(p.id);
       }
     }
@@ -973,6 +981,19 @@ abstract final class DoseReminders {
       AppLog.error('reminders.already_show_failed', error, stack);
     }
     pendingOpen.value = ReminderOpen(message: body);
+  }
+
+  /// Schedules one notification outside the dose plan (e.g. the trial
+  /// notice). The caller owns its id; reschedules never touch it.
+  static Future<void> scheduleOne(PlannedNotification notification) async {
+    await prepare();
+    await platform.schedule(notification, exact: false);
+  }
+
+  /// Cancels one notification by id.
+  static Future<void> cancelOne(int id) async {
+    await prepare();
+    await platform.cancel(id);
   }
 
   /// Shows a household update (local fallback when the server can’t push).

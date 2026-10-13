@@ -1540,7 +1540,7 @@ function formatTimeLabel(date = new Date()) {
 
 export async function createSitterLink(pool, auth, body) {
   if (!(await householdHasPro(pool, auth.householdId))) {
-    throw new ProRequiredError("Browser sitter links need Pawsitive Pro.");
+    throw new ProRequiredError("Browser sitter links need Gave It Pro.");
   }
   await removeExpiredSitterLinks(pool, auth.householdId);
   const label = text(body?.label, "label", { max: 40, required: false }) || "Sitter";

@@ -436,7 +436,7 @@ class CareEmptyState extends StatelessWidget {
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: context.paws.brandSoft,
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: BorderRadius.circular(PawsRadii.cardValue),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,

@@ -17,7 +17,9 @@ Future<void> showAddCareEventSheet(BuildContext context, {String? petId}) {
     useRootNavigator: true,
     backgroundColor: Theme.of(context).colorScheme.surface,
     shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      borderRadius: BorderRadius.vertical(
+        top: Radius.circular(PawsRadii.sheetValue),
+      ),
     ),
     builder: (context) =>
         DismissKeyboard(child: _AddCareEventSheet(initialPetId: petId)),
@@ -192,7 +194,9 @@ class _AddCareEventSheetState extends State<_AddCareEventSheet> {
                                     : scheme.onSurfaceVariant,
                               ),
                               shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
+                                borderRadius: BorderRadius.circular(
+                                  PawsRadii.cardValue,
+                                ),
                               ),
                               side: BorderSide(
                                 color: _kind == kind
@@ -220,7 +224,9 @@ class _AddCareEventSheetState extends State<_AddCareEventSheet> {
                       Material(
                         color: scheme.surfaceContainerLowest,
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
+                          borderRadius: BorderRadius.circular(
+                            PawsRadii.cardValue,
+                          ),
                           side: BorderSide(color: scheme.outlineVariant),
                         ),
                         clipBehavior: Clip.antiAlias,

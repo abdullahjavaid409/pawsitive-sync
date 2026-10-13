@@ -3,38 +3,41 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#4A7C59" />
-  <title>Pawsitive — Sitter link</title>
+  <meta name="theme-color" content="#F5F1E8" />
+  <title>Gave It — Sitter link</title>
   <!-- Link previews (WhatsApp, iMessage, Slack…). Generic on purpose: the
        token is in the #fragment, which crawlers never send, and pet names
        never go into a public preview. -->
   <meta name="description" content="See today’s pet medicine doses and tap to log them. No app or account needed." />
   <meta property="og:type" content="website" />
-  <meta property="og:site_name" content="Pawsitive" />
-  <meta property="og:title" content="You’ve been sent a Pawsitive sitter link" />
+  <meta property="og:site_name" content="Gave It" />
+  <meta property="og:title" content="You’ve been sent a Gave It sitter link" />
   <meta property="og:description" content="See today’s doses and tap to log them — no app or account needed." />
   <meta property="og:image" content="__PUBLIC_BASE__/og-sitter.png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
-  <meta property="og:image:alt" content="Pawsitive sitter link" />
+  <meta property="og:image:alt" content="Gave It sitter link" />
   <meta name="twitter:card" content="summary_large_image" />
-  <meta name="twitter:title" content="You’ve been sent a Pawsitive sitter link" />
+  <meta name="twitter:title" content="You’ve been sent a Gave It sitter link" />
   <meta name="twitter:description" content="See today’s doses and tap to log them — no app or account needed." />
   <meta name="twitter:image" content="__PUBLIC_BASE__/og-sitter.png" />
   <meta name="robots" content="noindex" />
   <style>
     :root {
       color-scheme: light;
-      --bg: #f6f8f6;
-      --card: #ffffff;
-      --text: #2c3531;
-      --muted: #6b726e;
-      --brand: #4a7c59;
-      --brand-soft: #e9f1eb;
-      --due: #b45309;
-      --given: #166534;
+      --bg: #f5f1e8;
+      --card: #fffdf8;
+      --text: #1a1c24;
+      --muted: #5e5a52;
+      --line: #d9d2c3;
+      --brand: #2638c4;
+      --brand-pressed: #16227a;
+      --brand-soft: #e4e7fb;
+      --due: #7a4a00;
+      --given: #17663a;
+      --unsure: #3f4a5c;
       --error: #b42318;
-      --radius: 16px;
+      --radius: 10px;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
     * { box-sizing: border-box; }
@@ -62,9 +65,9 @@
     .card {
       background: var(--card);
       border-radius: var(--radius);
+      border: 1px solid var(--line);
       padding: 16px;
       margin-bottom: 12px;
-      box-shadow: 0 1px 2px rgba(0,0,0,.06);
     }
     .dose-name { font-weight: 600; font-size: 1.05rem; }
     .dose-meta { color: var(--muted); font-size: 0.9rem; margin-top: 4px; }
@@ -73,24 +76,25 @@
       font-size: 0.75rem;
       font-weight: 600;
       padding: 4px 8px;
-      border-radius: 999px;
+      border-radius: 4px;
       margin-top: 10px;
+      letter-spacing: 0.02em;
     }
-    .badge.due { background: #fef3c7; color: var(--due); }
-    .badge.given { background: #dcfce7; color: var(--given); }
-    .badge.upcoming { background: #f3f4f6; color: var(--muted); }
-    .badge.uncertain { background: #ffedd5; color: #c2410c; }
+    .badge.due { background: #fbebcf; color: var(--due); }
+    .badge.given { background: #e2f0e6; color: var(--given); }
+    .badge.upcoming { background: #ede7db; color: var(--muted); }
+    .badge.uncertain { background: #e9ecf1; color: var(--unsure); outline: 1.5px dashed var(--unsure); outline-offset: -1.5px; }
     button {
       width: 100%;
       min-height: 48px;
       border: none;
-      border-radius: 14px;
+      border-radius: 999px;
       font: inherit;
       font-weight: 600;
       cursor: pointer;
       margin-top: 12px;
     }
-    .primary { background: var(--brand); color: #fff; }
+    .primary { background: var(--brand); color: #fff; box-shadow: 0 3px 0 var(--brand-pressed); }
     .secondary { background: var(--brand-soft); color: var(--brand); }
     button:disabled { opacity: 0.55; cursor: not-allowed; }
     .error {
@@ -111,8 +115,8 @@
     input {
       width: 100%;
       min-height: 48px;
-      border: 1px solid #d1d5db;
-      border-radius: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
       padding: 0 14px;
       font: inherit;
       margin-bottom: 12px;
@@ -132,7 +136,7 @@
       </div>
     </div>
     <div id="list"></div>
-    <p class="footer">Pawsitive · shared pet med log</p>
+    <p class="footer">Gave It · the shared pet medicine log</p>
   </main>
   <script>
     // Token arrives as #t= (preferred: never sent to the server) or ?t= (older

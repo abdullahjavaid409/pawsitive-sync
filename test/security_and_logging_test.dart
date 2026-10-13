@@ -312,9 +312,9 @@ void main() {
         final adapter = FakeHouseholdAdapter([
           (201, connectHouseholdBody(isPro: true)),
           (200, {'ok': true}), // push register
-          (403, {'error': 'Browser sitter links need Pawsitive Pro.'}),
+          (403, {'error': 'Browser sitter links need Gave It Pro.'}),
           (200, {'isPro': false, 'plan': 'yearly'}), // share Pro: still Free
-          (403, {'error': 'Browser sitter links need Pawsitive Pro.'}),
+          (403, {'error': 'Browser sitter links need Gave It Pro.'}),
         ]);
         final care = CareRepository(
           api: fakeHouseholdApi(adapter),
@@ -345,7 +345,7 @@ void main() {
       final adapter = FakeHouseholdAdapter([
         (201, connectHouseholdBody(isPro: true)),
         (200, {'ok': true}),
-        (403, {'error': 'Browser sitter links need Pawsitive Pro.'}),
+        (403, {'error': 'Browser sitter links need Gave It Pro.'}),
         (200, {'isPro': true, 'plan': 'yearly'}),
         (201, {'token': 'tok-ok', 'expiresAt': '2026-11-03T00:00:00Z'}),
       ]);

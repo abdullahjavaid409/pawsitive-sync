@@ -557,7 +557,7 @@ describe("older apps keep working", () => {
     assert.equal(typeof denied.body.error, "string");
     const freePro = await call("POST", "/v1/sitter-links", { token: house.owner.token, body: {} });
     assert.equal(freePro.status, 403);
-    assert.equal(freePro.body.error, "Browser sitter links need Pawsitive Pro.");
+    assert.equal(freePro.body.error, "Browser sitter links need Gave It Pro.");
     assert.equal(freePro.body.code, "pro_required");
   });
 });

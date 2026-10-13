@@ -55,8 +55,11 @@ class _CaregiversScreenState extends State<CaregiversScreen> {
             Container(
               width: double.infinity,
               decoration: BoxDecoration(
-                color: scheme.primaryContainer,
-                borderRadius: BorderRadius.circular(24),
+                color: Theme.of(context).colorScheme.surfaceContainerLowest,
+                borderRadius: BorderRadius.circular(PawsRadii.cardValue),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                ),
               ),
               child: const OnboardingArtwork('care', height: 96),
             ),

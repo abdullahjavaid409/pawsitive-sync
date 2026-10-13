@@ -74,7 +74,7 @@ class MedicationScreen extends StatelessWidget {
                       : context.go(AppRoutes.today),
                   style: TextButton.styleFrom(
                     foregroundColor: scheme.primary,
-                    textStyle: text.titleLarge?.copyWith(
+                    textStyle: text.titleMedium?.copyWith(
                       fontWeight: FontWeight.w400,
                     ),
                     padding: const EdgeInsets.only(left: 0),
@@ -89,14 +89,20 @@ class MedicationScreen extends StatelessWidget {
                 const Spacer(),
                 // Only the owner stops (archives) a medicine.
                 if (care.canArchive)
-                  TextButton(
-                    // Logged as nav.push to=stop_medicine (the dialog).
-                    onPressed: () => _confirmStop(context, care, medication),
-                    style: TextButton.styleFrom(
-                      foregroundColor: scheme.error,
-                      textStyle: text.titleMedium,
+                  Flexible(
+                    child: TextButton(
+                      // Logged as nav.push to=stop_medicine (the dialog).
+                      onPressed: () => _confirmStop(context, care, medication),
+                      style: TextButton.styleFrom(
+                        foregroundColor: scheme.error,
+                        textStyle: text.titleSmall,
+                      ),
+                      child: const Text(
+                        'Stop medicine',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                    child: const Text('Stop medicine'),
                   ),
               ],
             ),
@@ -134,7 +140,6 @@ class MedicationScreen extends StatelessWidget {
               )
             else
               SurfaceCard(
-                radius: 18,
                 borderColor: showLowAlert
                     ? tokens.warningBorder
                     : scheme.outlineVariant,
