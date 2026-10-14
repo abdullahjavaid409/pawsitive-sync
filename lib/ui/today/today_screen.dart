@@ -4,13 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/format/day_label.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
-import 'package:pawsitive_sync/core/layout/app_art_size.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/celebration.dart';
 import 'package:pawsitive_sync/core/widgets/care_tab_builder.dart';
 import 'package:pawsitive_sync/core/widgets/care_widgets.dart';
-import 'package:pawsitive_sync/core/widgets/moment_art.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
@@ -246,6 +244,12 @@ class _TodayScreenState extends State<TodayScreen> {
                           care.tryPetById(next?.petId ?? selectedId ?? '') ??
                           care.primaryPet,
                       lastGiven: _lastGiven(care, doses, next),
+                      others: [
+                        for (final d in due)
+                          if (d.id != next?.id) d,
+                      ],
+                      petNameOf: (d) => care.tryPetById(d.petId)?.name ?? '',
+                      onOpen: openFromToday,
                       onLog: () {
                         if (next != null) _openDose(context, next);
                       },
@@ -342,7 +346,7 @@ class _TodayScreenState extends State<TodayScreen> {
                     const SizedBox(height: 8),
                     const _RemindersBanner(),
                   ] else ...[
-                    _StartCare(
+                    TodayStart(
                       pet: selectedPet ?? care.primaryPet,
                       onStart: hasPet
                           ? addMedicine
@@ -696,88 +700,6 @@ class _RemindersNeedPro extends StatelessWidget {
   }
 }
 
-class _StartCare extends StatelessWidget {
-  const _StartCare({required this.pet, required this.onStart});
-  final Pet? pet;
-  final VoidCallback onStart;
-  @override
-  Widget build(BuildContext context) {
-    // A local promotes after a null check; the field would need `!`.
-    final pet = this.pet;
-    final text = Theme.of(context).textTheme;
-    return Container(
-      padding: const EdgeInsets.all(22),
-      decoration: BoxDecoration(
-        color: context.paws.brandSoft,
-        borderRadius: BorderRadius.circular(PawsRadii.cardValue),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final narrow =
-                  constraints.maxWidth < 340 ||
-                  MediaQuery.textScalerOf(context).scale(1) > 1.2;
-              final copy = Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    pet == null
-                        ? 'Good care starts here.'
-                        : 'A fresh start for ${pet.name}.',
-                    style: text.headlineSmall,
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    pet == null ? 'Bring their daily care into one place.' : 'Add their first medicine. We’ll keep the routine together.',
-                    style: text.bodyLarge?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              );
-              if (narrow && pet != null) {
-                return Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    PetPortrait(pet, size: 72),
-                    const SizedBox(height: 14),
-                    copy,
-                  ],
-                );
-              }
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(child: copy),
-                  if (pet != null) ...[
-                    const SizedBox(width: 12),
-                    PetPortrait(pet, size: 80),
-                  ],
-                ],
-              );
-            },
-          ),
-          const SizedBox(height: 20),
-          FilledButton.icon(
-            onPressed: onStart,
-            style: FilledButton.styleFrom(
-              minimumSize: const Size.fromHeight(52),
-            ),
-            icon: StrokeIcon(
-              StrokeIconKind.plus,
-              size: 18,
-              color: Theme.of(context).colorScheme.onPrimary,
-            ),
-            label: Text(pet == null ? 'Add a pet' : 'Add first medicine'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _QuickActions extends StatelessWidget {
   const _QuickActions();
   @override
@@ -971,58 +893,12 @@ class _HouseholdSyncState extends State<_HouseholdSync> {
   }
 
   @override
-  Widget build(BuildContext context) {
-    final text = Theme.of(context).textTheme;
-    final scheme = Theme.of(context).colorScheme;
-    final failed = widget.error != null;
-    if (!widget.syncing && !failed && !_showSynced) {
-      return const SizedBox.shrink();
-    }
-    final message = failed
-        ? widget.error!
-        : widget.syncing
-        ? 'Loading the household.'
-        : 'Household is up to date.';
-    final art = failed
-        ? 'household.sync_failed'
-        : _showSynced
-        ? 'household.synced'
-        : null;
-
-    return Padding(
-      padding: const EdgeInsets.only(top: 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              if (art != null) ...[
-                MomentArt(
-                  art,
-                  size: appInlineArtSize(context),
-                  announce: false,
-                ),
-                const SizedBox(width: 8),
-              ],
-              Expanded(
-                child: Text(
-                  message,
-                  style: text.bodyLarge?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-              ),
-            ],
-          ),
-          if (failed)
-            TextButton(
-              onPressed: widget.onRetry,
-              child: const Text('Try again'),
-            ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) => SyncNotice(
+    syncing: widget.syncing,
+    justSynced: _showSynced,
+    failed: widget.error != null,
+    onRetry: widget.onRetry,
+  );
 }
 
 /// Lets people turn reminders on from home with one tap.

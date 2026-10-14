@@ -183,7 +183,16 @@ class TodayHero extends StatelessWidget {
     required this.lastGiven,
     required this.onLog,
     required this.onDetails,
+    this.others = const [],
+    this.petNameOf,
+    this.onOpen,
   });
+
+  /// Other doses due right now (several pets, or several medicines): listed
+  /// under the main action so none is missed, each one tap away.
+  final List<Dose> others;
+  final String Function(Dose dose)? petNameOf;
+  final void Function(Dose dose)? onOpen;
 
   /// Null when everything today is logged.
   final Dose? dose;
@@ -307,6 +316,17 @@ class TodayHero extends StatelessWidget {
                       OutlinedButton(
                         onPressed: onDetails,
                         child: const Text('View medicine'),
+                      ),
+                  ],
+                  if (others.isNotEmpty) ...[
+                    const SizedBox(height: 18),
+                    Eyebrow('Also due now', color: scheme.onSurfaceVariant),
+                    const SizedBox(height: 4),
+                    for (final other in others)
+                      _AlsoDue(
+                        dose: other,
+                        petName: petNameOf?.call(other) ?? '',
+                        onPressed: () => onOpen?.call(other),
                       ),
                   ],
                 ],
@@ -717,4 +737,265 @@ extension on Dose {
 
   /// "8 AM" / "1:30 PM" for a pocket label; 24 h clocks keep "08:00".
   String get shortTime => timeLabel.replaceFirst(':00 ', ' ');
+}
+
+class _AlsoDue extends StatelessWidget {
+  const _AlsoDue({
+    required this.dose,
+    required this.petName,
+    required this.onPressed,
+  });
+
+  final Dose dose;
+  final String petName;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    final title = petName.isEmpty ? dose.name : '$petName’s ${dose.name}';
+    return Semantics(
+      button: true,
+      label: '$title, ${dose.timeLabel}, due now',
+      excludeSemantics: true,
+      onTap: onPressed,
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(12),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 52),
+          child: Row(
+            children: [
+              _MedicineTile(dose: dose),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: text.titleSmall, maxLines: 2),
+                    Text(
+                      [
+                        if (dose.amount.isNotEmpty) dose.amount,
+                        dose.timeLabel,
+                      ].join(' · '),
+                      style: text.bodyMedium,
+                    ),
+                  ],
+                ),
+              ),
+              StrokeIcon(
+                StrokeIconKind.chevronRight,
+                size: 18,
+                color: scheme.onSurfaceVariant,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// No medicine yet: the pet, one sentence, one action. Same card shape as
+/// the hero so the first screen already looks like the app.
+class TodayStart extends StatelessWidget {
+  const TodayStart({super.key, required this.pet, required this.onStart});
+
+  final Pet? pet;
+  final VoidCallback onStart;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    final pet = this.pet;
+    final photo = pet?.photoPath;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(PawsRadii.cardValue + 4),
+        boxShadow: PawsElevation.hero(Theme.of(context).brightness),
+      ),
+      child: Material(
+        color: context.paws.surfaces.card,
+        clipBehavior: Clip.antiAlias,
+        borderRadius: BorderRadius.circular(PawsRadii.cardValue + 4),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (photo != null)
+              SizedBox(
+                height: 176,
+                child: Image(
+                  image: ResizeImage(
+                    FileImage(File(photo)),
+                    width:
+                        (MediaQuery.sizeOf(context).width *
+                                MediaQuery.devicePixelRatioOf(context))
+                            .round(),
+                  ),
+                  fit: BoxFit.cover,
+                  semanticLabel: 'Photo of ${pet?.name ?? 'your pet'}',
+                  errorBuilder: (_, _, _) =>
+                      ColoredBox(color: scheme.primaryContainer),
+                ),
+              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  if (photo == null && pet != null) ...[
+                    Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: PetPortrait(pet, size: 56),
+                    ),
+                    const SizedBox(height: 14),
+                  ],
+                  Text(
+                    pet == null
+                        ? 'Good care starts here.'
+                        : '${pet.name}’s log starts here.',
+                    style: text.headlineMedium,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    pet == null
+                        ? 'Add your pet, then their medicine. It takes a minute.'
+                        : 'Add the first medicine. Logging a dose is free and '
+                              'works without signal.',
+                    style: text.bodyLarge?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  PressScale(
+                    child: FilledButton.icon(
+                      onPressed: onStart,
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size.fromHeight(56),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
+                      icon: StrokeIcon(
+                        StrokeIconKind.plus,
+                        size: 18,
+                        color: scheme.onPrimary,
+                      ),
+                      label: Text(
+                        pet == null ? 'Add a pet' : 'Add first medicine',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Household sync, quietly: a small pill while it loads or just finished,
+/// and a calm card that says what to do when it can't reach the household.
+class SyncNotice extends StatelessWidget {
+  const SyncNotice({
+    super.key,
+    required this.syncing,
+    required this.justSynced,
+    required this.failed,
+    required this.onRetry,
+  });
+
+  final bool syncing;
+  final bool justSynced;
+  final bool failed;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    final paws = context.paws;
+    if (failed) {
+      return Semantics(
+        liveRegion: true,
+        child: Container(
+          margin: const EdgeInsets.only(top: 12),
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+          decoration: BoxDecoration(
+            color: paws.warningBg,
+            borderRadius: BorderRadius.circular(PawsRadii.cardValue),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Can’t reach the household',
+                style: text.titleSmall?.copyWith(color: paws.warning),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Your doses are saved on this phone. Ones others logged '
+                'may be missing, so check with them before giving.',
+                style: text.bodyMedium?.copyWith(color: paws.warning),
+              ),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: TextButton(
+                  onPressed: onRetry,
+                  child: const Text('Try again'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    if (!syncing && !justSynced) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: Semantics(
+          liveRegion: true,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainer,
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (syncing)
+                  SizedBox.square(
+                    dimension: 12,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 1.6,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  )
+                else
+                  StrokeIcon(
+                    StrokeIconKind.check,
+                    size: 14,
+                    color: paws.states.success,
+                  ),
+                const SizedBox(width: 8),
+                Text(
+                  syncing ? 'Updating household' : 'Household up to date',
+                  style: text.labelMedium?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
