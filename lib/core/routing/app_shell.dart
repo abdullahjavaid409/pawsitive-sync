@@ -1,7 +1,10 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/layout/adaptive.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
+import 'package:pawsitive_sync/core/widgets/press_scale.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 
@@ -75,82 +78,112 @@ class _CompactShell extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final tokens = context.paws;
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    final current = navigationShell.currentIndex;
+    // Pages scroll under the bar; its height reaches them as bottom padding.
     return Scaffold(
+      extendBody: true,
       body: AdaptivePage(child: navigationShell),
-      bottomNavigationBar: DecoratedBox(
-        decoration: BoxDecoration(
-          color: tokens.surfaces.card,
-          border: Border(top: BorderSide(color: tokens.borders.subtle)),
-        ),
-        child: SafeArea(
-          top: false,
-          child: Padding(
-            padding: EdgeInsets.fromLTRB(
-              tokens.spacing.sm,
-              tokens.spacing.sm,
-              tokens.spacing.sm,
-              tokens.spacing.sm,
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                for (var i = 0; i < _appTabs.length; i++)
-                  Expanded(
-                    child: Semantics(
-                      button: true,
-                      selected: i == navigationShell.currentIndex,
-                      label: _appTabs[i].$2,
-                      excludeSemantics: true,
-                      child: InkWell(
-                        onTap: () => onTap(i),
-                        borderRadius: BorderRadius.circular(16),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 4),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                width: 58,
-                                height: 32,
-                                alignment: Alignment.center,
-                                decoration: BoxDecoration(
-                                  color: i == navigationShell.currentIndex
-                                      ? scheme.primaryContainer
-                                      : Colors.transparent,
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: StrokeIcon(
-                                  _appTabs[i].$1,
-                                  size: 22,
-                                  color: i == navigationShell.currentIndex
-                                      ? tokens.states.selectedContent
-                                      : scheme.onSurfaceVariant,
+      bottomNavigationBar: SafeArea(
+        top: false,
+        minimum: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(32),
+            boxShadow: const [
+              BoxShadow(
+                color: Color(0x14000000),
+                blurRadius: 2,
+                offset: Offset(0, 1),
+              ),
+              BoxShadow(
+                color: Color(0x24000000),
+                blurRadius: 30,
+                offset: Offset(0, 12),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(32),
+            // Frosted glass: the one floating chrome surface, like iOS.
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: tokens.surfaces.card.withValues(alpha: 0.78),
+                  borderRadius: BorderRadius.circular(32),
+                  border: Border.all(
+                    color: dark
+                        ? const Color(0x1AFFFFFF)
+                        : const Color(0xB3FFFFFF),
+                    width: 0.5,
+                  ),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(6),
+                  child: Row(
+                    children: [
+                      for (var i = 0; i < _appTabs.length; i++)
+                        Expanded(
+                          child: Semantics(
+                            button: true,
+                            selected: i == current,
+                            label: _appTabs[i].$2,
+                            excludeSemantics: true,
+                            child: PressScale(
+                              child: GestureDetector(
+                                onTap: () => onTap(i),
+                                behavior: HitTestBehavior.opaque,
+                                child: AnimatedContainer(
+                                  duration: tokens.motion.micro,
+                                  curve: Curves.easeOutCubic,
+                                  height: 52,
+                                  decoration: BoxDecoration(
+                                    color: i == current
+                                        ? scheme.primaryContainer
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(26),
+                                  ),
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      StrokeIcon(
+                                        _appTabs[i].$1,
+                                        size: 22,
+                                        color: i == current
+                                            ? tokens.states.selectedContent
+                                            : scheme.onSurfaceVariant,
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        _appTabs[i].$2,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .labelSmall
+                                            ?.copyWith(
+                                              fontWeight: i == current
+                                                  ? FontWeight.w700
+                                                  : FontWeight.w500,
+                                              color: i == current
+                                                  ? tokens
+                                                        .states
+                                                        .selectedContent
+                                                  : scheme.onSurfaceVariant,
+                                            ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               ),
-                              const SizedBox(height: 5),
-                              Text(
-                                _appTabs[i].$2,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context).textTheme.bodySmall
-                                    ?.copyWith(
-                                      fontSize: 11,
-                                      fontWeight:
-                                          i == navigationShell.currentIndex
-                                          ? FontWeight.w600
-                                          : FontWeight.w500,
-                                      color: i == navigationShell.currentIndex
-                                          ? tokens.states.selectedContent
-                                          : scheme.onSurfaceVariant,
-                                    ),
-                              ),
-                            ],
+                            ),
                           ),
                         ),
-                      ),
-                    ),
+                    ],
                   ),
-              ],
+                ),
+              ),
             ),
           ),
         ),

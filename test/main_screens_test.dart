@@ -253,7 +253,7 @@ void main() {
     },
   );
 
-  testWidgets('today ledger shows every dose state on one sheet', (
+  testWidgets('today shows every dose state: hero, rounds and the log', (
     tester,
   ) async {
     final handle = tester.ensureSemantics();
@@ -263,25 +263,25 @@ void main() {
     await care.markDoseUncertain('fluids.afternoon');
     await _pump(tester, care);
 
-    // Who and when as the line's stamp, not a sentence.
-    expect(find.textContaining('SARA · 8:02 AM'), findsOneWidget);
-    expect(find.textContaining('DAN · 8:30 AM'), findsOneWidget);
-    // Bands name the parts of the day; no second "Today's schedule" level.
-    expect(find.text('Today’s schedule'), findsNothing);
-    for (final band in ['MORNING', 'AFTERNOON', 'EVENING']) {
-      expect(find.text(band), findsOneWidget, reason: band);
-    }
-    // Every state reads out for VoiceOver, ending with its mark.
-    for (final mark in ['done', 'not sure if given', 'later']) {
-      expect(
-        find.bySemanticsLabel(RegExp(', $mark\$')),
-        findsWidgets,
-        reason: mark,
-      );
+    // The hero answers first: the "not sure" dose needs a check.
+    expect(find.text('Needs a check'), findsOneWidget);
+    expect(find.text('Review dose'), findsOneWidget);
+    // The rounds card: given count and one pocket per dose.
+    expect(find.text('TODAY’S ROUNDS'), findsOneWidget);
+    // Who gave each dose sits on its line, in plain words.
+    expect(find.textContaining('Sara, 8:02 AM'), findsOneWidget);
+    expect(find.textContaining('Dan, 8:30 AM'), findsOneWidget);
+    // Every state reads out for VoiceOver, ending with its state.
+    for (final state in [
+      RegExp('given by Sara at 8:02 AM\$'),
+      RegExp('needs a check\$'),
+      RegExp('later\$'),
+    ]) {
+      expect(find.bySemanticsLabel(state), findsWidgets, reason: '$state');
     }
     // "Not sure" keeps its full warning on the line.
     expect(find.textContaining('not sure — check first'), findsWidgets);
-    // Adding happens in the ledger.
+    // Adding happens in the log.
     await _reveal(tester, find.text('Add medicine'));
     expect(find.text('Add medicine'), findsOneWidget);
 
@@ -290,9 +290,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Juniper'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('DAN · 8:30 AM'), findsOneWidget);
-    expect(find.textContaining('SARA · 8:02 AM'), findsNothing);
-    expect(find.text('EVENING'), findsNothing);
+    expect(find.textContaining('Dan, 8:30 AM'), findsOneWidget);
+    expect(find.textContaining('Sara, 8:02 AM'), findsNothing);
     expect(tester.takeException(), isNull);
     handle.dispose();
   });

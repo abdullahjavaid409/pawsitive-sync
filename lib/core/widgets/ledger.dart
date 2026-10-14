@@ -1,8 +1,8 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:pawsitive_sync/core/theme/app_colors.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
+import 'package:pawsitive_sync/core/widgets/press_scale.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 
 /// The Gave It signature: care written as lines in a shared logbook.
@@ -511,27 +511,32 @@ class GaveItButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final edge = dark ? scheme.primaryContainer : AppColors.brandPressed;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(PawsRadii.standard.pill),
-        boxShadow: onPressed == null
-            ? null
-            : [BoxShadow(color: edge, offset: const Offset(0, 3))],
-      ),
-      child: FilledButton.icon(
-        onPressed: onPressed,
-        style: FilledButton.styleFrom(
-          minimumSize: const Size.fromHeight(56),
-          shape: const StadiumBorder(),
+    final shape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(16),
+    );
+    return PressScale(
+      enabled: onPressed != null,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(16),
+          // A soft glow in the action's own colour; none while disabled.
+          boxShadow: onPressed == null
+              ? null
+              : PawsElevation.action(scheme.primary),
         ),
-        icon: StrokeIcon(
-          StrokeIconKind.check,
-          size: 20,
-          color: scheme.onPrimary,
+        child: FilledButton.icon(
+          onPressed: onPressed,
+          style: FilledButton.styleFrom(
+            minimumSize: const Size.fromHeight(56),
+            shape: shape,
+          ),
+          icon: StrokeIcon(
+            StrokeIconKind.check,
+            size: 20,
+            color: scheme.onPrimary,
+          ),
+          label: Text(label),
         ),
-        label: Text(label),
       ),
     );
   }

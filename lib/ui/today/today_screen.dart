@@ -7,7 +7,7 @@ import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/layout/app_art_size.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
-import 'package:pawsitive_sync/core/widgets/ledger.dart';
+import 'package:pawsitive_sync/core/widgets/celebration.dart';
 import 'package:pawsitive_sync/core/widgets/care_tab_builder.dart';
 import 'package:pawsitive_sync/core/widgets/care_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/moment_art.dart';
@@ -21,6 +21,7 @@ import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:pawsitive_sync/ui/care/add_care_event_sheet.dart';
 import 'package:pawsitive_sync/ui/today/dose_sheets.dart';
 import 'package:pawsitive_sync/ui/today/engagement_cards.dart';
+import 'package:pawsitive_sync/ui/today/today_cards.dart';
 import 'package:provider/provider.dart';
 
 /// Daily care leads with progress and the next useful action.
@@ -57,6 +58,7 @@ class _TodayScreenState extends State<TodayScreen> {
     DoseReminders.pendingOpen.removeListener(_openFromNotification);
     _lifecycle.dispose();
     _idlePrompt?.cancel();
+    _celebrations.dispose();
     super.dispose();
   }
 
@@ -118,6 +120,30 @@ class _TodayScreenState extends State<TodayScreen> {
     AppLog.unawaitedLogged(_openDose(context, dose), 'reminders.open_failed');
   }
 
+  /// Bumped after a dose is logged as given: confetti, toast and a haptic.
+  final _celebrations = ValueNotifier<int>(0);
+
+  /// "Sara gave the morning one at 8:02 AM": the same medicine given earlier
+  /// today, so a second person doesn't give the next dose twice.
+  String _lastGiven(CareRepository care, List<Dose> doses, Dose? next) {
+    if (next == null) return '';
+    for (final dose in doses.reversed) {
+      if (dose.id == next.id ||
+          dose.medicationId != next.medicationId ||
+          dose.status != DoseStatus.given) {
+        continue;
+      }
+      final id = dose.givenById;
+      final giver = id == null ? null : care.memberById(id);
+      final who = giver == null
+          ? 'Someone'
+          : (giver.isYou ? 'You' : giver.name);
+      final when = dose.givenAt.isEmpty ? '' : ' at ${dose.givenAt}';
+      return '$who gave the ${dose.part.label.toLowerCase()} one$when';
+    }
+    return '';
+  }
+
   // Tab screen: rebuilds on data changes only while visible.
   @override
   Widget build(BuildContext context) => CareTabBuilder(builder: _build);
@@ -130,19 +156,11 @@ class _TodayScreenState extends State<TodayScreen> {
     final doses = care.doses
         .where((d) => selectedId == null || d.petId == selectedId)
         .toList();
-    final given = doses.where((d) => d.status == DoseStatus.given).length;
     final due = doses.where((d) => d.status == DoseStatus.due).toList();
     final upcoming = doses
         .where((d) => d.status == DoseStatus.upcoming)
         .toList();
     final next = due.firstOrNull ?? upcoming.firstOrNull;
-    final byPart = {
-      for (final part in DayPart.values)
-        part: [
-          for (final d in doses)
-            if (d.part == part) d,
-        ],
-    };
     final low = care.medications
         .where((m) => m.isLow && (selectedId == null || m.petId == selectedId))
         .firstOrNull;
@@ -152,6 +170,11 @@ class _TodayScreenState extends State<TodayScreen> {
         .where((e) => selectedId == null || e.petId == selectedId)
         .take(5)
         .toList();
+
+    // Navigation is logged by AppRouteObserver.
+    void openFromToday(Dose dose) => dose.status == DoseStatus.upcoming
+        ? context.push(AppRoutes.medication(dose.medicationId))
+        : _openDose(context, dose);
 
     // Logged as nav.push to=/schedule; the save logs the pet.
     void addMedicine() {
@@ -163,237 +186,251 @@ class _TodayScreenState extends State<TodayScreen> {
     }
 
     return Scaffold(
-      body: SafeArea(
-        bottom: false,
-        child: RefreshIndicator(
-          // One line: household.synced / sync_skipped / sync_failed with
-          // source=pull_refresh.
-          onRefresh: () => care.sync(force: true, source: 'pull_refresh'),
-          child: ListView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: carePagePaddingOf(context),
-            children: [
-              CarePageHeader(
-                title: 'Today',
-                subtitle: dayLabel(care.now),
-                action: _TodayHeaderActions(
-                  isPro: care.isPro,
-                  onUpgrade: care.isPro
-                      ? null
-                      : () {
-                          context.push(
-                            AppRoutes.paywallWith(
-                              reason: 'settings',
-                              from: 'pro_badge',
-                            ),
-                          );
-                        },
-                  // Logged as nav.push to=/settings.
-                  onSettings: () => context.push(AppRoutes.settings),
-                ),
+      body: Stack(
+        children: [
+          SafeArea(
+            bottom: false,
+            child: RefreshIndicator(
+              // One line: household.synced / sync_skipped / sync_failed with
+              // source=pull_refresh.
+              onRefresh: () => care.sync(force: true, source: 'pull_refresh'),
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: carePagePaddingOf(context),
+                children: [
+                  CarePageHeader(
+                    title: 'Today',
+                    subtitle: dayLabel(care.now),
+                    action: _TodayHeaderActions(
+                      isPro: care.isPro,
+                      onUpgrade: care.isPro
+                          ? null
+                          : () {
+                              context.push(
+                                AppRoutes.paywallWith(
+                                  reason: 'settings',
+                                  from: 'pro_badge',
+                                ),
+                              );
+                            },
+                      // Logged as nav.push to=/settings.
+                      onSettings: () => context.push(AppRoutes.settings),
+                    ),
+                  ),
+                  if (care.hasApi &&
+                      (care.isConnected || care.syncError != null))
+                    _HouseholdSync(
+                      syncing: care.syncing,
+                      error: care.syncError,
+                      onRetry: () => care.sync(force: true, source: 'retry'),
+                    ),
+                  const SizedBox(height: 24),
+                  // One pet: nothing to filter, so no picker.
+                  if (care.pets.length > 1) ...[
+                    CarePetPicker(
+                      pets: care.pets,
+                      selectedId: selectedId,
+                      includeAll: true,
+                      onSelected: (id) {
+                        AppLog.event('pet.filter', {'petId': id ?? 'all'});
+                        setState(() => _petId = id);
+                      },
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+                  if (doses.isNotEmpty) ...[
+                    // Hero first: the one answer and the one action.
+                    TodayHero(
+                      dose: next,
+                      pet:
+                          care.tryPetById(next?.petId ?? selectedId ?? '') ??
+                          care.primaryPet,
+                      lastGiven: _lastGiven(care, doses, next),
+                      onLog: () {
+                        if (next != null) _openDose(context, next);
+                      },
+                      onDetails: () {
+                        if (next != null) {
+                          context.push(AppRoutes.medication(next.medicationId));
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                    // One dose: the hero already says it all.
+                    if (doses.length > 1) ...[
+                      const SizedBox(height: 16),
+                      TodayRounds(doses: doses, onPressed: openFromToday),
+                    ],
+                    const CareDaysNote(),
+                    TodayMoments(care: care),
+                    if (care.lockedMedications.isNotEmpty) ...[
+                      const SizedBox(height: 16),
+                      _RemindersNeedPro(
+                        medications: care.lockedMedications,
+                        // billing.paywall.opened reason=more_dose_times from=today_locked.
+                        onTap: () => context.push(
+                          AppRoutes.paywallWith(
+                            reason: 'more_dose_times',
+                            from: 'today_locked',
+                          ),
+                        ),
+                      ),
+                    ],
+                    if (care.canShowLowSupplyAlerts && low != null) ...[
+                      const SizedBox(height: 16),
+                      _LowSupply(
+                        medication: low,
+                        // Logged as nav.push to=/medication/:id.
+                        onTap: () => context.push(AppRoutes.medication(low.id)),
+                      ),
+                    ],
+                    // Free: the same moment, honestly framed as what Pro adds.
+                    if (!care.canShowLowSupplyAlerts && low != null) ...[
+                      _LowSupplyTeaser(
+                        key: ValueKey('low-teaser-${low.id}'),
+                        medication: low,
+                      ),
+                    ],
+                    const SizedBox(height: 16),
+                    TodayLog(
+                      care: care,
+                      doses: doses,
+                      onAdd: addMedicine,
+                      onPressed: openFromToday,
+                    ),
+                    if (care.pets.isNotEmpty) ...[
+                      const SizedBox(height: 24),
+                      CareSectionHeader(
+                        'Coming up',
+                        action: 'Add event',
+                        onAction: () =>
+                            showAddCareEventSheet(context, petId: selectedId),
+                      ),
+                      const SizedBox(height: 8),
+                      if (upcomingCare.isEmpty)
+                        // Nothing to draw a box around: one quiet line instead.
+                        Text(
+                          'Vet visits, vaccines and refills show here.',
+                          style: text.bodyMedium?.copyWith(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant,
+                          ),
+                        )
+                      else
+                        SurfaceCard(
+                          child: Column(
+                            children: [
+                              for (final (index, event) in upcomingCare.indexed)
+                                _CareEventTile(
+                                  event: event,
+                                  pet: care.tryPetById(event.petId),
+                                  showDivider: index < upcomingCare.length - 1,
+                                  // care_event.removed is logged by the repository.
+                                  onRemove: () {
+                                    AppLog.unawaitedLogged(
+                                      care.removeCareEvent(event.id),
+                                      'care_event.remove_failed',
+                                      {'eventId': event.id},
+                                    );
+                                  },
+                                ),
+                            ],
+                          ),
+                        ),
+                    ],
+                    const SizedBox(height: 8),
+                    const _RemindersBanner(),
+                  ] else ...[
+                    _StartCare(
+                      pet: selectedPet ?? care.primaryPet,
+                      onStart: hasPet
+                          ? addMedicine
+                          : () {
+                              if (!care.canAddPet) {
+                                // billing.paywall.opened from=add_pet_today.
+                                context.push(
+                                  AppRoutes.paywallWith(
+                                    reason: 'second_pet',
+                                    from: 'add_pet_today',
+                                  ),
+                                );
+                                return;
+                              }
+                              context.push(AppRoutes.addPet);
+                            },
+                    ),
+                    // A course that just ended may leave nothing scheduled today.
+                    TodayMoments(care: care),
+                    if (care.pets.isNotEmpty) ...[
+                      const SizedBox(height: 24),
+                      CareSectionHeader(
+                        'Coming up',
+                        action: 'Add event',
+                        onAction: () =>
+                            showAddCareEventSheet(context, petId: selectedId),
+                      ),
+                      const SizedBox(height: 8),
+                      if (upcomingCare.isEmpty)
+                        // Nothing to draw a box around: one quiet line instead.
+                        Text(
+                          'Vet visits, vaccines and refills show here.',
+                          style: text.bodyMedium?.copyWith(
+                            color: Theme.of(context)
+                                .colorScheme
+                                .onSurfaceVariant,
+                          ),
+                        )
+                      else
+                        SurfaceCard(
+                          child: Column(
+                            children: [
+                              for (final (index, event) in upcomingCare.indexed)
+                                _CareEventTile(
+                                  event: event,
+                                  pet: care.tryPetById(event.petId),
+                                  showDivider: index < upcomingCare.length - 1,
+                                  // care_event.removed is logged by the repository.
+                                  onRemove: () {
+                                    AppLog.unawaitedLogged(
+                                      care.removeCareEvent(event.id),
+                                      'care_event.remove_failed',
+                                      {'eventId': event.id},
+                                    );
+                                  },
+                                ),
+                            ],
+                          ),
+                        ),
+                    ],
+                    const SizedBox(height: 24),
+                    const _QuickActions(),
+                    const _RemindersBanner(),
+                    const SizedBox(height: 28),
+                    Text('How it works', style: text.headlineSmall),
+                    const SizedBox(height: 16),
+                    const _SetupGuide(),
+                    if (!care.isConnected) ...[
+                      const SizedBox(height: 12),
+                      TextButton(
+                        onPressed: () => context.push(AppRoutes.join),
+                        child: const Text('I have a household invite code'),
+                      ),
+                    ],
+                  ],
+                ],
               ),
-              if (care.hasApi && (care.isConnected || care.syncError != null))
-                _HouseholdSync(
-                  syncing: care.syncing,
-                  error: care.syncError,
-                  onRetry: () => care.sync(force: true, source: 'retry'),
-                ),
-              const SizedBox(height: 24),
-              if (care.pets.isNotEmpty) ...[
-                CarePetPicker(
-                  pets: care.pets,
-                  selectedId: selectedId,
-                  includeAll: true,
-                  onSelected: (id) {
-                    AppLog.event('pet.filter', {'petId': id ?? 'all'});
-                    setState(() => _petId = id);
-                  },
-                ),
-                const SizedBox(height: 20),
-              ],
-              if (doses.isNotEmpty) ...[
-                _DayProgress(
-                  given: given,
-                  total: doses.length,
-                  due: due.length,
-                ),
-                const CareDaysNote(),
-                TodayMoments(care: care),
-                if (next != null) ...[
-                  const SizedBox(height: 16),
-                  _NextDose(
-                    dose: next,
-                    pet: care.tryPetById(next.petId),
-                    onLog: () => _openDose(context, next),
-                    onDetails: () =>
-                        context.push(AppRoutes.medication(next.medicationId)),
-                  ),
-                ],
-                if (care.lockedMedications.isNotEmpty) ...[
-                  const SizedBox(height: 16),
-                  _RemindersNeedPro(
-                    medications: care.lockedMedications,
-                    // billing.paywall.opened reason=more_dose_times from=today_locked.
-                    onTap: () => context.push(
-                      AppRoutes.paywallWith(
-                        reason: 'more_dose_times',
-                        from: 'today_locked',
-                      ),
-                    ),
-                  ),
-                ],
-                if (care.canShowLowSupplyAlerts && low != null) ...[
-                  const SizedBox(height: 16),
-                  _LowSupply(
-                    medication: low,
-                    // Logged as nav.push to=/medication/:id.
-                    onTap: () => context.push(AppRoutes.medication(low.id)),
-                  ),
-                ],
-                // Free: the same moment, honestly framed as what Pro adds.
-                if (!care.canShowLowSupplyAlerts && low != null) ...[
-                  _LowSupplyTeaser(
-                    key: ValueKey('low-teaser-${low.id}'),
-                    medication: low,
-                  ),
-                ],
-                if (due.isNotEmpty &&
-                    (care.isConnected || care.members.length > 1)) ...[
-                  const SizedBox(height: 16),
-                  _DoubleDoseAlert(
-                    // Logged as nav.tab to=household.
-                    onCheckHousehold: () => context.go(AppRoutes.household),
-                  ),
-                ],
-                const SizedBox(height: 24),
-                _ScheduleLedger(
-                  care: care,
-                  byPart: byPart,
-                  onAdd: addMedicine,
-                  // Navigation is logged by AppRouteObserver.
-                  onPressed: (dose) => dose.status == DoseStatus.upcoming
-                      ? context.push(AppRoutes.medication(dose.medicationId))
-                      : _openDose(context, dose),
-                ),
-                if (care.pets.isNotEmpty) ...[
-                  const SizedBox(height: 24),
-                  CareSectionHeader(
-                    'Coming up',
-                    action: 'Add event',
-                    onAction: () =>
-                        showAddCareEventSheet(context, petId: selectedId),
-                  ),
-                  const SizedBox(height: 8),
-                  if (upcomingCare.isEmpty)
-                    // Nothing to draw a box around: one quiet line instead.
-                    Text(
-                      'Vet visits, vaccines and refills show here.',
-                      style: text.bodyMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    )
-                  else
-                    SurfaceCard(
-                      child: Column(
-                        children: [
-                          for (final (index, event) in upcomingCare.indexed)
-                            _CareEventTile(
-                              event: event,
-                              pet: care.tryPetById(event.petId),
-                              showDivider: index < upcomingCare.length - 1,
-                              // care_event.removed is logged by the repository.
-                              onRemove: () {
-                                AppLog.unawaitedLogged(
-                                  care.removeCareEvent(event.id),
-                                  'care_event.remove_failed',
-                                  {'eventId': event.id},
-                                );
-                              },
-                            ),
-                        ],
-                      ),
-                    ),
-                ],
-                const SizedBox(height: 8),
-                const _RemindersBanner(),
-              ] else ...[
-                _StartCare(
-                  pet: selectedPet ?? care.primaryPet,
-                  onStart: hasPet
-                      ? addMedicine
-                      : () {
-                          if (!care.canAddPet) {
-                            // billing.paywall.opened from=add_pet_today.
-                            context.push(
-                              AppRoutes.paywallWith(
-                                reason: 'second_pet',
-                                from: 'add_pet_today',
-                              ),
-                            );
-                            return;
-                          }
-                          context.push(AppRoutes.addPet);
-                        },
-                ),
-                // A course that just ended may leave nothing scheduled today.
-                TodayMoments(care: care),
-                if (care.pets.isNotEmpty) ...[
-                  const SizedBox(height: 24),
-                  CareSectionHeader(
-                    'Coming up',
-                    action: 'Add event',
-                    onAction: () =>
-                        showAddCareEventSheet(context, petId: selectedId),
-                  ),
-                  const SizedBox(height: 8),
-                  if (upcomingCare.isEmpty)
-                    // Nothing to draw a box around: one quiet line instead.
-                    Text(
-                      'Vet visits, vaccines and refills show here.',
-                      style: text.bodyMedium?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    )
-                  else
-                    SurfaceCard(
-                      child: Column(
-                        children: [
-                          for (final (index, event) in upcomingCare.indexed)
-                            _CareEventTile(
-                              event: event,
-                              pet: care.tryPetById(event.petId),
-                              showDivider: index < upcomingCare.length - 1,
-                              // care_event.removed is logged by the repository.
-                              onRemove: () {
-                                AppLog.unawaitedLogged(
-                                  care.removeCareEvent(event.id),
-                                  'care_event.remove_failed',
-                                  {'eventId': event.id},
-                                );
-                              },
-                            ),
-                        ],
-                      ),
-                    ),
-                ],
-                const SizedBox(height: 24),
-                const _QuickActions(),
-                const _RemindersBanner(),
-                const SizedBox(height: 28),
-                Text('How it works', style: text.headlineSmall),
-                const SizedBox(height: 16),
-                const _SetupGuide(),
-                if (!care.isConnected) ...[
-                  const SizedBox(height: 12),
-                  TextButton(
-                    onPressed: () => context.push(AppRoutes.join),
-                    child: const Text('I have a household invite code'),
-                  ),
-                ],
-              ],
-            ],
+            ),
           ),
-        ),
+          Positioned.fill(
+            child: CelebrationLayer(
+              trigger: _celebrations,
+              message: care.isConnected
+                  ? 'Logged for everyone.'
+                  : 'Dose logged.',
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -409,7 +446,12 @@ class _TodayScreenState extends State<TodayScreen> {
         care.loggedDose(dose.id, dayKey(care.now))?.outcome ==
         LogOutcome.uncertain;
     await showLogDoseSheet(context, dose);
-    if (!context.mounted || care.isPro || wasUncertain) return;
+    if (!context.mounted) return;
+    if (care.loggedDose(dose.id, dayKey(care.now))?.outcome ==
+        LogOutcome.given) {
+      _celebrations.value++;
+    }
+    if (care.isPro || wasUncertain) return;
     // Just marked "not sure": the moment shared care answers — remembered
     // for the next idle visit to Today, once ever, capped.
     final nowUncertain =
@@ -457,326 +499,6 @@ class _TodayHeaderActions extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _DayProgress extends StatelessWidget {
-  const _DayProgress({
-    required this.given,
-    required this.total,
-    required this.due,
-  });
-  final int given;
-  final int total;
-  final int due;
-
-  @override
-  Widget build(BuildContext context) {
-    final text = Theme.of(context).textTheme;
-    final tokens = context.paws;
-    final complete = given >= total;
-    final remaining = (total - given).clamp(0, total);
-    // On the page, not in a card: the headline, a mono count, and one box
-    // per dose. The schedule below is the detail.
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.baseline,
-          textBaseline: TextBaseline.alphabetic,
-          children: [
-            Expanded(
-              child: Text(
-                complete
-                    ? 'All cared for.'
-                    : '$remaining ${remaining == 1 ? 'dose' : 'doses'} left today',
-                style: text.headlineSmall,
-              ),
-            ),
-            const SizedBox(width: 12),
-            ExcludeSemantics(
-              child: Text(
-                '${given.clamp(0, total)} / $total',
-                style: tokens.typography.stamp
-                    .resolve(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    )
-                    .copyWith(fontSize: 15),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        Text(
-          complete
-              ? 'Every scheduled dose is logged.'
-              : due == 0
-              ? '$given of $total given. The rest are later.'
-              : '$given of $total given. $due ${due == 1 ? 'is' : 'are'} due.',
-          style: text.bodyMedium,
-        ),
-        // One box per dose; with a single dose the count says it all.
-        if (total > 1) ...[
-          const SizedBox(height: 14),
-          LedgerStrip(given: given, due: due, total: total),
-        ],
-      ],
-    );
-  }
-}
-
-class _NextDose extends StatelessWidget {
-  const _NextDose({
-    required this.dose,
-    required this.pet,
-    required this.onLog,
-    required this.onDetails,
-  });
-  final Dose dose;
-  final Pet? pet;
-  final VoidCallback onLog;
-  final VoidCallback onDetails;
-
-  @override
-  Widget build(BuildContext context) {
-    // A local promotes after a null check; the field would need `!`.
-    final pet = this.pet;
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-    final isDue = dose.status == DoseStatus.due;
-    final uncertain = isDue && dose.givenById != null;
-    return SurfaceCard(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  uncertain
-                      ? 'Needs a check'
-                      : isDue
-                      ? 'Next dose'
-                      : 'Later today',
-                  style: text.titleSmall,
-                ),
-              ),
-              Text(
-                dose.timeLabel,
-                style: context.paws.typography.stamp.resolve(
-                  color: context.paws.brandDark,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (pet != null)
-                PetPortrait(pet, size: 56)
-              else
-                Container(
-                  width: 56,
-                  height: 56,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    color: scheme.primaryContainer,
-                    shape: BoxShape.circle,
-                  ),
-                  child: StrokeIcon(
-                    StrokeIconKind.medicine,
-                    size: 24,
-                    color: context.paws.brandDark,
-                  ),
-                ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(dose.name, style: text.headlineSmall),
-                    const SizedBox(height: 5),
-                    Text(
-                      '${pet?.name ?? 'Pet removed'}${dose.amount.isEmpty ? '' : ' · ${dose.amount}'}',
-                      style: text.bodyLarge?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 18),
-          if (uncertain) ...[
-            Text(
-              dose.subtitle,
-              style: text.bodyMedium?.copyWith(color: context.paws.warning),
-            ),
-            const SizedBox(height: 12),
-          ],
-          if (isDue)
-            GaveItButton(
-              onPressed: onLog,
-              label: uncertain ? 'Review dose' : 'Gave it',
-            )
-          else
-            OutlinedButton(
-              onPressed: onDetails,
-              child: const Text('View medicine'),
-            ),
-          if (isDue) ...[
-            const SizedBox(height: 9),
-            Text(
-              uncertain
-                  ? 'Confirm what happened before recording this dose.'
-                  : 'Log it after you’ve given the medicine.',
-              textAlign: TextAlign.center,
-              style: text.bodySmall,
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-/// The day as one ledger sheet: a ruled header per part of the day, then a
-/// line per dose with its time in the gutter and its mark on the right.
-class _ScheduleLedger extends StatelessWidget {
-  const _ScheduleLedger({
-    required this.care,
-    required this.byPart,
-    required this.onPressed,
-    required this.onAdd,
-  });
-
-  final CareRepository care;
-  final Map<DayPart, List<Dose>> byPart;
-  final void Function(Dose dose) onPressed;
-  final VoidCallback onAdd;
-
-  /// The gutter already shows the scheduled time, so a line only adds the
-  /// pet; a given dose adds who and when as a stamp. "Not sure" keeps its
-  /// full warning ("Sara is not sure — check first").
-  (String, String) _detail(Dose dose) {
-    final pet = care.tryPetById(dose.petId)?.name ?? '';
-    return switch ((dose.status, dose.givenById)) {
-      (DoseStatus.given, final id?) when dose.givenAt.isNotEmpty => (
-        pet,
-        '${_who(id)} · ${dose.givenAt}'.toUpperCase(),
-      ),
-      (DoseStatus.due, _?) => (dose.subtitle, ''),
-      (DoseStatus.given, _) => (dose.subtitle, ''),
-      _ => (pet, ''),
-    };
-  }
-
-  String _who(String memberId) {
-    final member = care.memberById(memberId);
-    return member.isYou ? 'You' : member.name;
-  }
-
-  static LedgerMark _mark(Dose dose) => switch (dose.status) {
-    // "Not sure" is still due, with who flagged it.
-    DoseStatus.due when dose.givenById != null => LedgerMark.unsure,
-    DoseStatus.due => LedgerMark.due,
-    DoseStatus.given => LedgerMark.given,
-    _ => LedgerMark.later,
-  };
-
-  @override
-  Widget build(BuildContext context) {
-    final parts = [
-      for (final part in DayPart.values)
-        if (byPart[part] case final doses? when doses.isNotEmpty) (part, doses),
-    ];
-    return LedgerSheet(
-      children: [
-        for (final (i, (part, doses)) in parts.indexed) ...[
-          _PartLabel(part, first: i == 0),
-          for (final dose in doses)
-            if (_detail(dose) case (final detail, final stamp))
-              LedgerLine(
-                key: ValueKey(dose.id),
-                time: dose.timeLabel,
-                title: dose.title,
-                detail: detail,
-                stamp: stamp,
-                mark: _mark(dose),
-                onPressed: () => onPressed(dose),
-                // Reads the full sentence, not the stamp's capitals.
-                semanticLabel: [
-                  dose.title,
-                  dose.subtitle,
-                  'scheduled ${dose.timeLabel}',
-                  LedgerLine.markWords(_mark(dose)),
-                ].where((part) => part.trim().isNotEmpty).join(', '),
-              ),
-        ],
-        // Logged as nav.push to=/schedule.
-        LedgerAddLine(label: 'Add medicine', onPressed: onAdd),
-      ],
-    );
-  }
-}
-
-/// A ruled band naming the part of the day, inside the ledger sheet.
-class _PartLabel extends StatelessWidget {
-  const _PartLabel(this.part, {required this.first});
-  final DayPart part;
-  final bool first;
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = context.paws;
-    final text = Theme.of(context).textTheme;
-    final rule = BorderSide(color: tokens.borders.subtle);
-    final muted = Theme.of(context).colorScheme.onSurfaceVariant;
-    // Each line carries its own time in the gutter, so the band is just the
-    // name of the part of the day.
-    return Semantics(
-      header: true,
-      label: part.label,
-      excludeSemantics: true,
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          // The sheet's top edge already draws the first rule.
-          border: Border(top: first ? BorderSide.none : rule, bottom: rule),
-        ),
-        child: Padding(
-          padding: const EdgeInsetsDirectional.fromSTEB(12, 10, 16, 10),
-          child: Row(
-            children: [
-              // The same line icons as the schedule picker. The Lottie
-              // scenes are drawn for 120pt+ and break apart at label size.
-              StrokeIcon(
-                switch (part) {
-                  DayPart.morning => StrokeIconKind.sunrise,
-                  DayPart.afternoon => StrokeIconKind.sun,
-                  DayPart.evening => StrokeIconKind.moon,
-                },
-                size: 18,
-                color: muted,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  part.label.toUpperCase(),
-                  style: text.labelMedium?.copyWith(
-                    color: muted,
-                    letterSpacing: 1.2,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
     );
   }
 }
@@ -1380,63 +1102,6 @@ class _RemindersBannerState extends State<_RemindersBanner> {
                 ),
               ],
             ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-/// Reddit’s #1 pet-med pain: "Did someone already give it?"
-class _DoubleDoseAlert extends StatelessWidget {
-  const _DoubleDoseAlert({required this.onCheckHousehold});
-
-  final VoidCallback onCheckHousehold;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-    final tokens = context.paws;
-    return Material(
-      color: tokens.warningBg,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(PawsRadii.cardValue),
-        side: BorderSide(color: tokens.warningBorder),
-      ),
-      child: InkWell(
-        onTap: onCheckHousehold,
-        borderRadius: BorderRadius.circular(PawsRadii.cardValue),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 14, 12, 14),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              StrokeIcon(
-                StrokeIconKind.people,
-                size: 20,
-                color: tokens.warning,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Check before you give',
-                      style: text.titleSmall?.copyWith(color: tokens.warning),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Someone else may have logged this dose. '
-                      'Open Household to see who gave what today.',
-                      style: text.bodyMedium?.copyWith(color: scheme.onSurface),
-                    ),
-                  ],
-                ),
-              ),
-              Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
-            ],
           ),
         ),
       ),

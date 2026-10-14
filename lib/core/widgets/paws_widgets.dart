@@ -548,14 +548,27 @@ class SurfaceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.paws;
-    return Material(
-      color: tokens.surfaces.card,
-      clipBehavior: Clip.antiAlias,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(radius),
-        side: BorderSide(color: borderColor ?? tokens.borders.subtle),
+    final shape = BorderRadius.circular(radius);
+    // Depth comes from a soft shadow, not a hairline; a caller that needs an
+    // outline (a selected or warning card) still passes [borderColor].
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: shape,
+        boxShadow: PawsElevation.card(Theme.of(context).brightness),
       ),
-      child: padding == null ? child : Padding(padding: padding!, child: child),
+      child: Material(
+        color: tokens.surfaces.card,
+        clipBehavior: Clip.antiAlias,
+        shape: RoundedRectangleBorder(
+          borderRadius: shape,
+          side: borderColor == null
+              ? BorderSide.none
+              : BorderSide(color: borderColor!),
+        ),
+        child: padding == null
+            ? child
+            : Padding(padding: padding!, child: child),
+      ),
     );
   }
 }

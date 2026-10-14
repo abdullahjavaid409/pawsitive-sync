@@ -299,12 +299,17 @@ class MedicationScreen extends StatelessWidget {
               child: Row(
                 children: [
                   Text('LAST 7 DAYS', style: text.labelSmall),
-                  const Spacer(),
-                  Text(
-                    expectedThisWeek == 0
-                        ? 'Nothing due yet'
-                        : '$givenThisWeek of $expectedThisWeek given',
-                    style: text.bodyMedium,
+                  const SizedBox(width: 12),
+                  // Takes the rest of the line and wraps at large text
+                  // instead of pushing past the edge.
+                  Expanded(
+                    child: Text(
+                      expectedThisWeek == 0
+                          ? 'Nothing due yet'
+                          : '$givenThisWeek of $expectedThisWeek given',
+                      style: text.bodyMedium,
+                      textAlign: TextAlign.end,
+                    ),
                   ),
                 ],
               ),

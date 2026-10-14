@@ -59,6 +59,7 @@ dependencies:
   # Background re-plan of dose reminders (Android WorkManager / iOS
   # BGAppRefreshTask), so reminders don't stop after the 7-day window.
   workmanager: ^0.10.10
+  phosphor_icons: ^3.0.1
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -94,20 +95,11 @@ flutter:
     - assets/lottie/
     - assets/fonts/pdf/
   fonts:
-    - family: Bricolage Grotesque
+    # Headlines only; body text is the system font (SF Pro on iOS).
+    - family: Instrument Serif
       fonts:
-        - asset: assets/fonts/BricolageGrotesque-SemiBold.ttf
-          weight: 600
-        - asset: assets/fonts/BricolageGrotesque-Bold.ttf
-          weight: 700
-    - family: Atkinson Hyperlegible
-      fonts:
-        - asset: assets/fonts/AtkinsonHyperlegibleNext-Regular.ttf
+        - asset: assets/fonts/InstrumentSerif-Regular.ttf
           weight: 400
-        - asset: assets/fonts/AtkinsonHyperlegibleNext-SemiBold.ttf
-          weight: 600
-        - asset: assets/fonts/AtkinsonHyperlegibleNext-Bold.ttf
-          weight: 700
     - family: Atkinson Hyperlegible Mono
       fonts:
         - asset: assets/fonts/AtkinsonHyperlegibleMono-Medium.ttf

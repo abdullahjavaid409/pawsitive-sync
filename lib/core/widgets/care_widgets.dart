@@ -18,7 +18,9 @@ EdgeInsets carePagePaddingOf(BuildContext context) {
     horizontal,
     spacing.pageTop,
     horizontal,
-    spacing.pageBottom,
+    // The floating tab bar (or the home indicator) sits over the page's
+    // bottom inset, so the last item can always scroll clear of it.
+    spacing.pageBottom + MediaQuery.paddingOf(context).bottom,
   );
 }
 

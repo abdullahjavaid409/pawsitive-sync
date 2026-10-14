@@ -101,7 +101,7 @@ class _LockScreenState extends State<LockScreen> {
                   child: Text(
                     clockLabel(care.now),
                     style: const TextStyle(
-                      fontFamily: PawsTypeStyle.displayFamily,
+                      fontFamily: PawsTypeStyle.numberFamily,
                       fontSize: 68,
                       fontWeight: FontWeight.w500,
                       letterSpacing: -3,

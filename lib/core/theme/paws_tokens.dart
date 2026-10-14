@@ -17,11 +17,16 @@ class PawsTypeStyle {
     this.family = bodyFamily,
   });
 
-  /// Display face for titles: stamped, a little irregular, unlike UI sans.
-  static const displayFamily = 'Bricolage Grotesque';
+  /// Editorial serif for big headlines only (title, hero sentence, section
+  /// heads). Never below 20 pt, where a display serif loses legibility.
+  static const displayFamily = 'Instrument Serif';
 
-  /// Reading face, built for low-vision legibility (tired caregivers, 2 AM).
-  static const bodyFamily = 'Atkinson Hyperlegible';
+  /// SF Pro Text on Apple devices (Flutter's proxy name); Roboto elsewhere.
+  /// Everything people read or tap uses it.
+  static const bodyFamily = 'CupertinoSystemText';
+
+  /// SF Pro Display for large numbers and clocks (20 pt and up).
+  static const numberFamily = 'CupertinoSystemDisplay';
 
   /// Ledger stamps only: times and amounts, with tabular figures.
   static const monoFamily = 'Atkinson Hyperlegible Mono';
@@ -90,48 +95,72 @@ class PawsTypography {
   /// Mono time/amount stamp: "8:02 AM", "2 units".
   final PawsTypeStyle stamp;
 
+  // Serif display roles use weight 400: the face has a single weight and a
+  // synthesised bold looks smeared. SF roles carry Apple's tracking for
+  // their size (17 pt -0.41, 15 pt -0.23, 13 pt -0.08, 11 pt +0.06).
   static const standard = PawsTypography(
     display: PawsTypeStyle(
-      fontSize: 32,
-      height: 1.1,
-      weight: FontWeight.w700,
-      letterSpacing: -0.6,
-      family: PawsTypeStyle.displayFamily,
-    ),
-    headline: PawsTypeStyle(
-      fontSize: 26,
-      height: 1.15,
-      weight: FontWeight.w700,
+      fontSize: 40,
+      height: 1.05,
+      weight: FontWeight.w400,
       letterSpacing: -0.4,
       family: PawsTypeStyle.displayFamily,
     ),
+    headline: PawsTypeStyle(
+      fontSize: 30,
+      height: 1.1,
+      weight: FontWeight.w400,
+      letterSpacing: -0.3,
+      family: PawsTypeStyle.displayFamily,
+    ),
     section: PawsTypeStyle(
-      fontSize: 20,
-      height: 1.25,
-      weight: FontWeight.w600,
+      fontSize: 24,
+      height: 1.15,
+      weight: FontWeight.w400,
       letterSpacing: -0.2,
       family: PawsTypeStyle.displayFamily,
     ),
-    title: PawsTypeStyle(fontSize: 17, height: 1.3, weight: FontWeight.w700),
-    subtitle: PawsTypeStyle(fontSize: 16, height: 1.3, weight: FontWeight.w600),
-    label: PawsTypeStyle(fontSize: 15, height: 1.3, weight: FontWeight.w600),
-    body: PawsTypeStyle(fontSize: 16, height: 1.45, weight: FontWeight.w400),
-    bodySecondary: PawsTypeStyle(
-      fontSize: 14,
+    title: PawsTypeStyle(
+      fontSize: 17,
+      height: 1.3,
+      weight: FontWeight.w600,
+      letterSpacing: -0.41,
+    ),
+    subtitle: PawsTypeStyle(
+      fontSize: 16,
+      height: 1.3,
+      weight: FontWeight.w600,
+      letterSpacing: -0.32,
+    ),
+    label: PawsTypeStyle(
+      fontSize: 15,
+      height: 1.3,
+      weight: FontWeight.w600,
+      letterSpacing: -0.23,
+    ),
+    body: PawsTypeStyle(
+      fontSize: 17,
       height: 1.4,
       weight: FontWeight.w400,
+      letterSpacing: -0.41,
+    ),
+    bodySecondary: PawsTypeStyle(
+      fontSize: 15,
+      height: 1.35,
+      weight: FontWeight.w400,
+      letterSpacing: -0.23,
     ),
     caption: PawsTypeStyle(
       fontSize: 13,
-      height: 1.35,
+      height: 1.3,
       weight: FontWeight.w400,
-      letterSpacing: 0.1,
+      letterSpacing: -0.08,
     ),
     labelSmall: PawsTypeStyle(
       fontSize: 11,
       height: 1.2,
       weight: FontWeight.w600,
-      letterSpacing: 0.4,
+      letterSpacing: 0.06,
     ),
   );
 
@@ -150,6 +179,38 @@ class PawsTypography {
       stamp: stamp.lerp(other.stamp, t),
     );
   }
+}
+
+/// Card depth. Light mode lifts cards with a soft two-layer shadow instead of
+/// hairline borders; dark mode lifts them by tone alone (iOS does the same),
+/// since shadows don't read on a near-black page.
+abstract final class PawsElevation {
+  static const _light = [
+    BoxShadow(color: Color(0x0D1A1C24), blurRadius: 2, offset: Offset(0, 1)),
+    BoxShadow(color: Color(0x121A1C24), blurRadius: 24, offset: Offset(0, 8)),
+  ];
+
+  static const _hero = [
+    BoxShadow(color: Color(0x0D1A1C24), blurRadius: 2, offset: Offset(0, 1)),
+    BoxShadow(color: Color(0x171A1C24), blurRadius: 30, offset: Offset(0, 12)),
+  ];
+
+  /// Resting cards: the log, tiles, rows.
+  static List<BoxShadow> card(Brightness brightness) =>
+      brightness == Brightness.light ? _light : const [];
+
+  /// The one hero card on a screen.
+  static List<BoxShadow> hero(Brightness brightness) =>
+      brightness == Brightness.light ? _hero : const [];
+
+  /// A coloured glow under the primary action, in its own colour.
+  static List<BoxShadow> action(Color color) => [
+    BoxShadow(
+      color: color.withValues(alpha: 0.30),
+      blurRadius: 24,
+      offset: const Offset(0, 10),
+    ),
+  ];
 }
 
 /// Spacing roles shared by pages, sections, controls and sheets.
@@ -273,7 +334,8 @@ class PawsRadii {
   final double sheet;
   final double option;
 
-  static const cardValue = 10.0;
+  /// One radius for every card, hero and sheet body (iOS grouped cards).
+  static const cardValue = 20.0;
 
   /// Rows and stamps: ledger lines, not bubbles.
   static const rowValue = 4.0;

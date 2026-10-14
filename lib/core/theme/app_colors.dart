@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 
-/// Gave It palette: ink blue on ledger paper (docs/REDESIGN_GAVE_IT.md).
+/// Gave It palette: Ink & Paper in light, Midnight in dark
+/// (docs/REDESIGN_GAVE_IT.md, redesign E).
 /// Green is a status color for a given dose, never the brand.
 abstract final class AppColors {
-  static const background = Color(0xFFF5F1E8);
-  static const paper = Color(0xFFFFFDF8);
+  static const background = Color(0xFFF3F0EA);
+  static const paper = Color(0xFFFFFFFF);
   static const ink = Color(0xFF1A1C24);
   static const muted = Color(0xFF5E5A52);
   static const body = Color(0xFF3B3934);
@@ -30,10 +31,10 @@ abstract final class AppColors {
   static const lock = Color(0xFF1A1C24);
   static const scrim = Color(0x731A1C24);
 
-  static const darkSurface = Color(0xFF121318);
-  static const darkCard = Color(0xFF1B1D24);
-  static const darkInk = Color(0xFFEDEAE3);
-  static const darkMuted = Color(0xFFA39E94);
+  static const darkSurface = Color(0xFF0E1116);
+  static const darkCard = Color(0xFF181C24);
+  static const darkInk = Color(0xFFF2EEE6);
+  static const darkMuted = Color(0xFFA7A196);
   static const darkHairline = Color(0xFF2C2F38);
   static const darkNeutral = Color(0xFF22252D);
   static const darkBrandSoft = Color(0xFF232A5C);
