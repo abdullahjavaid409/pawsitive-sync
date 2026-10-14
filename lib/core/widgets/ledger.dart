@@ -8,10 +8,84 @@ import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 /// The Gave It signature: care written as lines in a shared logbook.
 /// See docs/REDESIGN_GAVE_IT.md ("Shape").
 
-/// Width of the time gutter left of the margin rule.
+/// Narrowest the time gutter gets, left of the margin rule.
 const ledgerGutter = 88.0;
 
-/// A paper sheet with a hairline frame. Lines inside draw their own rules.
+/// The gutter never takes more than this share of the sheet. A time that
+/// doesn't fit on one line wraps ("11:51" over "PM"); only a single word
+/// wider than the gutter is scaled down (largest accessibility sizes).
+const _maxGutterShare = 0.4;
+
+/// Space around the time inside the gutter.
+const _gutterPadding = EdgeInsetsDirectional.fromSTEB(12, 14, 8, 14);
+
+/// The widest clock label any line can show, so the margin rule doesn't
+/// move when a time goes from 9:59 to 10:00 or a new line appears.
+const _widestClock = '00:00 PM';
+
+TextStyle _gutterStyle(BuildContext context) {
+  final tokens = context.paws;
+  final scheme = Theme.of(context).colorScheme;
+  return tokens.typography.stamp
+      .resolve(color: scheme.onSurfaceVariant)
+      .copyWith(fontSize: 14);
+}
+
+/// Single-line widths of [labels] as the gutter draws them, at the current
+/// text size, font and direction.
+Iterable<double> _gutterTextWidths(
+  BuildContext context,
+  Iterable<String> labels,
+) sync* {
+  final style = DefaultTextStyle.of(context).style.merge(_gutterStyle(context));
+  final painter = TextPainter(
+    textDirection: Directionality.of(context),
+    textScaler: MediaQuery.textScalerOf(context),
+    locale: Localizations.maybeLocaleOf(context),
+    maxLines: 1,
+  );
+  try {
+    for (final label in labels) {
+      painter.text = TextSpan(text: label, style: style);
+      painter.layout();
+      yield painter.width;
+    }
+  } finally {
+    painter.dispose();
+  }
+}
+
+/// Gutter width that fits every one of [times] on one line, capped at a
+/// share of [maxWidth] when it is finite.
+double ledgerGutterWidth(
+  BuildContext context,
+  Iterable<String> times, {
+  double maxWidth = double.infinity,
+}) {
+  final widest = _gutterTextWidths(context, [
+    _widestClock,
+    ...times,
+  ]).fold(0.0, math.max);
+  final needed = (widest + _gutterPadding.horizontal).ceilToDouble();
+  final cap = math.max(ledgerGutter, maxWidth * _maxGutterShare);
+  return needed.clamp(ledgerGutter, cap);
+}
+
+/// Shares one gutter width with every [LedgerLine] in a [LedgerSheet].
+class _LedgerGutter extends InheritedWidget {
+  const _LedgerGutter({required this.width, required super.child});
+
+  final double width;
+
+  static double? maybeOf(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<_LedgerGutter>()?.width;
+
+  @override
+  bool updateShouldNotify(_LedgerGutter oldWidget) => width != oldWidget.width;
+}
+
+/// A paper sheet with a hairline frame. Lines inside draw their own rules
+/// and share a gutter wide enough for the longest time among them.
 class LedgerSheet extends StatelessWidget {
   const LedgerSheet({super.key, required this.children});
 
@@ -20,13 +94,26 @@ class LedgerSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.paws;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: tokens.surfaces.card,
-        borderRadius: tokens.radii.cardShape,
-        border: Border.all(color: tokens.borders.subtle),
+    final times = [
+      for (final child in children)
+        if (child is LedgerLine) child.time,
+    ];
+    return LayoutBuilder(
+      builder: (context, constraints) => DecoratedBox(
+        decoration: BoxDecoration(
+          color: tokens.surfaces.card,
+          borderRadius: tokens.radii.cardShape,
+          border: Border.all(color: tokens.borders.subtle),
+        ),
+        child: _LedgerGutter(
+          width: ledgerGutterWidth(
+            context,
+            times,
+            maxWidth: constraints.maxWidth,
+          ),
+          child: Column(mainAxisSize: MainAxisSize.min, children: children),
+        ),
       ),
-      child: Column(mainAxisSize: MainAxisSize.min, children: children),
     );
   }
 }
@@ -41,54 +128,94 @@ class LedgerLine extends StatelessWidget {
     required this.detail,
     required this.mark,
     this.last = false,
+    this.onPressed,
+    this.semanticLabel,
+    this.stamp = '',
   });
 
   final String time;
   final String title;
   final String detail;
+
+  /// Who and when, set in the mono stamp face after [detail]: "YOU · 12:05
+  /// AM". The ledger's answer to "did anyone give it?".
+  final String stamp;
   final LedgerMark mark;
   final bool last;
+
+  /// Makes the whole line one tap target (a dose on Today).
+  final VoidCallback? onPressed;
+
+  /// What VoiceOver reads for the line. Defaults to the time, the words and
+  /// the mark ("8:00 AM, Insulin, Miso, due now").
+  final String? semanticLabel;
+
+  static String markWords(LedgerMark mark) => switch (mark) {
+    LedgerMark.given => 'done',
+    LedgerMark.due => 'due now',
+    LedgerMark.later => 'later',
+    LedgerMark.unsure => 'not sure if given',
+  };
+
+  /// The user's text size, unless one word of [time] is wider than the
+  /// gutter even on a line of its own; then just enough smaller to fit.
+  TextScaler _fitTime(BuildContext context, double gutter) {
+    final scaler = MediaQuery.textScalerOf(context);
+    final room = gutter - _gutterPadding.horizontal;
+    final longestWord = _gutterTextWidths(
+      context,
+      time.split(' '),
+    ).fold(0.0, math.max);
+    if (longestWord <= room) return scaler;
+    // Slightly under the exact ratio so rounding can't push it back over.
+    final factor = scaler.scale(14) / 14 * (room / longestWord) * 0.98;
+    return TextScaler.linear(factor);
+  }
 
   @override
   Widget build(BuildContext context) {
     final tokens = context.paws;
-    final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
     final rule = BorderSide(color: tokens.borders.subtle);
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: Border(bottom: last ? BorderSide.none : rule),
-      ),
-      child: IntrinsicHeight(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+    final gutter =
+        _LedgerGutter.maybeOf(context) ??
+        ledgerGutterWidth(context, [
+          time,
+        ], maxWidth: MediaQuery.sizeOf(context).width);
+    final label =
+        semanticLabel ??
+        [
+          time,
+          title,
+          detail,
+          stamp,
+          markWords(mark),
+        ].where((part) => part.trim().isNotEmpty).join(', ');
+    // The margin rule is painted over the row rather than laid out in it, so
+    // the line needs no IntrinsicHeight pass (cheap in long lists).
+    Widget line = Stack(
+      children: [
+        Row(
           children: [
             SizedBox(
-              width: ledgerGutter,
+              width: gutter,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 14, 8, 14),
+                padding: _gutterPadding,
                 child: Text(
                   time,
-                  style: tokens.typography.stamp
-                      .resolve(color: scheme.onSurfaceVariant)
-                      .copyWith(fontSize: 14),
-                  maxLines: 1,
-                  overflow: TextOverflow.fade,
-                  softWrap: false,
+                  style: _gutterStyle(context),
+                  textScaler: _fitTime(context, gutter),
+                  maxLines: 2,
+                  softWrap: true,
                 ),
               ),
             ),
-            VerticalDivider(
-              width: 1,
-              thickness: 1,
-              color: tokens.borders.subtle,
-            ),
+            const SizedBox(width: 1),
             Expanded(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 12, 8, 12),
+                padding: const EdgeInsetsDirectional.fromSTEB(12, 12, 8, 12),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
                       title,
@@ -96,22 +223,144 @@ class LedgerLine extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      detail,
-                      style: text.bodySmall,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                    if (detail.isNotEmpty || stamp.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text.rich(
+                        TextSpan(
+                          children: [
+                            TextSpan(text: detail),
+                            if (detail.isNotEmpty && stamp.isNotEmpty)
+                              const TextSpan(text: '  ·  '),
+                            if (stamp.isNotEmpty)
+                              TextSpan(
+                                text: stamp,
+                                style: _gutterStyle(context)
+                                    .copyWith(fontSize: 12, letterSpacing: 0.4),
+                              ),
+                          ],
+                        ),
+                        style: text.bodySmall,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
                   ],
                 ),
               ),
             ),
             Padding(
-              padding: const EdgeInsets.only(right: 12),
-              child: Center(child: LedgerMarkBox(mark)),
+              padding: const EdgeInsetsDirectional.only(end: 12),
+              child: LedgerMarkBox(mark),
             ),
           ],
+        ),
+        PositionedDirectional(
+          start: gutter,
+          top: 0,
+          bottom: 0,
+          width: 1,
+          child: ColoredBox(color: tokens.borders.subtle),
+        ),
+      ],
+    );
+    if (onPressed case final onTap?) {
+      line = Material(
+        type: MaterialType.transparency,
+        child: InkWell(onTap: onTap, child: line),
+      );
+    }
+    return Semantics(
+      container: true,
+      button: onPressed != null,
+      label: label,
+      // The InkWell's own tap is excluded with its children; give it back.
+      onTap: onPressed,
+      excludeSemantics: true,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border(bottom: last ? BorderSide.none : rule),
+        ),
+        child: line,
+      ),
+    );
+  }
+}
+
+/// The last line of a sheet: a plus in the gutter and what it adds, so
+/// adding happens in the ledger itself rather than in a header action.
+class LedgerAddLine extends StatelessWidget {
+  const LedgerAddLine({
+    super.key,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final String label;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.paws;
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final gutter =
+        _LedgerGutter.maybeOf(context) ??
+        ledgerGutterWidth(context, const [], maxWidth: double.infinity);
+    return Semantics(
+      button: true,
+      label: label,
+      onTap: onPressed,
+      excludeSemantics: true,
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          onTap: onPressed,
+          child: ConstrainedBox(
+            // A full 48pt target, like every other line.
+            constraints: const BoxConstraints(minHeight: 48),
+            child: Stack(
+              children: [
+                Row(
+                  children: [
+                    SizedBox(
+                      width: gutter,
+                      child: Center(
+                        child: StrokeIcon(
+                          StrokeIconKind.plus,
+                          size: 18,
+                          color: scheme.primary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 1),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsetsDirectional.fromSTEB(
+                          12,
+                          12,
+                          12,
+                          12,
+                        ),
+                        child: Text(
+                          label,
+                          style: text.titleSmall?.copyWith(
+                            color: scheme.primary,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                PositionedDirectional(
+                  start: gutter,
+                  top: 0,
+                  bottom: 0,
+                  width: 1,
+                  child: ColoredBox(color: tokens.borders.subtle),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     );

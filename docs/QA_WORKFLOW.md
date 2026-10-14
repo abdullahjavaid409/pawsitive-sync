@@ -54,7 +54,9 @@ One line per action: the repository logs the outcome (`*.completed` / `*.rejecte
 | 2.8 | Household banner → retry | `household.synced source=retry` |
 | 2.9 | Due + connected → **Check before you give** | `nav.tab to=household` |
 | 2.10 | Add medicine shortcut | `nav.push to=/schedule` |
-| 2.11 | Care shortcuts (Pets / Household / Reports) | `today.shortcut.*` |
+| 2.11 | Care shortcuts (Pets / Household / Reports) — only before the first medicine; after that the tab bar covers them | `today.shortcut.*` |
+| 2.14 | Open a due dose within half its interval of the last given one (half the shortest gap between its scheduled times: 12 h once a day, 6 h at 8:00/20:00, 2.5 h at 8:00/13:00/20:00, 1 h for custom 8:00/10:00 — e.g. 11:51 PM then 12:05 AM) | amber note "Sara gave … 14 min ago (yesterday at 11:51 PM)…", still loggable; `dose.recent_warning minutesAgo=…` · a log whose time can't be read is skipped: `dose.recent_unreadable` |
+| 2.13 | A save that throws (bug, not a network/conflict failure) | sheet shows the error, buttons work again, `dose.save_crashed` (error) |
 | 2.12 | Settings gear | `nav.push to=/settings` |
 
 ---
@@ -64,8 +66,8 @@ One line per action: the repository logs the outcome (`*.completed` / `*.rejecte
 | Step | Action | Expected log |
 |------|--------|--------------|
 | 3.1 | Name + times + course length + save | `medication.add.completed` |
-| 3.2 | Empty name save | `medication.add_rejected` reason=missing_name |
-| 3.3 | No time selected | validation error (UI) |
+| 3.2 | Empty name save | field error + `medication.form_invalid fields=true missingParts=false` (the form stops it before the repository; `medication.add_rejected reason=missing_name` only if a save bypasses the form) |
+| 3.3 | No time selected | validation error (UI) + `medication.form_invalid missingParts=true` |
 
 ---
 

@@ -38,6 +38,32 @@ part 'care_repository_account.dart';
 part 'care_repository_household.dart';
 part 'care_repository_photos.dart';
 
+/// When a log says it was given: its day plus its time label. Reads
+/// "8:02 AM", "11:51 p.m.", "23:51" and "12:05am"; null when either part
+/// can't be read (a hand-typed label from an old version or a sitter page).
+DateTime? givenTimeOf(String day, String timeLabel) {
+  final date = DateTime.tryParse(day);
+  final match = _clockLabel.firstMatch(timeLabel.trim());
+  if (date == null || match == null) return null;
+  final parsedHour = int.tryParse(match.group(1) ?? '');
+  final minute = int.tryParse(match.group(2) ?? '');
+  if (parsedHour == null || minute == null || minute > 59) return null;
+  var hour = parsedHour;
+  final meridiem = match.group(3)?.toLowerCase();
+  if (meridiem != null) {
+    if (hour < 1 || hour > 12) return null;
+    hour = hour % 12 + (meridiem == 'p' ? 12 : 0);
+  } else if (hour > 23) {
+    return null;
+  }
+  return DateTime(date.year, date.month, date.day, hour, minute);
+}
+
+final _clockLabel = RegExp(r'^(\d{1,2}):(\d{2})\s*(?:([AaPp])\.?\s*[Mm]\.?)?$');
+
+/// A dose of the same medicine given recently enough to check first.
+typedef RecentDose = ({DoseRecord log, Duration ago});
+
 /// Local calendar day as YYYY-MM-DD.
 String dayKey(DateTime time) =>
     '${time.year.toString().padLeft(4, '0')}-'
@@ -682,6 +708,54 @@ class CareRepository extends ChangeNotifier {
   /// The local day changed while the app was open (midnight): Today and
   /// anything keyed on the date re-read [now].
   void dayChanged() => notifyListeners();
+
+  /// The latest dose of [medicationId] given less than half its interval
+  /// ago, measured on its own schedule's shortest gap: 12 h once a day,
+  /// 6 h at the default 8:00/20:00, 2.5 h at 8:00/13:00/20:00), across
+  /// midnight and across parts of the day. Today's own slot is already
+  /// guarded by [_logFor]; this catches 11:51 PM then 12:05 AM, or the
+  /// evening dose logged an hour after the morning one.
+  RecentDose? recentlyGiven(String medicationId) {
+    final medication = medicationById(medicationId);
+    if (medication == null) return null;
+    // Half the shortest gap between this medicine's own scheduled times,
+    // wrapping past midnight: custom 8:00 and 10:00 doses give a 1 h
+    // window, not the 6 h a default twice-a-day schedule would.
+    final minutes = {
+      for (final part in medication.parts) medication.minuteFor(part),
+    }.toList()..sort();
+    var gap = 24 * 60;
+    for (var i = 0; i < minutes.length; i++) {
+      final next = i + 1 < minutes.length
+          ? minutes[i + 1]
+          : minutes.first + 24 * 60;
+      if (next > minutes[i]) gap = min(gap, next - minutes[i]);
+    }
+    final window = Duration(minutes: gap ~/ 2);
+    final time = now;
+    final days = {dayKey(time), dayKey(time.subtract(const Duration(days: 1)))};
+    RecentDose? latest;
+    for (final log in _logs) {
+      if (log.medicationId != medicationId ||
+          log.outcome != LogOutcome.given ||
+          !days.contains(log.day)) {
+        continue;
+      }
+      final at = givenTimeOf(log.day, log.timeLabel);
+      if (at == null) {
+        AppLog.event('dose.recent_unreadable', {
+          'medicationId': medicationId,
+          'logId': log.id,
+        });
+        continue;
+      }
+      final ago = time.difference(at);
+      // A label later than now (clock moved back) is not "recent".
+      if (ago.isNegative || ago >= window) continue;
+      if (latest == null || ago < latest.ago) latest = (log: log, ago: ago);
+    }
+    return latest;
+  }
 
   DoseRecord? _logFor(String medicationId, DayPart part, String day) {
     for (final log in _logs) {

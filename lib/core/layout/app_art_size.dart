@@ -32,14 +32,6 @@ double appEmptyStateArtSize(BuildContext context) {
   return 180;
 }
 
-/// Morning/afternoon/evening section labels on Today.
-double appPartArtSize(BuildContext context) {
-  final side = _shortestSide(context);
-  if (side >= 820) return 52;
-  if (side >= 680) return 48;
-  return 44;
-}
-
 /// Sunrise / sun / moon icons on the schedule picker.
 double appPartIconSize(BuildContext context) {
   final side = _shortestSide(context);

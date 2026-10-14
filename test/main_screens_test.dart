@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pawsitive_sync/core/format/clock_format.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/app_router.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
@@ -251,6 +252,70 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets('today ledger shows every dose state on one sheet', (
+    tester,
+  ) async {
+    final handle = tester.ensureSemantics();
+    // 14:00: morning given (Sara, Dan), afternoon fluids due, evening
+    // insulin later. Fluids is then marked "not sure".
+    final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14));
+    await care.markDoseUncertain('fluids.afternoon');
+    await _pump(tester, care);
+
+    // Who and when as the line's stamp, not a sentence.
+    expect(find.textContaining('SARA · 8:02 AM'), findsOneWidget);
+    expect(find.textContaining('DAN · 8:30 AM'), findsOneWidget);
+    // Bands name the parts of the day; no second "Today's schedule" level.
+    expect(find.text('Today’s schedule'), findsNothing);
+    for (final band in ['MORNING', 'AFTERNOON', 'EVENING']) {
+      expect(find.text(band), findsOneWidget, reason: band);
+    }
+    // Every state reads out for VoiceOver, ending with its mark.
+    for (final mark in ['done', 'not sure if given', 'later']) {
+      expect(
+        find.bySemanticsLabel(RegExp(', $mark\$')),
+        findsWidgets,
+        reason: mark,
+      );
+    }
+    // "Not sure" keeps its full warning on the line.
+    expect(find.textContaining('not sure — check first'), findsWidgets);
+    // Adding happens in the ledger.
+    await _reveal(tester, find.text('Add medicine'));
+    expect(find.text('Add medicine'), findsOneWidget);
+
+    // One pet: only its lines remain.
+    await tester.drag(_verticalScroll(), const Offset(0, 2000));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Juniper'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('DAN · 8:30 AM'), findsOneWidget);
+    expect(find.textContaining('SARA · 8:02 AM'), findsNothing);
+    expect(find.text('EVENING'), findsNothing);
+    expect(tester.takeException(), isNull);
+    handle.dispose();
+  });
+
+  testWidgets('today ledger follows a 24-hour clock', (tester) async {
+    ClockFormat.use24h.value = true;
+    addTearDown(() => ClockFormat.use24h.value = false);
+    final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14));
+    await _pump(tester, care);
+    expect(find.text('08:00'), findsWidgets);
+    expect(find.text('8:00 AM'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('today ledger fits a small phone at large text', (tester) async {
+    final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14));
+    await _pump(tester, care, size: const Size(320, 640), scale: 2);
+    for (var page = 0; page < 6; page++) {
+      await tester.drag(_verticalScroll(), const Offset(0, -300));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull, reason: 'page $page');
+    }
+  });
 
   testWidgets('uncertain doses are clearly marked for review', (tester) async {
     final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14));

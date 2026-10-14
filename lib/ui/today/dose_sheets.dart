@@ -75,8 +75,40 @@ class _LogDoseSheetState extends State<_LogDoseSheet> {
   @override
   void initState() {
     super.initState();
+    final care = context.read<CareRepository>();
     _amount = TextEditingController(text: widget.dose.amount);
-    _memberId = context.read<CareRepository>().you.id;
+    _memberId = care.you.id;
+    if (_recent(care) case final recent?) {
+      AppLog.event('dose.recent_warning', {
+        'doseId': widget.dose.id,
+        'previousLogId': recent.log.id,
+        'minutesAgo': recent.ago.inMinutes,
+      });
+    }
+  }
+
+  /// Only a dose still to give can be a second one.
+  RecentDose? _recent(CareRepository care) =>
+      widget.dose.status == DoseStatus.due
+      ? care.recentlyGiven(widget.dose.medicationId)
+      : null;
+
+  /// "Sara gave Carprofen 14 min ago (yesterday at 11:51 PM)."
+  String _recentText(CareRepository care, RecentDose recent) {
+    final member = care.memberById(recent.log.memberId);
+    final who = member.isYou ? 'You' : member.name;
+    final minutes = recent.ago.inMinutes;
+    final ago = switch (minutes) {
+      < 1 => 'just now',
+      < 60 => '$minutes min ago',
+      _ when minutes % 60 == 0 => '${minutes ~/ 60} h ago',
+      _ => '${minutes ~/ 60} h ${minutes % 60} min ago',
+    };
+    final when = recent.log.day == dayKey(care.now)
+        ? 'at ${recent.log.timeLabel}'
+        : 'yesterday at ${recent.log.timeLabel}';
+    return '$who gave ${widget.dose.name} $ago ($when). Doses this close '
+        'together can be unsafe. Check before giving another.';
   }
 
   @override
@@ -120,17 +152,33 @@ class _LogDoseSheetState extends State<_LogDoseSheet> {
     final when = _givenAt ?? TimeOfDay.fromDateTime(care.now);
     final timeLabel = MaterialLocalizations.of(context)
         .formatTimeOfDay(when, alwaysUse24HourFormat: false);
-    final saved = switch (outcome) {
-      LogOutcome.given => await care.logDose(
-        doseId: widget.dose.id,
-        memberId: _memberId,
-        amount: _amount.text.trim(),
-        timeLabel: timeLabel,
-        outcome: _outcome,
-      ),
-      LogOutcome.skipped => await care.skipDose(widget.dose.id),
-      LogOutcome.uncertain => await care.markDoseUncertain(widget.dose.id),
-    };
+    // A helper who left the household while the sheet was open can't be
+    // credited: fall back to you rather than save a dangling member.
+    final memberId = care.members.any((m) => m.id == _memberId && m.joined)
+        ? _memberId
+        : care.you.id;
+    bool saved;
+    try {
+      saved = switch (outcome) {
+        LogOutcome.given => await care.logDose(
+          doseId: widget.dose.id,
+          memberId: memberId,
+          amount: _amount.text.trim(),
+          timeLabel: timeLabel,
+          outcome: _outcome,
+        ),
+        LogOutcome.skipped => await care.skipDose(widget.dose.id),
+        LogOutcome.uncertain => await care.markDoseUncertain(widget.dose.id),
+      };
+    } on Object catch (error, stack) {
+      // The repository reports expected failures as `false`; anything thrown
+      // is a bug. Log it and give the buttons back instead of spinning forever.
+      AppLog.error('dose.save_crashed', error, stack, {
+        'doseId': widget.dose.id,
+        'outcome': outcome.name,
+      });
+      saved = false;
+    }
     if (!mounted) return;
     // The outcome (completed / rejected / failed) is logged by the repository.
     if (!saved) {
@@ -156,7 +204,7 @@ class _LogDoseSheetState extends State<_LogDoseSheet> {
       for (final member in care.members.where((m) => m.joined))
         member.id: member,
     }.values.toList();
-    if (_saved != null) {
+    if (_saved case final saved?) {
       return SafeArea(
         top: false,
         child: Padding(
@@ -168,7 +216,7 @@ class _LogDoseSheetState extends State<_LogDoseSheet> {
                 radius: 32,
                 backgroundColor: context.paws.brandSoft,
                 child: StrokeIcon(
-                  _saved == LogOutcome.uncertain
+                  saved == LogOutcome.uncertain
                       ? StrokeIconKind.alert
                       : StrokeIconKind.check,
                   size: 28,
@@ -177,7 +225,7 @@ class _LogDoseSheetState extends State<_LogDoseSheet> {
               ),
               const SizedBox(height: 20),
               Text(
-                switch (_saved!) {
+                switch (saved) {
                   LogOutcome.given => 'Dose saved.',
                   LogOutcome.skipped => 'Skipped for today.',
                   LogOutcome.uncertain => 'Marked for a check.',
@@ -187,7 +235,7 @@ class _LogDoseSheetState extends State<_LogDoseSheet> {
               ),
               const SizedBox(height: 8),
               Text(
-                _saved == LogOutcome.uncertain
+                saved == LogOutcome.uncertain
                     ? 'It stays on Today until someone confirms.'
                     : '${pet.name}’s care record is up to date.',
                 style: text.bodyLarge,
@@ -258,6 +306,25 @@ class _LogDoseSheetState extends State<_LogDoseSheet> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      if (_recent(care) case final recent?) ...[
+                        Semantics(
+                          liveRegion: true,
+                          child: Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: context.paws.warningBg,
+                              borderRadius: BorderRadius.circular(
+                                PawsRadii.cardValue,
+                              ),
+                            ),
+                            child: Text(
+                              _recentText(care, recent),
+                              style: text.bodyLarge,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 20),
+                      ],
                       if (widget.dose.status == DoseStatus.due &&
                           widget.dose.givenById != null) ...[
                         Container(
@@ -302,9 +369,10 @@ class _LogDoseSheetState extends State<_LogDoseSheet> {
                             onPressed: () => setState(() => _givenAt = null),
                           ),
                           _OutcomeChip(
-                            label: _givenAt == null
-                                ? 'Earlier today'
-                                : _givenAt!.format(context),
+                            label: switch (_givenAt) {
+                              final at? => at.format(context),
+                              null => 'Earlier today',
+                            },
                             selected: _givenAt != null,
                             onPressed: _pickTime,
                           ),
@@ -360,11 +428,11 @@ class _LogDoseSheetState extends State<_LogDoseSheet> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (_error != null) ...[
+                  if (_error case final error?) ...[
                     Semantics(
                       liveRegion: true,
                       child: Text(
-                        _error!,
+                        error,
                         style: text.bodyMedium?.copyWith(color: scheme.error),
                       ),
                     ),
@@ -426,9 +494,10 @@ class _DoubleDoseSheet extends StatelessWidget {
     final care = context.watch<CareRepository>();
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
-    final member = dose.givenById == null
-        ? null
-        : care.memberById(dose.givenById!);
+    final member = switch (dose.givenById) {
+      final id? => care.memberById(id),
+      null => null,
+    };
     final pet = care.petById(dose.petId);
     final who = member?.name ?? 'Someone';
     final heading = dose.givenAt.isEmpty
@@ -479,13 +548,16 @@ class _DoubleDoseSheet extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 28),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: scheme.onSurface,
-              foregroundColor: scheme.surface,
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: scheme.onSurface,
+                foregroundColor: scheme.surface,
+              ),
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Don’t give it'),
             ),
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Don’t give it'),
           ),
         ],
       ),

@@ -7,6 +7,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:pawsitive_sync/core/widgets/ledger.dart';
 import 'package:pawsitive_sync/core/config/app_config.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
@@ -177,7 +178,8 @@ void main() {
     await qa.settle(2500);
     await toTop();
     await shot('today');
-    await alignTop(find.text('Today’s schedule'));
+    // The schedule ledger starts at its first part-of-day band.
+    await alignTop(find.byType(LedgerSheet).first);
     await shot('today_schedule');
 
     // The safety moment: trying Miso’s insulin again names who gave it.

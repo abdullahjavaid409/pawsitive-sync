@@ -478,14 +478,19 @@ class _PaywallScreenState extends State<PaywallScreen> {
                       ),
                       const SizedBox(height: 8),
                     ],
-                    FilledButton(
-                      onPressed: locked || _loadingOffer ? null : _startTrial,
-                      child: _busy
-                          ? const SizedBox.square(
-                              dimension: 20,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : Text(_ctaLabel(care.plan)),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        onPressed: locked || _loadingOffer ? null : _startTrial,
+                        child: _busy
+                            ? const SizedBox.square(
+                                dimension: 20,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                ),
+                              )
+                            : Text(_ctaLabel(care.plan)),
+                      ),
                     ),
                     const SizedBox(height: 8),
                     // Apple 3.1.2 terms, only with the store’s real price.
