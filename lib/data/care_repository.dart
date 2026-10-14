@@ -695,6 +695,38 @@ class CareRepository extends ChangeNotifier {
 
   /// The log for [doseId] (`<medicationId>.<part>`) on [day], if any —
   /// what the double-dose check looks at.
+  /// Undo is offered only while the dose lives on this phone alone: a
+  /// household nobody else has joined. Once a dose is shared, others may have
+  /// acted on it, so it's corrected the usual way instead of vanishing.
+  bool canUndoDose(String doseId) =>
+      !isConnected &&
+      loggedDose(doseId, dayKey(now))?.outcome == LogOutcome.given;
+
+  /// Takes back a dose logged by mistake (the "Undo" on the toast): removes
+  /// today's log and returns the counted supply.
+  bool undoDose(String doseId) {
+    final fields = {'doseId': doseId};
+    if (!canUndoDose(doseId)) {
+      AppLog.event('dose.undo.rejected', {
+        ...fields,
+        'reason': isConnected ? 'shared' : 'not_logged',
+      });
+      return false;
+    }
+    final log = loggedDose(doseId, dayKey(now));
+    if (log == null || !_logs.remove(log)) return false;
+    _deletedLogIds.add(log.id);
+    final medication = medicationById(log.medicationId);
+    if (medication != null && medication.tracksSupply) {
+      _replaceMedication(
+        medication.copyWith(dosesLeft: medication.dosesLeft + 1),
+      );
+    }
+    AppLog.event('dose.undo.completed', {...fields, 'offline': true});
+    _changed();
+    return true;
+  }
+
   DoseRecord? loggedDose(String doseId, String day) {
     final split = doseId.lastIndexOf('.');
     if (split < 0) return null;

@@ -15,6 +15,7 @@ class CelebrationLayer extends StatefulWidget {
     super.key,
     required this.trigger,
     required this.message,
+    this.onUndo,
   });
 
   /// Bump to play once.
@@ -22,6 +23,9 @@ class CelebrationLayer extends StatefulWidget {
 
   /// The toast's words, e.g. "Logged for everyone."
   final String message;
+
+  /// When set, the toast offers "Undo" and stays up longer to allow it.
+  final VoidCallback? onUndo;
 
   @override
   State<CelebrationLayer> createState() => _CelebrationLayerState();
@@ -65,8 +69,18 @@ class _CelebrationLayerState extends State<CelebrationLayer>
   void _play() {
     if (!mounted) return;
     HapticFeedback.mediumImpact();
+    // Time to read "Undo" and reach it; a plain toast leaves sooner.
+    _controller.duration = Duration(
+      milliseconds: widget.onUndo == null ? 2600 : 4500,
+    );
     setState(() => _visible = true);
     _controller.forward(from: 0);
+  }
+
+  void _undo() {
+    widget.onUndo?.call();
+    _controller.stop();
+    setState(() => _visible = false);
   }
 
   @override
@@ -81,6 +95,7 @@ class _CelebrationLayerState extends State<CelebrationLayer>
       scheme.primaryContainer,
     ];
     return IgnorePointer(
+      ignoring: widget.onUndo == null,
       child: AnimatedBuilder(
         animation: _controller,
         builder: (context, _) {
@@ -89,15 +104,22 @@ class _CelebrationLayerState extends State<CelebrationLayer>
             children: [
               if (!still)
                 Positioned.fill(
-                  child: CustomPaint(
-                    painter: _ConfettiPainter(
-                      // The burst is the first ~35% of the timeline.
-                      progress: (t / 0.35).clamp(0.0, 1.0),
-                      colors: colors,
+                  child: IgnorePointer(
+                    child: CustomPaint(
+                      painter: _ConfettiPainter(
+                        // The burst is the first ~35% of the timeline.
+                        progress: (t / 0.35).clamp(0.0, 1.0),
+                        colors: colors,
+                      ),
                     ),
                   ),
                 ),
-              _Toast(progress: t, still: still, message: widget.message),
+              _Toast(
+                progress: t,
+                still: still,
+                message: widget.message,
+                onUndo: widget.onUndo == null ? null : _undo,
+              ),
             ],
           );
         },
@@ -111,11 +133,13 @@ class _Toast extends StatelessWidget {
     required this.progress,
     required this.still,
     required this.message,
+    required this.onUndo,
   });
 
   final double progress;
   final bool still;
   final String message;
+  final VoidCallback? onUndo;
 
   @override
   Widget build(BuildContext context) {
@@ -152,8 +176,7 @@ class _Toast extends StatelessWidget {
             opacity: opacity,
             child: Semantics(
               liveRegion: true,
-              label: message,
-              excludeSemantics: true,
+              container: true,
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(22),
                 // Frosted glass, the one floating surface on the page.
@@ -177,7 +200,9 @@ class _Toast extends StatelessWidget {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Text('🎉', style: TextStyle(fontSize: 20)),
+                          const ExcludeSemantics(
+                            child: Text('🎉', style: TextStyle(fontSize: 20)),
+                          ),
                           const SizedBox(width: 10),
                           Flexible(
                             child: Text(
@@ -186,6 +211,19 @@ class _Toast extends StatelessWidget {
                               maxLines: 2,
                             ),
                           ),
+                          if (onUndo != null) ...[
+                            const SizedBox(width: 8),
+                            TextButton(
+                              onPressed: onUndo,
+                              style: TextButton.styleFrom(
+                                minimumSize: const Size(48, 40),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                ),
+                              ),
+                              child: const Text('Undo'),
+                            ),
+                          ],
                         ],
                       ),
                     ),

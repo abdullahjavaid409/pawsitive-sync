@@ -93,6 +93,22 @@ void main() {
     return care;
   }
 
+  test(
+    'a shared household never offers undo: others may have acted on it',
+    () async {
+      final care = await connectedCare({});
+      expect(care.canUndoDose('anything.morning'), isFalse);
+      expect(care.undoDose('anything.morning'), isFalse);
+      expect(
+        AppLog.testRecords.any(
+          (r) =>
+              r.name == 'dose.undo.rejected' && r.fields['reason'] == 'shared',
+        ),
+        isTrue,
+      );
+    },
+  );
+
   group('Offline dose while shared', () {
     test('is kept locally, queued, and flushed with the same id', () async {
       final serverLogs = <Map<String, Object?>>[];

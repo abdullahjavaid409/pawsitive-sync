@@ -121,6 +121,9 @@ class _TodayScreenState extends State<TodayScreen> {
   /// Bumped after a dose is logged as given: confetti, toast and a haptic.
   final _celebrations = ValueNotifier<int>(0);
 
+  /// The dose the toast is about, so its Undo takes back that one.
+  String? _celebratedDoseId;
+
   /// "Sara gave the morning one at 8:02 AM": the same medicine given earlier
   /// today, so a second person doesn't give the next dose twice.
   String _lastGiven(CareRepository care, List<Dose> doses, Dose? next) {
@@ -432,6 +435,11 @@ class _TodayScreenState extends State<TodayScreen> {
               message: care.isConnected
                   ? 'Logged for everyone.'
                   : 'Dose logged.',
+              // Only while the dose is on this phone alone (see canUndoDose).
+              onUndo: switch (_celebratedDoseId) {
+                final id? when care.canUndoDose(id) => () => care.undoDose(id),
+                _ => null,
+              },
             ),
           ),
         ],
@@ -453,6 +461,7 @@ class _TodayScreenState extends State<TodayScreen> {
     if (!context.mounted) return;
     if (care.loggedDose(dose.id, dayKey(care.now))?.outcome ==
         LogOutcome.given) {
+      _celebratedDoseId = dose.id;
       _celebrations.value++;
     }
     if (care.isPro || wasUncertain) return;
