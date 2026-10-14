@@ -144,11 +144,14 @@ class _PawsitiveAppState extends State<PawsitiveApp>
         // Dose times follow the phone’s 12/24-hour setting (before any
         // screen builds, so this frame already uses it).
         ClockFormat.update(media.alwaysUse24HourFormat);
+        // Follows the phone's text size up to 200% (WCAG 1.4.4): every
+        // standard iOS size and the first accessibility sizes. Larger sizes
+        // still render at 2x rather than breaking dense rows.
         return MediaQuery(
           data: media.copyWith(
             textScaler: media.textScaler.clamp(
               minScaleFactor: 1,
-              maxScaleFactor: 1.15,
+              maxScaleFactor: 2,
             ),
           ),
           child: DismissKeyboard(child: child ?? const SizedBox.shrink()),

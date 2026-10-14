@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/motion/app_motion.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
@@ -55,6 +56,26 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
             'One shared log for everyone who cares for your pet. '
             'See who gave each dose, and get stopped before a second one.',
             style: text.bodyLarge?.copyWith(color: scheme.onSurfaceVariant),
+          ),
+          const SizedBox(height: 16),
+          // The first question a new user has, answered plainly. True by
+          // design: nothing leaves the phone until a household is shared.
+          Row(
+            mainAxisAlignment: MainAxisAlignment.start,
+            children: [
+              StrokeIcon(
+                StrokeIconKind.lock,
+                size: 14,
+                color: scheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  'Your pet’s log stays on this phone until you invite someone.',
+                  style: text.bodySmall,
+                ),
+              ),
+            ],
           ),
         ],
       ),
