@@ -251,7 +251,15 @@ class _TodayScreenState extends State<TodayScreen> {
                         for (final d in due)
                           if (d.id != next?.id) d,
                       ],
-                      petNameOf: (d) => care.tryPetById(d.petId)?.name ?? '',
+                      petOf: (d) => care.tryPetById(d.petId),
+                      onAddPhoto: () {
+                        final pet = next == null
+                            ? null
+                            : care.tryPetById(next.petId);
+                        if (pet != null) {
+                          context.push(AppRoutes.editPet(pet.id));
+                        }
+                      },
                       onOpen: openFromToday,
                       onLog: () {
                         if (next != null) _openDose(context, next);

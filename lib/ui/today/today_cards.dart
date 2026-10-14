@@ -184,14 +184,18 @@ class TodayHero extends StatelessWidget {
     required this.onLog,
     required this.onDetails,
     this.others = const [],
-    this.petNameOf,
+    this.petOf,
     this.onOpen,
+    this.onAddPhoto,
   });
+
+  /// Opens the pet's profile to add a photo (the species-photo chip).
+  final VoidCallback? onAddPhoto;
 
   /// Other doses due right now (several pets, or several medicines): listed
   /// under the main action so none is missed, each one tap away.
   final List<Dose> others;
-  final String Function(Dose dose)? petNameOf;
+  final Pet? Function(Dose dose)? petOf;
   final void Function(Dose dose)? onOpen;
 
   /// Null when everything today is logged.
@@ -210,7 +214,6 @@ class TodayHero extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final dose = this.dose;
     final pet = this.pet;
-    final photo = pet?.photoPath;
     final petName = pet?.name ?? 'Your pet';
 
     final isDue = dose?.status == DoseStatus.due;
@@ -245,61 +248,25 @@ class TodayHero extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (photo != null)
-              SizedBox(
-                height: 176,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Image(
-                      image: ResizeImage(
-                        FileImage(File(photo)),
-                        width:
-                            (MediaQuery.sizeOf(context).width *
-                                    MediaQuery.devicePixelRatioOf(context))
-                                .round(),
-                      ),
-                      fit: BoxFit.cover,
-                      gaplessPlayback: true,
-                      semanticLabel: 'Photo of $petName',
-                      errorBuilder: (_, _, _) =>
-                          ColoredBox(color: scheme.primaryContainer),
+            HeroPicture(
+              pet: pet,
+              fallbackAsset: dose == null ? HeroPicture.calmAsset(pet) : null,
+              caption: dose == null ? null : pet,
+              onAddPhoto: onAddPhoto,
+              overlay: dose == null
+                  ? null
+                  : _StatusChip(
+                      label: chip,
+                      time: dose.timeLabel,
+                      color: chipColor,
+                      onPhoto: true,
                     ),
-                    if (dose != null)
-                      Positioned(
-                        left: 14,
-                        top: 14,
-                        child: _StatusChip(
-                          label: chip,
-                          time: dose.timeLabel,
-                          color: chipColor,
-                          onPhoto: true,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
+            ),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (photo == null && dose != null) ...[
-                    Row(
-                      children: [
-                        if (pet != null) PetPortrait(pet, size: 44),
-                        if (pet != null) const SizedBox(width: 12),
-                        Flexible(
-                          child: _StatusChip(
-                            label: chip,
-                            time: dose.timeLabel,
-                            color: chipColor,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 14),
-                  ],
                   Text(headline, style: text.headlineMedium),
                   if (details.isNotEmpty) ...[
                     const SizedBox(height: 6),
@@ -325,7 +292,7 @@ class TodayHero extends StatelessWidget {
                     for (final other in others)
                       _AlsoDue(
                         dose: other,
-                        petName: petNameOf?.call(other) ?? '',
+                        pet: petOf?.call(other),
                         onPressed: () => onOpen?.call(other),
                       ),
                   ],
@@ -742,19 +709,20 @@ extension on Dose {
 class _AlsoDue extends StatelessWidget {
   const _AlsoDue({
     required this.dose,
-    required this.petName,
+    required this.pet,
     required this.onPressed,
   });
 
   final Dose dose;
-  final String petName;
+  final Pet? pet;
   final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
-    final title = petName.isEmpty ? dose.name : '$petName’s ${dose.name}';
+    final pet = this.pet;
+    final title = pet == null ? dose.name : '${pet.name}’s ${dose.name}';
     return Semantics(
       button: true,
       label: '$title, ${dose.timeLabel}, due now',
@@ -767,7 +735,30 @@ class _AlsoDue extends StatelessWidget {
           constraints: const BoxConstraints(minHeight: 52),
           child: Row(
             children: [
-              _MedicineTile(dose: dose),
+              // Whose dose, at a glance: the pet's face, the medicine as a
+              // small badge.
+              SizedBox(
+                width: 44,
+                height: 44,
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    if (pet != null)
+                      PetPortrait(pet, size: 40)
+                    else
+                      _MedicineTile(dose: dose),
+                    if (pet != null)
+                      Positioned(
+                        right: -4,
+                        bottom: -4,
+                        child: Transform.scale(
+                          scale: 0.55,
+                          child: _MedicineTile(dose: dose),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -810,7 +801,6 @@ class TodayStart extends StatelessWidget {
     final text = Theme.of(context).textTheme;
     final scheme = Theme.of(context).colorScheme;
     final pet = this.pet;
-    final photo = pet?.photoPath;
     return DecoratedBox(
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(PawsRadii.cardValue + 4),
@@ -823,35 +813,15 @@ class TodayStart extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (photo != null)
-              SizedBox(
-                height: 176,
-                child: Image(
-                  image: ResizeImage(
-                    FileImage(File(photo)),
-                    width:
-                        (MediaQuery.sizeOf(context).width *
-                                MediaQuery.devicePixelRatioOf(context))
-                            .round(),
-                  ),
-                  fit: BoxFit.cover,
-                  semanticLabel: 'Photo of ${pet?.name ?? 'your pet'}',
-                  errorBuilder: (_, _, _) =>
-                      ColoredBox(color: scheme.primaryContainer),
-                ),
-              ),
+            HeroPicture(
+              pet: pet,
+              fallbackAsset: 'assets/photos/empty-no-medicine.jpg',
+            ),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (photo == null && pet != null) ...[
-                    Align(
-                      alignment: AlignmentDirectional.centerStart,
-                      child: PetPortrait(pet, size: 56),
-                    ),
-                    const SizedBox(height: 14),
-                  ],
                   Text(
                     pet == null
                         ? 'Good care starts here.'
@@ -995,6 +965,201 @@ class SyncNotice extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// The picture at the top of a hero card. The pet's own photo when there is
+/// one; otherwise a calm photo for the moment (all cared for, no medicine
+/// yet) or, for a dose, a photo of the species with an "Add Miso's photo"
+/// chip so it is never mistaken for their own pet.
+class HeroPicture extends StatelessWidget {
+  const HeroPicture({
+    super.key,
+    required this.pet,
+    required this.fallbackAsset,
+    this.onAddPhoto,
+    this.overlay,
+    this.caption,
+  });
+
+  final Pet? pet;
+
+  /// When set, this pet's name and details sit over the bottom of the photo.
+  final Pet? caption;
+
+  /// Shown when the pet has no photo; null uses the species photo.
+  final String? fallbackAsset;
+  final VoidCallback? onAddPhoto;
+
+  /// Placed top-left over the picture (the status chip).
+  final Widget? overlay;
+
+  /// The "all cared for" picture, matched to the household: a cat asleep for
+  /// cats, a resting blanket and lead for everyone else.
+  static String calmAsset(Pet? pet) => pet?.species == Species.cat
+      ? 'assets/photos/empty-all-cared-for.jpg'
+      : 'assets/photos/empty-nothing-today.jpg';
+
+  static String speciesAsset(Species? species) => switch (species) {
+    Species.cat => 'assets/photos/placeholder-cat.jpg',
+    Species.dog => 'assets/photos/placeholder-dog.jpg',
+    Species.rabbit => 'assets/photos/placeholder-rabbit.jpg',
+    _ => 'assets/photos/placeholder-other.jpg',
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final pet = this.pet;
+    final photo = pet?.photoPath;
+    final width =
+        (MediaQuery.sizeOf(context).width *
+                MediaQuery.devicePixelRatioOf(context))
+            .round();
+    final asset = fallbackAsset ?? speciesAsset(pet?.species);
+    final usesSpeciesPhoto = photo == null && fallbackAsset == null;
+    final image = photo != null
+        ? Image(
+            image: ResizeImage(FileImage(File(photo)), width: width),
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+            semanticLabel: 'Photo of ${pet?.name ?? 'your pet'}',
+            errorBuilder: (_, _, _) =>
+                ColoredBox(color: scheme.primaryContainer),
+          )
+        : Image.asset(
+            asset,
+            fit: BoxFit.cover,
+            // Species photos are full-body squares: keep the face in frame.
+            alignment: usesSpeciesPhoto
+                ? const Alignment(0, -0.45)
+                : Alignment.center,
+            cacheWidth: width,
+            excludeFromSemantics: true,
+          );
+    return SizedBox(
+      height: 176,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          image,
+          if (caption case final shown?) ...[
+            // A soft shade so white type reads on any photo.
+            const Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.center,
+                    end: Alignment.bottomCenter,
+                    colors: [Color(0x00000000), Color(0x8C000000)],
+                  ),
+                ),
+              ),
+            ),
+            Positioned(
+              left: 16,
+              right: usesSpeciesPhoto ? 150 : 16,
+              bottom: 12,
+              child: _PetCaption(pet: shown),
+            ),
+          ],
+          if (overlay case final chip?)
+            Positioned(left: 14, top: 14, child: chip),
+          if (usesSpeciesPhoto && pet != null && onAddPhoto != null)
+            Positioned(
+              right: 12,
+              bottom: 12,
+              child: _AddPhotoChip(name: pet.name, onPressed: onAddPhoto!),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AddPhotoChip extends StatelessWidget {
+  const _AddPhotoChip({required this.name, required this.onPressed});
+
+  final String name;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return PressScale(
+      child: Material(
+        color: scheme.surface.withValues(alpha: 0.9),
+        shape: const StadiumBorder(),
+        child: InkWell(
+          onTap: onPressed,
+          customBorder: const StadiumBorder(),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 44),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 14),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  StrokeIcon(
+                    StrokeIconKind.camera,
+                    size: 16,
+                    color: scheme.onSurface,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Add $name’s photo',
+                    style: Theme.of(context).textTheme.labelLarge
+                        ?.copyWith(fontWeight: FontWeight.w700),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PetCaption extends StatelessWidget {
+  const _PetCaption({required this.pet});
+
+  final Pet pet;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final kind = switch (pet.species) {
+      Species.cat => 'Cat',
+      Species.dog => 'Dog',
+      Species.rabbit => 'Rabbit',
+      Species.other => 'Pet',
+    };
+    final detail = [
+      pet.breed.trim().isNotEmpty ? pet.breed.trim() : kind,
+      if (pet.ageYears > 0)
+        '${pet.ageYears} ${pet.ageYears == 1 ? 'yr' : 'yrs'}',
+    ].join(' · ');
+    return ExcludeSemantics(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            pet.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: text.headlineSmall?.copyWith(color: Colors.white),
+          ),
+          Text(
+            detail,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: text.bodyMedium?.copyWith(color: const Color(0xE6FFFFFF)),
+          ),
+        ],
       ),
     );
   }

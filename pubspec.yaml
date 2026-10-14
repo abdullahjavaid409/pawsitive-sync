@@ -93,6 +93,7 @@ flutter:
     - assets/brand/
     - assets/art/
     - assets/lottie/
+    - assets/photos/
     - assets/fonts/pdf/
   fonts:
     # Headlines only; body text is the system font (SF Pro on iOS).

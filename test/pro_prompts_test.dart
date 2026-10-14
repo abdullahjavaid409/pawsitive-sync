@@ -305,6 +305,8 @@ void main() {
         supplyTotal: 3,
       );
       await _pump(t, care);
+      // Below the photo hero: scroll to it like a person would.
+      await _reveal(t, find.text('Apoquel: 3 doses left'));
       expect(find.textContaining('is running low'), findsNothing);
       expect(find.text('Apoquel: 3 doses left'), findsOneWidget);
     });

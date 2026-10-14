@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/motion/app_motion.dart';
@@ -48,7 +49,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
             ],
           ),
           SizedBox(height: compact ? 16 : 28),
-          const SoftEnter(child: _LedgerHero()),
+          SoftEnter(child: _PhotoHero(compact: compact)),
           SizedBox(height: compact ? 20 : 28),
           Text('Did anyone give\nthe dose?', style: text.displaySmall),
           const SizedBox(height: 12),
@@ -104,51 +105,50 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   }
 }
 
-/// An example page of the shared log, stamped the way a second caregiver
-/// would see it. Illustration only: nothing here is stored.
-class _LedgerHero extends StatelessWidget {
-  const _LedgerHero();
+/// A real home at the moment the app is for, stamped the way a second
+/// caregiver would see it: someone already gave the dose.
+class _PhotoHero extends StatelessWidget {
+  const _PhotoHero({required this.compact});
+
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     return Semantics(
       label:
-          'Example log: Sara gave Miso’s insulin at 8:02 AM, '
-          'so a second dose is stopped.',
+          'A cat asleep at home while two people check its medicine. '
+          'Stamped: already given by Sara at 8:02 AM.',
       excludeSemantics: true,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          const LedgerSheet(
-            children: [
-              LedgerLine(
-                time: '8:02 AM',
-                title: 'Insulin · 2 units',
-                detail: 'Miso · Sara',
-                mark: LedgerMark.given,
-              ),
-              LedgerLine(
-                time: '8:15 AM',
-                title: 'Apoquel · 1 tablet',
-                detail: 'Biscuit · not sure if given',
-                mark: LedgerMark.unsure,
-              ),
-              LedgerLine(
-                time: '8:00 PM',
-                title: 'Insulin · 2 units',
-                detail: 'Miso · due tonight',
-                mark: LedgerMark.due,
-                last: true,
-              ),
-            ],
+      child: AspectRatio(
+        // Shorter on small phones so the pitch and buttons still fit.
+        aspectRatio: compact ? 16 / 9 : 3 / 2,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(PawsRadii.cardValue + 4),
+            boxShadow: PawsElevation.hero(Theme.of(context).brightness),
           ),
-          // Stamped over the first entry only, the one already given.
-          Positioned(
-            right: 6,
-            top: 8,
-            child: const GivenStamp(who: 'Sara', time: '8:02 AM'),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(PawsRadii.cardValue + 4),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                Image.asset(
+                  'assets/photos/welcome-household.jpg',
+                  fit: BoxFit.cover,
+                  cacheWidth:
+                      (MediaQuery.sizeOf(context).width *
+                              MediaQuery.devicePixelRatioOf(context))
+                          .round(),
+                ),
+                const Positioned(
+                  left: 14,
+                  bottom: 14,
+                  child: GivenStamp(who: 'Sara', time: '8:02 AM'),
+                ),
+              ],
+            ),
           ),
-        ],
+        ),
       ),
     );
   }
