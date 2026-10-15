@@ -54,7 +54,7 @@ import { requireRole } from "./roles.js";
 
 const webDir = join(dirname(fileURLToPath(import.meta.url)), "web");
 /** Absolute origin for link-preview images (crawlers need full URLs). */
-const publicBase = (process.env.PUBLIC_BASE_URL || "https://pawsitive-api-production.up.railway.app").replace(/\/+$/, "");
+const publicBase = (process.env.PUBLIC_BASE_URL || "https://pawsitive-api-production-5f53.up.railway.app").replace(/\/+$/, "");
 const sitterPage = readFileSync(join(webDir, "sitter.html"), "utf8").replaceAll("__PUBLIC_BASE__", publicBase);
 const sitterPreviewImage = readFileSync(join(webDir, "og-sitter.png"));
 

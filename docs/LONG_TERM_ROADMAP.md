@@ -217,7 +217,7 @@ Covers ~95% of pet-app use cases without friction on day one.
 | 1k–10k | $100–300 | Apple recovery, outbox sync, support playbooks |
 | 10k–100k | $500–2k | Drift migration, push, dedicated backend capacity |
 
-API today: `https://pawsitive-api-production.up.railway.app`
+API today: `https://pawsitive-api-production-5f53.up.railway.app`
 
 ---
 

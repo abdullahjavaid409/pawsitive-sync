@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart' show kReleaseMode;
 /// One place for app settings. Defaults are the live API and RevenueCat.
 abstract final class AppConfig {
   static const _productionApi =
-      'https://pawsitive-api-production.up.railway.app';
+      'https://pawsitive-api-production-5f53.up.railway.app';
 
   /// Household sync server. Every build (debug, profile, release) uses the
   /// live Railway API. Override with `--dart-define=API_BASE_URL=…` (the
