@@ -11,7 +11,7 @@
           "shot": "guard.png",
           "theme": "brand",
           "headline": "Did anyone give the dose?",
-          "subline": "See who gave it, and when.",
+          "subline": "Get warned before a second dose.",
           "pop": {
             "box": [
               0,
@@ -24,6 +24,27 @@
               1900,
               1672,
               2495
+            ]
+          },
+          "scale": 0.74
+        },
+        {
+          "shot": "sitter_web.png",
+          "theme": "light",
+          "headline": "Sitters log from a browser",
+          "subline": "No app, no account. Included in Pro.",
+          "pop": {
+            "box": [
+              40,
+              1186,
+              1280,
+              1875
+            ],
+            "ipad_box": [
+              574,
+              831,
+              1489,
+              1305
             ]
           },
           "scale": 0.74
@@ -45,29 +66,6 @@
               676,
               1798,
               1145
-            ]
-          },
-          "scale": 0.74
-        },
-        {
-          "shot": "household.png",
-          "theme": "light",
-          "headline": "Sitters join by link",
-          "subline": "No app install. iPhone or Android.",
-          "pop": {
-            "from": "invite.png",
-            "box": [
-              50,
-              1180,
-              1290,
-              1420
-            ],
-            "at": 0.3,
-            "ipad_box": [
-              436,
-              722,
-              1660,
-              852
             ]
           },
           "scale": 0.74
@@ -497,6 +495,128 @@
           "theme": "light",
           "headline": "Every pet, one calm place",
           "subline": "Cats, dogs and rabbits, each with its own routine."
+        }
+      ]
+    },
+    {
+      "id": "default-v2",
+      "purpose": "v2 default page / PPO control. Rebuilt from the Claude teardown: legible hook, provable frame 2, sitter moat in frame 3.",
+      "keywords": "pet,meds,dose,reminder,tracker,medication,dog,cat",
+      "promo": "One shared list for everyone who cares for your pet. See who gave each dose, get warned before a repeat, and let sitters help by link, no app needed.",
+      "frames": [
+        {
+          "shot": "guard.png",
+          "theme": "brand",
+          "headline": "Did anyone give the dose?",
+          "subline": "See who gave it, and when.",
+          "pop": {
+            "box": [
+              0,
+              1880,
+              1320,
+              2420
+            ],
+            "ipad_box": [
+              392,
+              1900,
+              1672,
+              2495
+            ]
+          },
+          "scale": 0.74
+        },
+        {
+          "shot": "today.png",
+          "theme": "light",
+          "headline": "One tap. It’s logged.",
+          "subline": "Everyone in the house sees it.",
+          "pop": {
+            "box": [
+              60,
+              1140,
+              1270,
+              1770
+            ],
+            "ipad_box": [
+              668,
+              676,
+              1798,
+              1145
+            ]
+          },
+          "scale": 0.74
+        },
+        {
+          "shot": "household.png",
+          "theme": "light",
+          "headline": "Sitters join by link",
+          "subline": "No app install. iPhone or Android.",
+          "pop": {
+            "from": "invite.png",
+            "box": [
+              50,
+              1180,
+              1290,
+              1420
+            ],
+            "at": 0.3,
+            "ipad_box": [
+              436,
+              722,
+              1660,
+              852
+            ]
+          },
+          "scale": 0.74
+        },
+        {
+          "shot": "today_schedule.png",
+          "theme": "light",
+          "headline": "Works before you sign up",
+          "subline": "Log your first dose, even offline.",
+          "scale": 0.74
+        },
+        {
+          "shot": "medicine_low.png",
+          "theme": "warm",
+          "headline": "A heads-up before empty",
+          "subline": "Refill while doses remain.",
+          "pop": {
+            "box": [
+              50,
+              610,
+              1280,
+              1480
+            ],
+            "ipad_box": [
+              436,
+              352,
+              1634,
+              948
+            ]
+          },
+          "scale": 0.74
+        },
+        {
+          "shot": "reports.png",
+          "theme": "light",
+          "headline": "Ready for the vet",
+          "subline": "Doses given and skipped, in one place.",
+          "pop": {
+            "box": [
+              60,
+              880,
+              1270,
+              1480
+            ],
+            "ipad_box": [
+              668,
+              536,
+              1798,
+              950
+            ]
+          },
+          "scale": 0.74
         }
       ]
     }

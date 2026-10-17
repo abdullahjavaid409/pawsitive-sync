@@ -33,6 +33,8 @@ One line per action: the repository logs the outcome (`*.completed` / `*.rejecte
 | 1.1 | Get started → enter pet name → Continue | `onboarding.step` step=pet_basics |
 | 1.2 | Age/weight → Continue | `onboarding.step` step=pet_details |
 | 1.3 | Pick conditions → Continue | `onboarding.step` step=conditions |
+| 1.3a | First medicine: Continue with fields missing | `onboarding.medicine_blocked` missing=name,amount,… — red message under each field, “Still needed: …” under the button, scrolls to the first |
+| 1.3b | Tap − / + on an amount or supply | `stepper.step` field= dir= value=; at a limit `stepper.limit`; hold → one `stepper.held` steps= |
 | 1.4 | Pick caregivers → Continue | `onboarding.step` step=caregivers |
 | 1.5 | Reminders on/off | `onboarding.step`, `reminders.on` or `reminders.off` |
 | 1.6 | Finish paywall / continue free | `billing.continued_free` or purchase logs |
@@ -59,6 +61,16 @@ One line per action: the repository logs the outcome (`*.completed` / `*.rejecte
 | 2.15 | Log a dose (household not shared) → tap **Undo** on the "Dose logged" toast within ~4 s | dose back to due, supply restored; `dose.undo.completed offline=true` · shared household: no Undo shown (`dose.undo.rejected reason=shared` if forced) |
 | 2.13 | A save that throws (bug, not a network/conflict failure) | sheet shows the error, buttons work again, `dose.save_crashed` (error) |
 | 2.12 | Settings gear | `nav.push to=/settings` |
+| 2.16 | Today shortcut tiles (My pet · Household · Vet report) | one-line name, a caption saying what's there, chevron; VoiceOver reads "Household. Who gives doses"; `today.shortcut.pets` / `.household` / `.reports` |
+| 2.17 | Free, with a medicine: Pro card under the shortcuts | photo, "One log for everyone who gives the pills", four gains, why it's a subscription, **See Pro plans**; `billing.today_pro_card.shown` (not shown before the first medicine, never on Pro) |
+| 2.18 | **See Pro plans** → close the paywall → **×** on the card | `billing.paywall.opened from=today_pro_card`, then `billing.today_pro_card.dismissed`; the card stays hidden after a restart |
+| 2.19 | This week · Up next cards | seven days with today ringed; tomorrow's first dose once today's are done; each card hides when it has nothing true to say |
+| 2.20 | Free, idle on Today (nothing due, nothing open) | first 7 days after install: no upgrade page opens by itself · after that, at most once a week: `billing.prompt.shown trigger=weekly`, `billing.paywall.opened reason=weekly from=idle_prompt` |
+| 2.21 | A due dose more than 30 min past its time (Today card, Pets next-dose card, Pets dose rows) | "Late · 8:00 AM" instead of "Due now"; "Due now" within the first 30 min; "Later today" before the time |
+| 2.22 | Household with nobody else joined (Free or Pro) | "How sharing works" card (invite → they join → who gave what); Free plan card says Pro lets partners and sitters log on their own phones |
+| 2.23 | Reports, Free | "Share report with vet · PRO" and "Pro makes a PDF of the last 90 days…"; tap → `billing.paywall.opened reason=vet_export from=report_share` |
+| 2.24 | Debug build: Settings → "Debug: switch to Pro" | `debug.pro_toggled pro=true`; Today Pro card gone, Invite has no PRO badge, Add medicine opens without a paywall, afternoon/evening unlocked, Reports share has no lock. Switch back → Free again. Never sent to RevenueCat |
+| 2.25 | Pets, every dose given | "All given today · Next dose tomorrow · 8:00 AM" (v14); a course that just ended says "Every dose for Miso is logged." |
 
 ---
 
@@ -69,6 +81,11 @@ One line per action: the repository logs the outcome (`*.completed` / `*.rejecte
 | 3.1 | Name + times + course length + save | `medication.add.completed` |
 | 3.2 | Empty name save | field error + `medication.form_invalid fields=true missingParts=false` (the form stops it before the repository; `medication.add_rejected reason=missing_name` only if a save bypasses the form) |
 | 3.3 | No time selected | validation error (UI) + `medication.form_invalid missingParts=true` |
+| 3.4 | Type a name the phone knows (e.g. "Brave") — Add medicine or setup | matches instantly, no spinner, no network; one `medicine.search.local results=… length=…` after typing pauses |
+| 3.5 | Type a name the phone doesn't know (e.g. "Pregab") | "Searching more medicines…" row, then matches; `api.ok path=/v1/medicines/search`, `medicine.search.online results=… ms=…`, `medicine.search.learned added=…` |
+| 3.6 | Same search again (any pet, even after a restart) | answered on the phone: `medicine.search.local`, no API call |
+| 3.7 | Unknown name while offline | no matches, "Use “…”" still works; `api.failed`, `medicine.search.online_failed` — nothing saved, next search retries |
+| 3.8 | Server side | `medicine.search source=groq` on the first ask of a query, `source=cache` for everyone after (one Groq call per query, ever); typed text is never logged |
 
 ---
 

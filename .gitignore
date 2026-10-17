@@ -56,3 +56,4 @@ config/secrets.local.env
 *.pem
 *.p8
 id_ed25519*
+test/failures/
