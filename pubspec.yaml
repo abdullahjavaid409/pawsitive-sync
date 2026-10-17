@@ -60,6 +60,11 @@ dependencies:
   # BGAppRefreshTask), so reminders don't stop after the 7-day window.
   workmanager: ^0.10.10
   phosphor_icons: ^3.0.1
+  firebase_core: ^4.15.0
+  firebase_auth: ^6.7.0
+  google_sign_in: ^7.2.0
+  sign_in_with_apple: ^8.2.0
+  crypto: ^3.0.7
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -94,13 +99,30 @@ flutter:
     - assets/art/
     - assets/lottie/
     - assets/photos/
+    - assets/medicine/
     - assets/fonts/pdf/
   fonts:
-    # Headlines only; body text is the system font (SF Pro on iOS).
+    # Headlines only (Magic Patterns v14): one weight plus its italic, used
+    # on the words that carry warmth ("Good morning, *Sara*").
     - family: Instrument Serif
       fonts:
         - asset: assets/fonts/InstrumentSerif-Regular.ttf
           weight: 400
+        - asset: assets/fonts/InstrumentSerif-Italic.ttf
+          weight: 400
+          style: italic
+    # Everything people read or tap (v14). Static cuts, not the variable
+    # font, so FontWeight maps to a real face on every engine.
+    - family: Figtree
+      fonts:
+        - asset: assets/fonts/Figtree-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/Figtree-Medium.ttf
+          weight: 500
+        - asset: assets/fonts/Figtree-SemiBold.ttf
+          weight: 600
+        - asset: assets/fonts/Figtree-Bold.ttf
+          weight: 700
     - family: Atkinson Hyperlegible Mono
       fonts:
         - asset: assets/fonts/AtkinsonHyperlegibleMono-Medium.ttf

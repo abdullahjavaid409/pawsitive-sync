@@ -1,0 +1,46 @@
+{
+  "project_info": {
+    "project_number": "937452218604",
+    "project_id": "gave-it-app",
+    "storage_bucket": "gave-it-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:937452218604:android:ddc8bda7fbdacd94d21dc9",
+        "android_client_info": {
+          "package_name": "com.pawsitivesync.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "937452218604-1gj9jf4htlc0slonf39drang45ndoiq4.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCFomWnUEh0AmFweUtrjWutdJ4-KjCu4YY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "937452218604-1gj9jf4htlc0slonf39drang45ndoiq4.apps.googleusercontent.com",
+              "client_type": 3
+            },
+            {
+              "client_id": "937452218604-967jcva0mibg0onr8bcf9v7qssevnc19.apps.googleusercontent.com",
+              "client_type": 2,
+              "ios_info": {
+                "bundle_id": "com.pawsitivesync.app"
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
