@@ -1,17 +1,24 @@
 import 'package:flutter/material.dart';
-import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
-import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
-import 'package:pawsitive_sync/core/widgets/pet_mark.dart';
+import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_visuals.dart';
+import 'package:pawsitive_sync/ui/pets/widgets/pet_photo_sheet.dart';
 import 'package:provider/provider.dart';
+import 'package:pawsitive_sync/core/widgets/system_menu.dart';
 
+/// v14 PetStep: a photo, the name and the species on one screen.
 class PetBasicsScreen extends StatelessWidget {
   const PetBasicsScreen({super.key});
+
+  /// v14 offers three; rabbits and others are "Other" here and can be
+  /// changed on Edit pet.
+  // Same four as Edit profile, so a rabbit isn't saved as "Other".
+  static const _species = Species.values;
 
   @override
   Widget build(BuildContext context) {
@@ -30,12 +37,14 @@ class PetBasicsScreen extends StatelessWidget {
           children: [
             const OnboardingTitle(
               'Who are we caring for?',
-              'Start with one pet. There’s room for the whole family later.',
+              'Start with one pet. You can add more any time.',
             ),
-            const SizedBox(height: 32),
-            Text('Pet’s name', style: text.titleSmall),
-            const SizedBox(height: 10),
+            const SizedBox(height: 28),
+            const Center(child: _PhotoPicker()),
+            const SizedBox(height: 28),
+            const FieldLabel('Name'),
             TextFormField(
+              contextMenuBuilder: appContextMenuBuilder,
               initialValue: model.petName,
               onChanged: model.setName,
               maxLength: OnboardingViewModel.maxPetNameLength,
@@ -45,132 +54,121 @@ class PetBasicsScreen extends StatelessWidget {
                 required isFocused,
                 maxLength,
               }) => null,
-              decoration: const InputDecoration(
-                hintText: 'e.g. Miso',
-                contentPadding: EdgeInsets.symmetric(
-                  horizontal: 18,
-                  vertical: 18,
-                ),
-              ),
-              style: text.titleLarge?.copyWith(
-                fontSize: 18,
-                fontWeight: FontWeight.w500,
-              ),
+              decoration: const InputDecoration(hintText: 'Miso'),
+              style: text.bodyLarge,
               textInputAction: TextInputAction.done,
               textCapitalization: TextCapitalization.words,
+              onTapOutside: (_) => FocusScope.of(context).unfocus(),
             ),
-            const SizedBox(height: 28),
-            Text('What kind of pet?', style: text.titleSmall),
-            const SizedBox(height: 12),
-            for (var row = 0; row < 2; row++) ...[
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  for (var column = 0; column < 2; column++) ...[
-                    if (column > 0) const SizedBox(width: 12),
-                    Expanded(
-                      child: _SpeciesTile(
-                        species: Species.values[row * 2 + column],
-                        selected:
-                            model.species == Species.values[row * 2 + column],
-                        onPressed: () =>
-                            model.setSpecies(Species.values[row * 2 + column]),
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-              if (row == 0) const SizedBox(height: 12),
-            ],
-            const SizedBox(height: 24),
-            const OnboardingNote('A care routine made just for them.'),
+            const SizedBox(height: 20),
+            const FieldLabel('Species'),
+            ChoicePills<Species>(
+              label: 'Species',
+              options: _species,
+              value: model.speciesPicked ? model.species : null,
+              labelOf: (s) => switch (s) {
+                Species.cat => 'Cat',
+                Species.dog => 'Dog',
+                Species.rabbit => 'Rabbit',
+                Species.other => 'Other',
+              },
+              onChanged: model.setSpecies,
+            ),
           ],
         ),
-        footer: FilledButton(
-          onPressed: model.hasValidPetName
+        footer: OnboardingCta(
+          label: 'Continue',
+          hint: !model.hasValidPetName
+              ? 'Add your pet’s name to continue'
+              : !model.speciesPicked
+              ? 'Pick cat, dog, rabbit or other'
+              : null,
+          onPressed: model.petStepDone
               ? () {
-                  AppLog.event('onboarding.step', {'step': 'pet_basics'});
+                  AppLog.event('onboarding.step', {'step': 'pet'});
                   FocusScope.of(context).unfocus();
-                  context.go(AppRoutes.petDetails);
+                  context.go(AppRoutes.firstMedicine);
                 }
               : null,
-          child: Text(
-            model.hasValidPetName ? 'Continue' : 'Add a name to continue',
-          ),
         ),
       ),
     );
   }
 }
 
-class _SpeciesTile extends StatelessWidget {
-  const _SpeciesTile({
-    required this.species,
-    required this.selected,
-    required this.onPressed,
-  });
+/// v14: a 112 pt circle, dashed until a photo is chosen, with the action
+/// named underneath. The pet doesn't exist yet, so the compressed photo
+/// waits in the model and `CareRepository.applyOnboarding` saves it.
+class _PhotoPicker extends StatelessWidget {
+  const _PhotoPicker();
 
-  final Species species;
-  final bool selected;
-  final VoidCallback onPressed;
+  Future<void> _choose(BuildContext context, OnboardingViewModel model) async {
+    final choice = await showPetPhotoSheet(
+      context,
+      hasPhoto: model.photoBytes != null,
+    );
+    switch (choice) {
+      case PetPhotoPicked(:final bytes):
+        model.setPhoto(bytes);
+      case PetPhotoRemoved():
+        AppLog.event('pet.photo_removed', {'stage': 'onboarding'});
+        model.setPhoto(null);
+      case null:
+        break;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
+    final model = context.watch<OnboardingViewModel>();
     final scheme = Theme.of(context).colorScheme;
-    final label = switch (species) {
-      Species.cat => 'Cat',
-      Species.dog => 'Dog',
-      Species.rabbit => 'Rabbit',
-      Species.other => 'Other',
-    };
-    return Semantics(
-      selected: selected,
-      button: true,
-      label: label,
-      child: Material(
-        color: selected
-            ? scheme.primaryContainer
-            : scheme.surfaceContainerLowest,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(PawsRadii.cardValue),
-          side: BorderSide(
-            color: selected ? scheme.primary : scheme.outlineVariant,
-            width: selected ? 1.5 : 1,
-          ),
-        ),
-        child: InkWell(
-          onTap: onPressed,
-          borderRadius: BorderRadius.circular(PawsRadii.cardValue),
-          child: ExcludeSemantics(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      PetMark(species: species, size: 56, artScale: 1),
-                      CheckMark(selected: selected, size: 20),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      label,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: selected
-                            ? context.paws.brandDark
-                            : scheme.onSurface,
+    final text = Theme.of(context).textTheme;
+    final photo = model.photoBytes;
+    return Column(
+      children: [
+        Semantics(
+          button: true,
+          label: photo == null ? 'Add a photo' : 'Change photo',
+          excludeSemantics: true,
+          child: GestureDetector(
+            onTap: () => _choose(context, model),
+            child: SizedBox.square(
+              dimension: 112,
+              child: photo != null
+                  ? ClipOval(
+                      child: Image.memory(
+                        photo,
+                        fit: BoxFit.cover,
+                        cacheWidth:
+                            (112 * MediaQuery.devicePixelRatioOf(context))
+                                .round(),
+                      ),
+                    )
+                  : CustomPaint(
+                      painter: DashedCirclePainter(
+                        color: scheme.onSurfaceVariant.withValues(alpha: 0.5),
+                        strokeWidth: 1.5,
+                      ),
+                      child: Center(
+                        child: StrokeIcon(
+                          StrokeIconKind.camera,
+                          size: 28,
+                          color: scheme.onSurfaceVariant,
+                        ),
                       ),
                     ),
-                  ),
-                ],
-              ),
             ),
           ),
         ),
-      ),
+        TextButton(
+          onPressed: () => _choose(context, model),
+          style: TextButton.styleFrom(
+            foregroundColor: scheme.primary,
+            textStyle: text.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+          ),
+          child: Text(photo == null ? 'Add a photo' : 'Change photo'),
+        ),
+      ],
     );
   }
 }

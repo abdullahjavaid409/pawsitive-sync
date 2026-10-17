@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/care_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/dismiss_keyboard.dart';
@@ -6,6 +7,7 @@ import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:provider/provider.dart';
+import 'package:pawsitive_sync/core/widgets/system_menu.dart';
 
 /// Named so the navigation log reads `nav.push to=add_care_event`.
 Future<void> showAddCareEventSheet(BuildContext context, {String? petId}) {
@@ -36,7 +38,10 @@ class _AddCareEventSheet extends StatefulWidget {
 class _AddCareEventSheetState extends State<_AddCareEventSheet> {
   final _title = TextEditingController();
   final _note = TextEditingController();
-  CareEventKind _kind = CareEventKind.vetVisit;
+
+  /// Unpicked until tapped: we don't guess the kind of appointment.
+  CareEventKind? _kind;
+  bool _kindMissing = false;
   late DateTime _due;
   String? _petId;
   bool _busy = false;
@@ -76,14 +81,19 @@ class _AddCareEventSheetState extends State<_AddCareEventSheet> {
       setState(() => _error = 'Add a pet first.');
       return;
     }
+    final kind = _kind;
+    if (kind == null) {
+      setState(() => _kindMissing = true);
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
     });
     final ok = await care.addCareEvent(
       petId: petId,
-      title: _title.text.trim().isEmpty ? _defaultTitle(_kind) : _title.text,
-      kind: _kind,
+      title: _title.text.trim().isEmpty ? _defaultTitle(kind) : _title.text,
+      kind: kind,
       dueDate: _due,
       note: _note.text,
     );
@@ -176,47 +186,45 @@ class _AddCareEventSheetState extends State<_AddCareEventSheet> {
                           ],
                         ),
                       const SizedBox(height: 24),
-                      Text('Type of care', style: text.titleSmall),
-                      const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: [
-                          for (final kind in CareEventKind.values)
-                            ChoiceChip(
-                              label: Text(kind.kindLabel),
-                              selected: _kind == kind,
-                              selectedColor: context.paws.brandSoft,
-                              checkmarkColor: context.paws.brandDark,
-                              labelStyle: text.titleSmall?.copyWith(
-                                color: _kind == kind
-                                    ? context.paws.brandDark
-                                    : scheme.onSurfaceVariant,
-                              ),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(
-                                  PawsRadii.cardValue,
-                                ),
-                              ),
-                              side: BorderSide(
-                                color: _kind == kind
-                                    ? scheme.primary
-                                    : scheme.outlineVariant,
-                              ),
-                              onSelected: (_) => setState(() => _kind = kind),
-                            ),
-                        ],
+                      const FieldLabel('Type of care'),
+                      const SizedBox(height: 4),
+                      // v14 ChoiceChips: equal pills, ink when picked.
+                      ChoicePills<CareEventKind>(
+                        label: 'Type of care',
+                        options: CareEventKind.values,
+                        value: _kind,
+                        labelOf: (kind) => kind.kindLabel,
+                        onChanged: (kind) => setState(() {
+                          _kind = kind;
+                          _kindMissing = false;
+                        }),
                       ),
+                      if (_kindMissing)
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(4, 6, 4, 0),
+                          child: Semantics(
+                            liveRegion: true,
+                            child: Text(
+                              'Pick the type of care',
+                              style: text.bodySmall?.copyWith(
+                                color: scheme.error,
+                              ),
+                            ),
+                          ),
+                        ),
                       const SizedBox(height: 20),
-                      Text('Event name · optional', style: text.titleSmall),
-                      const SizedBox(height: 8),
+                      const FieldLabel('Event name · optional'),
                       TextField(
+                        contextMenuBuilder: appContextMenuBuilder,
                         controller: _title,
                         textCapitalization: TextCapitalization.sentences,
                         textInputAction: TextInputAction.next,
                         maxLength: 80,
                         decoration: InputDecoration(
-                          hintText: _defaultTitle(_kind),
+                          hintText: switch (_kind) {
+                            final kind? => _defaultTitle(kind),
+                            null => 'We’ll name it from the type',
+                          },
                           counterText: '',
                         ),
                       ),
@@ -253,9 +261,9 @@ class _AddCareEventSheetState extends State<_AddCareEventSheet> {
                         ),
                       ),
                       const SizedBox(height: 20),
-                      Text('Notes · optional', style: text.titleSmall),
-                      const SizedBox(height: 8),
+                      const FieldLabel('Notes · optional'),
                       TextField(
+                        contextMenuBuilder: appContextMenuBuilder,
                         controller: _note,
                         textCapitalization: TextCapitalization.sentences,
                         minLines: 2,

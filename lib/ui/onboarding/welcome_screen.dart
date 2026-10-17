@@ -6,7 +6,10 @@ import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/motion/app_motion.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
-import 'package:pawsitive_sync/core/widgets/ledger.dart';
+import 'package:provider/provider.dart';
+import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
+import 'package:pawsitive_sync/ui/account/account_sheet.dart';
+import 'package:pawsitive_sync/data/firebase_setup.dart';
 
 class WelcomeScreen extends StatefulWidget {
   const WelcomeScreen({super.key});
@@ -26,55 +29,75 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final text = Theme.of(context).textTheme;
-    final compact = MediaQuery.sizeOf(context).height < 740;
+    final height = MediaQuery.sizeOf(context).height;
 
+    // v14 welcome: one big photo with the name on it, then the promise.
     return OnboardingShell(
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
+          SoftEnter(
+            // Most of the screen on a tall phone, still leaving room for the
+            // pitch and buttons on a small one or at large text.
+            child: _PhotoHero(height: (height * 0.44).clamp(220.0, 460.0)),
+          ),
+          const SizedBox(height: 28),
+          // On the photo's edge, like the button below it.
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const AppIconMark(size: 40),
-              const SizedBox(width: 10),
-              Flexible(
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    'Gave It',
-                    style: text.headlineSmall?.copyWith(fontSize: 22),
+              Semantics(
+                header: true,
+                child: Text.rich(
+                  const TextSpan(
+                    children: [
+                      TextSpan(text: 'Every dose, '),
+                      TextSpan(
+                        text: 'accounted for.',
+                        style: TextStyle(fontStyle: FontStyle.italic),
+                      ),
+                    ],
+                  ),
+                  style: text.displaySmall?.copyWith(
+                    fontSize: 46,
+                    height: 1,
+                    letterSpacing: -0.7,
                   ),
                 ),
               ),
-            ],
-          ),
-          SizedBox(height: compact ? 16 : 28),
-          SoftEnter(child: _PhotoHero(compact: compact)),
-          SizedBox(height: compact ? 20 : 28),
-          Text('Did anyone give\nthe dose?', style: text.displaySmall),
-          const SizedBox(height: 12),
-          Text(
-            'One shared log for everyone who cares for your pet. '
-            'See who gave each dose, and get stopped before a second one.',
-            style: text.bodyLarge?.copyWith(color: scheme.onSurfaceVariant),
-          ),
-          const SizedBox(height: 16),
-          // The first question a new user has, answered plainly. True by
-          // design: nothing leaves the phone until a household is shared.
-          Row(
-            mainAxisAlignment: MainAxisAlignment.start,
-            children: [
-              StrokeIcon(
-                StrokeIconKind.lock,
-                size: 14,
-                color: scheme.onSurfaceVariant,
-              ),
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text(
-                  'Your pet’s log stays on this phone until you invite someone.',
-                  style: text.bodySmall,
+              const SizedBox(height: 12),
+              Text(
+                'One shared log for your pet’s medicines, so everyone at '
+                'home knows what’s been given.',
+                style: text.bodyLarge?.copyWith(
+                  fontSize: 16,
+                  height: 1.45,
+                  color: scheme.onSurfaceVariant,
                 ),
+              ),
+              const SizedBox(height: 16),
+              // The first question a new user has, answered plainly. True
+              // by design: nothing leaves the phone until a household is
+              // shared.
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: StrokeIcon(
+                      StrokeIconKind.lock,
+                      size: 14,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      'Your pet’s log stays on this phone until you invite someone.',
+                      style: text.bodySmall,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -97,7 +120,26 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
               AppLog.event('welcome.invited');
               context.push(AppRoutes.join);
             },
+            style: TextButton.styleFrom(foregroundColor: scheme.primary),
             child: const Text('I have an invite code'),
+          ),
+          // A new phone: bring a saved household back instead of starting over.
+          TextButton(
+            onPressed: () async {
+              AppLog.event('welcome.restore');
+              if (!await FirebaseSetup.initialize() || !context.mounted) return;
+              final restored = await showAccountSheet(
+                context,
+                mode: AccountSheetMode.restore,
+              );
+              if (restored && context.mounted) {
+                await context.read<OnboardingViewModel>().finish(
+                  reminders: false,
+                );
+                if (context.mounted) context.go(AppRoutes.today);
+              }
+            },
+            child: const Text('Restore with your account'),
           ),
         ],
       ),
@@ -105,45 +147,62 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   }
 }
 
-/// A real home at the moment the app is for, stamped the way a second
-/// caregiver would see it: someone already gave the dose.
+/// A dose being given at home, with the app's name on the photo (v14).
 class _PhotoHero extends StatelessWidget {
-  const _PhotoHero({required this.compact});
+  const _PhotoHero({required this.height});
 
-  final bool compact;
+  final double height;
 
   @override
   Widget build(BuildContext context) {
     return Semantics(
-      label:
-          'A cat asleep at home while two people check its medicine. '
-          'Stamped: already given by Sara at 8:02 AM.',
+      label: 'A tabby cat being given medicine at home.',
       excludeSemantics: true,
-      child: AspectRatio(
-        // Shorter on small phones so the pitch and buttons still fit.
-        aspectRatio: compact ? 16 / 9 : 3 / 2,
+      child: SizedBox(
+        height: height,
+        width: double.infinity,
         child: DecoratedBox(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(PawsRadii.cardValue + 4),
-            boxShadow: PawsElevation.hero(Theme.of(context).brightness),
+            borderRadius: BorderRadius.circular(PawsRadii.cardValue),
+            boxShadow: PawsElevation.card(Theme.of(context).brightness),
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(PawsRadii.cardValue + 4),
+            borderRadius: BorderRadius.circular(PawsRadii.cardValue),
             child: Stack(
               fit: StackFit.expand,
               children: [
                 Image.asset(
-                  'assets/photos/welcome-household.jpg',
+                  'assets/photos/welcome-cat.jpg',
                   fit: BoxFit.cover,
                   cacheWidth:
                       (MediaQuery.sizeOf(context).width *
                               MediaQuery.devicePixelRatioOf(context))
                           .round(),
                 ),
+                // Bottom half fades to dark so the name always reads.
                 const Positioned(
-                  left: 14,
-                  bottom: 14,
-                  child: GivenStamp(who: 'Sara', time: '8:02 AM'),
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  height: 160,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.bottomCenter,
+                        end: Alignment.topCenter,
+                        colors: [Color(0x8C14120E), Color(0x0014120E)],
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: 20,
+                  bottom: 18,
+                  child: Text(
+                    'Gave It',
+                    style: Theme.of(context).textTheme.headlineSmall
+                        ?.copyWith(fontSize: 22, color: Colors.white),
+                  ),
                 ),
               ],
             ),

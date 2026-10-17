@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:pawsitive_sync/core/widgets/care_widgets.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/constants/pet_limits.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/widgets/post_frame.dart';
-import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
+import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/pets/widgets/pet_form_sections.dart';
 import 'package:provider/provider.dart';
+import 'package:pawsitive_sync/core/widgets/system_menu.dart';
 
 /// Adds another pet to the household after setup.
 class AddPetScreen extends StatefulWidget {
@@ -21,7 +23,9 @@ class _AddPetScreenState extends State<AddPetScreen> {
   final _name = TextEditingController();
   final _age = TextEditingController();
   final _weight = TextEditingController();
-  Species _species = Species.dog;
+
+  /// Unpicked until tapped: we don't guess the kind of pet.
+  Species? _species;
   bool _busy = false;
   String? _error;
 
@@ -54,15 +58,23 @@ class _AddPetScreenState extends State<AddPetScreen> {
     final nameError = PetFormValidation.nameError(_name.text);
     final ageError = PetFormValidation.ageError(_age.text);
     final weightError = PetFormValidation.weightError(_weight.text);
-    if (nameError != null || ageError != null || weightError != null) {
-      setState(() => _error = nameError ?? ageError ?? weightError);
+    final speciesError = _species == null
+        ? 'Pick cat, dog, rabbit or other.'
+        : null;
+    if (nameError != null ||
+        speciesError != null ||
+        ageError != null ||
+        weightError != null) {
+      setState(
+        () => _error = nameError ?? speciesError ?? ageError ?? weightError,
+      );
       return;
     }
     setState(() => _busy = true);
     final care = context.read<CareRepository>();
     final id = await care.addPet(
       name: _name.text,
-      species: _species,
+      species: _species!,
       ageYears: int.tryParse(_age.text.trim()) ?? 0,
       weightKg: PetLimits.parseWeightKg(_weight.text) ?? 0,
     );
@@ -77,8 +89,13 @@ class _AddPetScreenState extends State<AddPetScreen> {
     }
     final messenger = ScaffoldMessenger.of(context);
     final router = GoRouter.of(context);
+    final voiceOver = MediaQuery.accessibleNavigationOf(context);
     messenger.showSnackBar(
       SnackBar(
+        // Flutter keeps a toast with an action until it's dismissed; this
+        // one closes itself (VoiceOver users keep it to reach the button).
+        persist: voiceOver,
+        duration: const Duration(seconds: 6),
         content: Text('${_name.text.trim()} was added.'),
         action: SnackBarAction(
           label: 'Add medicine',
@@ -88,7 +105,8 @@ class _AddPetScreenState extends State<AddPetScreen> {
     );
     afterThisFrame(context, () {
       if (context.canPop()) {
-        context.pop();
+        // The new id, so Pets switches to the pet just added.
+        context.pop(id);
       } else {
         context.go(AppRoutes.pets);
       }
@@ -108,16 +126,8 @@ class _AddPetScreenState extends State<AddPetScreen> {
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
               child: Row(
                 children: [
-                  IconButton(
-                    tooltip: 'Back',
-                    onPressed: () => context.canPop()
-                        ? context.pop()
-                        : context.go(AppRoutes.pets),
-                    icon: StrokeIcon(
-                      StrokeIconKind.chevronLeft,
-                      color: scheme.onSurface,
-                    ),
-                  ),
+                  // Shared back button: caret on the content edge.
+                  const CareBackButton(fallbackRoute: AppRoutes.pets),
                   Expanded(
                     child: Text(
                       'Add a pet',
@@ -133,11 +143,11 @@ class _AddPetScreenState extends State<AddPetScreen> {
               child: ListView(
                 keyboardDismissBehavior:
                     ScrollViewKeyboardDismissBehavior.onDrag,
-                padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                 children: [
-                  Text("What’s their name?", style: text.headlineSmall),
-                  const SizedBox(height: 12),
+                  const FieldLabel('Name'),
                   TextField(
+                    contextMenuBuilder: appContextMenuBuilder,
                     controller: _name,
                     autofocus: true,
                     textCapitalization: TextCapitalization.words,
@@ -148,11 +158,13 @@ class _AddPetScreenState extends State<AddPetScreen> {
                     ),
                   ),
                   const SizedBox(height: 20),
-                  Text('They are a…', style: text.titleSmall),
-                  const SizedBox(height: 8),
+                  const FieldLabel('Species'),
                   PetSpeciesPicker(
                     species: _species,
-                    onChanged: (value) => setState(() => _species = value),
+                    onChanged: (value) => setState(() {
+                      _species = value;
+                      _error = null;
+                    }),
                   ),
                   const SizedBox(height: 20),
                   PetAgeWeightFields(age: _age, weight: _weight),
@@ -160,7 +172,7 @@ class _AddPetScreenState extends State<AddPetScreen> {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [

@@ -1,14 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:pawsitive_sync/core/widgets/care_widgets.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/constants/pet_limits.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/widgets/post_frame.dart';
-import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
+import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/pets/widgets/pet_form_sections.dart';
 import 'package:provider/provider.dart';
+import 'package:pawsitive_sync/core/widgets/system_menu.dart';
 
 /// Edits one pet’s basics and health conditions after setup.
 class EditPetScreen extends StatefulWidget {
@@ -188,27 +190,25 @@ class _EditPetScreenState extends State<EditPetScreen> {
                 padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
                 child: Row(
                   children: [
-                    IconButton(
-                      tooltip: 'Back',
-                      onPressed: _busy
-                          ? null
-                          : () async {
-                              if (await _confirmLeave() && context.mounted) {
-                                if (context.canPop()) {
-                                  context.pop();
-                                } else {
-                                  context.go(AppRoutes.pets);
-                                }
-                              }
-                            },
-                      icon: StrokeIcon(
-                        StrokeIconKind.chevronLeft,
-                        color: scheme.onSurface,
-                      ),
+                    // Shared back button (caret on the content edge), still
+                    // asking before unsaved changes are dropped.
+                    CareBackButton(
+                      fallbackRoute: AppRoutes.pets,
+                      enabled: !_busy,
+                      onPressed: () async {
+                        if (await _confirmLeave() && context.mounted) {
+                          if (context.canPop()) {
+                            context.pop();
+                          } else {
+                            context.go(AppRoutes.pets);
+                          }
+                        }
+                      },
                     ),
                     Expanded(
                       child: Text(
-                        'Edit pet',
+                        // Same words as the "Edit profile" button that opens it.
+                        'Edit profile',
                         textAlign: TextAlign.center,
                         style: text.titleMedium,
                       ),
@@ -221,11 +221,11 @@ class _EditPetScreenState extends State<EditPetScreen> {
                 child: ListView(
                   keyboardDismissBehavior:
                       ScrollViewKeyboardDismissBehavior.onDrag,
-                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                   children: [
-                    Text("What’s their name?", style: text.headlineSmall),
-                    const SizedBox(height: 12),
+                    const FieldLabel('Name'),
                     TextField(
+                      contextMenuBuilder: appContextMenuBuilder,
                       controller: _name,
                       textCapitalization: TextCapitalization.words,
                       maxLength: PetLimits.maxNameLength,
@@ -235,8 +235,7 @@ class _EditPetScreenState extends State<EditPetScreen> {
                       ),
                     ),
                     const SizedBox(height: 20),
-                    Text('They are a…', style: text.titleSmall),
-                    const SizedBox(height: 8),
+                    const FieldLabel('Species'),
                     PetSpeciesPicker(
                       species: _species,
                       onChanged: (value) => setState(() {
@@ -265,7 +264,7 @@ class _EditPetScreenState extends State<EditPetScreen> {
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(24, 8, 24, 16),
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [

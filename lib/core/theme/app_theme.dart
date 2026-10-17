@@ -127,13 +127,17 @@ abstract final class AppTheme {
     );
 
     final buttonShape = RoundedRectangleBorder(borderRadius: radii.buttonShape);
+    // v14 fields are borderless cream tiles; focus shows a soft ink ring.
     final inputBorder = OutlineInputBorder(
       borderRadius: radii.inputShape,
-      borderSide: BorderSide(color: borders.subtle),
+      borderSide: BorderSide(color: borders.subtle.withValues(alpha: 0.6)),
     );
     final focusedInputBorder = OutlineInputBorder(
       borderRadius: radii.inputShape,
-      borderSide: BorderSide(color: borders.focus, width: 1.5),
+      borderSide: BorderSide(
+        color: scheme.onSurface.withValues(alpha: 0.2),
+        width: 2,
+      ),
     );
     final errorInputBorder = OutlineInputBorder(
       borderRadius: radii.inputShape,
@@ -179,9 +183,10 @@ abstract final class AppTheme {
           padding: EdgeInsets.symmetric(horizontal: spacing.xl),
           foregroundColor: scheme.onSurface,
           textStyle: text.titleLarge?.copyWith(fontWeight: FontWeight.w500),
-          side: BorderSide(color: borders.subtle),
+          // v14 secondary button: a chip-coloured pill, no outline.
+          side: BorderSide.none,
           shape: buttonShape,
-          backgroundColor: surfaces.card,
+          backgroundColor: surfaces.subtle,
         ),
       ),
       textButtonTheme: TextButtonThemeData(
@@ -213,15 +218,17 @@ abstract final class AppTheme {
         errorStyle: text.bodySmall?.copyWith(color: states.error),
       ),
       chipTheme: ChipThemeData(
-        backgroundColor: surfaces.input,
+        backgroundColor: surfaces.card,
         disabledColor: states.disabled,
-        selectedColor: states.selected,
+        // v14 chips: ink when selected, no checkmark.
+        selectedColor: scheme.onSurface,
+        showCheckmark: false,
         padding: EdgeInsets.symmetric(
           horizontal: spacing.md,
           vertical: spacing.xs,
         ),
         labelStyle: text.titleSmall,
-        secondaryLabelStyle: text.titleSmall,
+        secondaryLabelStyle: text.titleSmall?.copyWith(color: scheme.surface),
         shape: RoundedRectangleBorder(borderRadius: radii.chipShape),
         side: BorderSide(color: borders.subtle),
       ),
@@ -243,15 +250,23 @@ abstract final class AppTheme {
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
         backgroundColor: scheme.inverseSurface,
+        // v14 toast: an ink tile with 16px corners, not a Material bar.
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        elevation: 0,
         contentTextStyle: text.bodyMedium?.copyWith(
           color: scheme.onInverseSurface,
         ),
       ),
       switchTheme: SwitchThemeData(
-        thumbColor: WidgetStatePropertyAll(surfaces.elevated),
+        // Off: a mid-tone thumb, so the switch reads as off, not empty.
+        thumbColor: WidgetStateProperty.resolveWith((states) {
+          if (states.contains(WidgetState.selected)) return surfaces.elevated;
+          return scheme.onSurfaceVariant.withValues(alpha: 0.55);
+        }),
         trackColor: WidgetStateProperty.resolveWith((states) {
-          if (states.contains(WidgetState.selected)) return scheme.primary;
-          return borders.standard;
+          // v14 toggles: ink when on, chip when off.
+          if (states.contains(WidgetState.selected)) return scheme.onSurface;
+          return surfaces.subtle;
         }),
         trackOutlineColor: const WidgetStatePropertyAll(Colors.transparent),
       ),

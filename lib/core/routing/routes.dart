@@ -3,10 +3,10 @@ abstract final class AppRoutes {
   static const welcome = '/';
   static const onboarding = '/onboarding';
   static const pet = '/onboarding/pet';
-  static const petDetails = '/onboarding/details';
-  static const conditions = '/onboarding/conditions';
+  static const firstMedicine = '/onboarding/medicine';
   static const caregivers = '/onboarding/caregivers';
   static const notifications = '/onboarding/notifications';
+  static const ready = '/onboarding/ready';
   static const paywall = '/paywall';
 
   /// [reason] picks the copy and RevenueCat placement; [from] names the

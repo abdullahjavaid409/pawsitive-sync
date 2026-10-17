@@ -2,24 +2,23 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:pawsitive_sync/core/format/day_label.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/celebration.dart';
 import 'package:pawsitive_sync/core/widgets/care_tab_builder.dart';
 import 'package:pawsitive_sync/core/widgets/care_widgets.dart';
-import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/data/dose_reminders.dart';
 import 'package:pawsitive_sync/data/pro_prompts.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
-import 'package:pawsitive_sync/ui/care/add_care_event_sheet.dart';
+import 'package:pawsitive_sync/ui/today/today_more_cards.dart';
 import 'package:pawsitive_sync/ui/today/dose_sheets.dart';
 import 'package:pawsitive_sync/ui/today/engagement_cards.dart';
 import 'package:pawsitive_sync/ui/today/today_cards.dart';
+import 'package:pawsitive_sync/ui/today/today_v14.dart';
 import 'package:provider/provider.dart';
 
 /// Daily care leads with progress and the next useful action.
@@ -166,11 +165,6 @@ class _TodayScreenState extends State<TodayScreen> {
         .where((m) => m.isLow && (selectedId == null || m.petId == selectedId))
         .firstOrNull;
     final hasPet = care.primaryPet != null;
-    final upcomingCare = care
-        .upcomingCareEvents(withinDays: 60)
-        .where((e) => selectedId == null || e.petId == selectedId)
-        .take(5)
-        .toList();
 
     // Navigation is logged by AppRouteObserver.
     void openFromToday(Dose dose) => dose.status == DoseStatus.upcoming
@@ -199,23 +193,21 @@ class _TodayScreenState extends State<TodayScreen> {
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: carePagePaddingOf(context),
                 children: [
-                  CarePageHeader(
-                    title: 'Today',
-                    subtitle: dayLabel(care.now),
-                    action: _TodayHeaderActions(
+                  // v14 header: date, serif greeting, sync line.
+                  TodayGreeting(
+                    care: care,
+                    // Always says which plan this phone is on; Free taps
+                    // through to the paywall (logged as billing.paywall.opened).
+                    trailing: CarePlanBadge(
                       isPro: care.isPro,
                       onUpgrade: care.isPro
                           ? null
-                          : () {
-                              context.push(
-                                AppRoutes.paywallWith(
-                                  reason: 'settings',
-                                  from: 'pro_badge',
-                                ),
-                              );
-                            },
-                      // Logged as nav.push to=/settings.
-                      onSettings: () => context.push(AppRoutes.settings),
+                          : () => context.push(
+                              AppRoutes.paywallWith(
+                                reason: 'settings',
+                                from: 'today_plan_badge',
+                              ),
+                            ),
                     ),
                   ),
                   if (care.hasApi &&
@@ -225,7 +217,7 @@ class _TodayScreenState extends State<TodayScreen> {
                       error: care.syncError,
                       onRetry: () => care.sync(force: true, source: 'retry'),
                     ),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 8),
                   // One pet: nothing to filter, so no picker.
                   if (care.pets.length > 1) ...[
                     CarePetPicker(
@@ -240,42 +232,30 @@ class _TodayScreenState extends State<TodayScreen> {
                     const SizedBox(height: 20),
                   ],
                   if (doses.isNotEmpty) ...[
-                    // Hero first: the one answer and the one action.
-                    TodayHero(
-                      dose: next,
-                      pet:
-                          care.tryPetById(next?.petId ?? selectedId ?? '') ??
-                          care.primaryPet,
+                    // v14: one progress card with the next dose and its
+                    // one action, then the day's doses by time of day.
+                    TodayProgressCard(
+                      care: care,
+                      doses: doses,
+                      next: next,
                       lastGiven: _lastGiven(care, doses, next),
-                      others: [
-                        for (final d in due)
-                          if (d.id != next?.id) d,
-                      ],
-                      petOf: (d) => care.tryPetById(d.petId),
-                      onAddPhoto: () {
-                        final pet = next == null
-                            ? null
-                            : care.tryPetById(next.petId);
-                        if (pet != null) {
-                          context.push(AppRoutes.editPet(pet.id));
-                        }
-                      },
-                      onOpen: openFromToday,
-                      onLog: () {
+                      onMarkGiven: () {
                         if (next != null) _openDose(context, next);
                       },
+                      // Logged as nav.push to=/medication/:id.
                       onDetails: () {
                         if (next != null) {
                           context.push(AppRoutes.medication(next.medicationId));
                         }
                       },
                     ),
-                    const SizedBox(height: 16),
-                    // One dose: the hero already says it all.
-                    if (doses.length > 1) ...[
-                      const SizedBox(height: 16),
-                      TodayRounds(doses: doses, onPressed: openFromToday),
-                    ],
+                    TodayDayGroups(
+                      care: care,
+                      doses: doses,
+                      onGive: (dose) => _openDose(context, dose),
+                      onOpen: openFromToday,
+                    ),
+                    const SizedBox(height: 8),
                     const CareDaysNote(),
                     TodayMoments(care: care),
                     if (care.lockedMedications.isNotEmpty) ...[
@@ -292,11 +272,15 @@ class _TodayScreenState extends State<TodayScreen> {
                       ),
                     ],
                     if (care.canShowLowSupplyAlerts && low != null) ...[
-                      const SizedBox(height: 16),
-                      _LowSupply(
+                      const SizedBox(height: 24),
+                      const CareSectionHeader('Supplies'),
+                      const SizedBox(height: 10),
+                      TodaySupplyRow(
                         medication: low,
+                        pet: care.tryPetById(low.petId),
                         // Logged as nav.push to=/medication/:id.
-                        onTap: () => context.push(AppRoutes.medication(low.id)),
+                        onReorder: () =>
+                            context.push(AppRoutes.medication(low.id)),
                       ),
                     ],
                     // Free: the same moment, honestly framed as what Pro adds.
@@ -306,55 +290,11 @@ class _TodayScreenState extends State<TodayScreen> {
                         medication: low,
                       ),
                     ],
-                    const SizedBox(height: 16),
-                    TodayLog(
-                      care: care,
-                      doses: doses,
-                      onAdd: addMedicine,
-                      onPressed: openFromToday,
-                    ),
-                    if (care.pets.isNotEmpty) ...[
-                      const SizedBox(height: 24),
-                      CareSectionHeader(
-                        'Coming up',
-                        action: 'Add event',
-                        onAction: () =>
-                            showAddCareEventSheet(context, petId: selectedId),
-                      ),
-                      const SizedBox(height: 8),
-                      if (upcomingCare.isEmpty)
-                        // Nothing to draw a box around: one quiet line instead.
-                        Text(
-                          'Vet visits, vaccines and refills show here.',
-                          style: text.bodyMedium?.copyWith(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurfaceVariant,
-                          ),
-                        )
-                      else
-                        SurfaceCard(
-                          child: Column(
-                            children: [
-                              for (final (index, event) in upcomingCare.indexed)
-                                _CareEventTile(
-                                  event: event,
-                                  pet: care.tryPetById(event.petId),
-                                  showDivider: index < upcomingCare.length - 1,
-                                  // care_event.removed is logged by the repository.
-                                  onRemove: () {
-                                    AppLog.unawaitedLogged(
-                                      care.removeCareEvent(event.id),
-                                      'care_event.remove_failed',
-                                      {'eventId': event.id},
-                                    );
-                                  },
-                                ),
-                            ],
-                          ),
-                        ),
-                    ],
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 24),
+                    TodayMoreCards(care: care, petId: selectedId),
+                    const SizedBox(height: 12),
+                    const _QuickActions(),
+                    if (!care.isPro) const TodayProCard(),
                     const _RemindersBanner(),
                   ] else ...[
                     TodayStart(
@@ -377,47 +317,6 @@ class _TodayScreenState extends State<TodayScreen> {
                     ),
                     // A course that just ended may leave nothing scheduled today.
                     TodayMoments(care: care),
-                    if (care.pets.isNotEmpty) ...[
-                      const SizedBox(height: 24),
-                      CareSectionHeader(
-                        'Coming up',
-                        action: 'Add event',
-                        onAction: () =>
-                            showAddCareEventSheet(context, petId: selectedId),
-                      ),
-                      const SizedBox(height: 8),
-                      if (upcomingCare.isEmpty)
-                        // Nothing to draw a box around: one quiet line instead.
-                        Text(
-                          'Vet visits, vaccines and refills show here.',
-                          style: text.bodyMedium?.copyWith(
-                            color: Theme.of(context)
-                                .colorScheme
-                                .onSurfaceVariant,
-                          ),
-                        )
-                      else
-                        SurfaceCard(
-                          child: Column(
-                            children: [
-                              for (final (index, event) in upcomingCare.indexed)
-                                _CareEventTile(
-                                  event: event,
-                                  pet: care.tryPetById(event.petId),
-                                  showDivider: index < upcomingCare.length - 1,
-                                  // care_event.removed is logged by the repository.
-                                  onRemove: () {
-                                    AppLog.unawaitedLogged(
-                                      care.removeCareEvent(event.id),
-                                      'care_event.remove_failed',
-                                      {'eventId': event.id},
-                                    );
-                                  },
-                                ),
-                            ],
-                          ),
-                        ),
-                    ],
                     const SizedBox(height: 24),
                     const _QuickActions(),
                     const _RemindersBanner(),
@@ -427,9 +326,22 @@ class _TodayScreenState extends State<TodayScreen> {
                     const _SetupGuide(),
                     if (!care.isConnected) ...[
                       const SizedBox(height: 12),
-                      TextButton(
-                        onPressed: () => context.push(AppRoutes.join),
-                        child: const Text('I have a household invite code'),
+                      // A link, not a heading: brand colour and body size even
+                      // when large text makes it wrap.
+                      Center(
+                        child: TextButton(
+                          onPressed: () => context.push(AppRoutes.join),
+                          style: TextButton.styleFrom(
+                            foregroundColor: context.paws.brandDark,
+                            textStyle: text.bodyMedium?.copyWith(
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          child: const Text(
+                            'I have a household invite code',
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
                       ),
                     ],
                   ],
@@ -481,46 +393,6 @@ class _TodayScreenState extends State<TodayScreen> {
     if (!nowUncertain) return;
     // Never shown now (the person is mid-care); queued for an idle moment.
     await ProPrompts.queue(ProPrompts.uncertain);
-  }
-}
-
-class _TodayHeaderActions extends StatelessWidget {
-  const _TodayHeaderActions({
-    required this.isPro,
-    required this.onUpgrade,
-    required this.onSettings,
-  });
-
-  final bool isPro;
-  final VoidCallback? onUpgrade;
-  final VoidCallback onSettings;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final tokens = context.paws;
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.center,
-      children: [
-        CarePlanBadge(isPro: isPro, onUpgrade: onUpgrade),
-        SizedBox(width: tokens.spacing.sm),
-        IconButton(
-          tooltip: 'Settings',
-          onPressed: onSettings,
-          style: IconButton.styleFrom(
-            backgroundColor: tokens.surfaces.card,
-            side: BorderSide(color: tokens.borders.subtle),
-            minimumSize: Size.square(tokens.controlHeights.icon),
-          ),
-          icon: StrokeIcon(
-            StrokeIconKind.settings,
-            size: 21,
-            color: scheme.onSurface,
-          ),
-        ),
-      ],
-    );
   }
 }
 
@@ -627,47 +499,6 @@ class _LowSupplyTeaserState extends State<_LowSupplyTeaser> {
   }
 }
 
-class _LowSupply extends StatelessWidget {
-  const _LowSupply({required this.medication, required this.onTap});
-  final Medication medication;
-  final VoidCallback onTap;
-  @override
-  Widget build(BuildContext context) => Material(
-    color: context.paws.warningBg,
-    borderRadius: BorderRadius.circular(PawsRadii.cardValue),
-    child: InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(PawsRadii.cardValue),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          children: [
-            StrokeIcon(
-              StrokeIconKind.alert,
-              size: 20,
-              color: context.paws.warning,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                '${medication.name}: ${medication.dosesLeft} doses left',
-                style: Theme.of(context).textTheme.bodyMedium
-                    ?.copyWith(color: context.paws.warning),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Text(
-              'Refill',
-              style: Theme.of(context).textTheme.titleSmall
-                  ?.copyWith(color: context.paws.warning),
-            ),
-          ],
-        ),
-      ),
-    ),
-  );
-}
-
 /// A medicine saved over Free’s limits (see [Medication.needsPro]): its
 /// doses stay on Today and log as usual; only its reminders wait for Pro.
 class _RemindersNeedPro extends StatelessWidget {
@@ -725,92 +556,145 @@ class _QuickActions extends StatelessWidget {
       (
         StrokeIconKind.paw,
         'My pet',
+        'Profile & photo',
         'today.shortcut.pets',
         () => context.go(AppRoutes.pets),
       ),
       (
         StrokeIconKind.people,
-        'Family & helpers',
+        'Household',
+        'Who gives doses',
         'today.shortcut.household',
         () => context.go(AppRoutes.household),
       ),
       (
         StrokeIconKind.file,
         'Vet report',
+        'For the next visit',
         'today.shortcut.reports',
         () => context.go(AppRoutes.reports),
       ),
     ];
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final narrow =
-            constraints.maxWidth < 340 ||
-            MediaQuery.textScalerOf(context).scale(1) > 1.2;
-        final columns = narrow ? 2 : actions.length;
-        final gap = context.paws.spacing.sm;
-        final width = (constraints.maxWidth - gap * (columns - 1)) / columns;
-        return Wrap(
-          spacing: gap,
-          runSpacing: gap,
-          children: [
-            for (final action in actions)
-              SizedBox(
-                width: width,
-                child: Semantics(
-                  button: true,
-                  label: action.$2,
-                  excludeSemantics: true,
-                  child: InkWell(
-                    onTap: () {
-                      AppLog.event(action.$3);
-                      action.$4();
-                    },
-                    borderRadius: BorderRadius.circular(context.paws.radii.lg),
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: context.paws.spacing.xs,
-                        vertical: context.paws.spacing.sm,
+    // Always one row of three equal cards: an even set reads as one control,
+    // where a 2 + 1 wrap leaves a tile looking orphaned.
+    return IntrinsicHeight(
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final (index, action) in actions.indexed) ...[
+            if (index > 0) SizedBox(width: context.paws.spacing.sm),
+            Expanded(
+              child: _QuickActionCard(
+                icon: action.$1,
+                label: action.$2,
+                caption: action.$3,
+                onTap: () {
+                  AppLog.event(action.$4);
+                  action.$5();
+                },
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// One shortcut tile: icon, a one-line name and what you'll find there, so
+/// nobody has to guess what a tap opens.
+class _QuickActionCard extends StatelessWidget {
+  const _QuickActionCard({
+    required this.icon,
+    required this.label,
+    required this.caption,
+    required this.onTap,
+  });
+
+  final StrokeIconKind icon;
+  final String label;
+  final String caption;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = context.paws;
+    final scheme = Theme.of(context).colorScheme;
+    final text = Theme.of(context).textTheme;
+    final radius = BorderRadius.circular(tokens.radii.lg);
+    return Semantics(
+      button: true,
+      label: '$label. $caption',
+      excludeSemantics: true,
+      child: Material(
+        color: tokens.surfaces.card,
+        shape: RoundedRectangleBorder(
+          borderRadius: radius,
+          side: BorderSide(color: tokens.borders.subtle),
+        ),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: radius,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 14, 12, 14),
+            // A third of the width can't hold XXL text; cap the scale here
+            // so the caption wraps instead of the name truncating.
+            child: MediaQuery.withClampedTextScaling(
+              maxScaleFactor: 1.3,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: tokens.surfaces.selected,
+                          shape: BoxShape.circle,
+                        ),
+                        child: StrokeIcon(
+                          icon,
+                          size: 18,
+                          color: tokens.brandDark,
+                        ),
                       ),
-                      child: Column(
-                        children: [
-                          Container(
-                            padding: EdgeInsets.all(context.paws.spacing.md),
-                            decoration: BoxDecoration(
-                              color: context.paws.surfaces.card,
-                              borderRadius: context.paws.radii.optionShape,
-                              border: Border.all(
-                                color: context.paws.borders.subtle,
-                              ),
-                            ),
-                            child: StrokeIcon(
-                              action.$1,
-                              size: 23,
-                              color: context.paws.brandDark,
-                            ),
-                          ),
-                          SizedBox(height: context.paws.spacing.sm + 2),
-                          Text(
-                            action.$2,
-                            textAlign: TextAlign.center,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.bodySmall
-                                ?.copyWith(
-                                  fontWeight: FontWeight.w500,
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .onSurface,
-                                ),
-                          ),
-                        ],
+                      const Spacer(),
+                      StrokeIcon(
+                        StrokeIconKind.chevronRight,
+                        size: 14,
+                        color: scheme.onSurfaceVariant,
                       ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: text.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                      color: scheme.onSurface,
                     ),
                   ),
-                ),
+                  const SizedBox(height: 2),
+                  Text(
+                    caption,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: text.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                      height: 1.3,
+                    ),
+                  ),
+                ],
               ),
-          ],
-        );
-      },
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -968,7 +852,7 @@ class _RemindersBannerState extends State<_RemindersBanner> {
           onTap: _busy ? null : _turnOn,
           borderRadius: BorderRadius.circular(PawsRadii.cardValue),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
             child: Row(
               children: [
                 StrokeIcon(
@@ -986,6 +870,7 @@ class _RemindersBannerState extends State<_RemindersBanner> {
                     ),
                   ),
                 ),
+                const SizedBox(width: 12),
                 Text(
                   _busy ? '…' : 'Turn on',
                   style: text.bodyMedium?.copyWith(
@@ -998,126 +883,6 @@ class _RemindersBannerState extends State<_RemindersBanner> {
           ),
         ),
       ),
-    );
-  }
-}
-
-String _careDueLabel(String dueDay, DateTime now) {
-  final parsed = DateTime.tryParse(dueDay);
-  if (parsed == null) return dueDay;
-  final today = DateTime(now.year, now.month, now.day);
-  final due = DateTime(parsed.year, parsed.month, parsed.day);
-  final diff = due.difference(today).inDays;
-  if (diff == 0) return 'Today';
-  if (diff == 1) return 'Tomorrow';
-  if (diff < 7) return 'In $diff days';
-  return dayLabel(parsed);
-}
-
-class _CareEventTile extends StatelessWidget {
-  const _CareEventTile({
-    required this.event,
-    required this.pet,
-    required this.showDivider,
-    required this.onRemove,
-  });
-
-  final CareEvent event;
-  final Pet? pet;
-  final bool showDivider;
-  final VoidCallback onRemove;
-
-  Future<bool> _confirmRemove(BuildContext context) async =>
-      await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Remove care event?'),
-          content: Text('“${event.title}” will be removed from Coming up.'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Keep event'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Remove'),
-            ),
-          ],
-        ),
-      ) ??
-      false;
-
-  @override
-  Widget build(BuildContext context) {
-    // The parent list rebuilds on data changes; the tile only needs the clock.
-    final now = context.read<CareRepository>().now;
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-    final due = _careDueLabel(event.dueDay, now);
-    final petName = pet?.name ?? 'Pet removed';
-
-    return Column(
-      children: [
-        Dismissible(
-          key: ValueKey(event.id),
-          direction: DismissDirection.endToStart,
-          confirmDismiss: (_) => _confirmRemove(context),
-          onDismissed: (_) => onRemove(),
-          background: Container(
-            alignment: Alignment.centerRight,
-            padding: const EdgeInsets.only(right: 20),
-            color: scheme.errorContainer,
-            child: Icon(Icons.delete_outline, color: scheme.onErrorContainer),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-            child: Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: scheme.primaryContainer,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: StrokeIcon(
-                    StrokeIconKind.calendar,
-                    size: 20,
-                    color: context.paws.brandDark,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(event.title, style: text.titleSmall),
-                      const SizedBox(height: 4),
-                      Text(
-                        '${event.kindLabel} · $due · $petName',
-                        style: text.bodyMedium?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                      if (event.note.isNotEmpty) ...[
-                        const SizedBox(height: 5),
-                        Text(event.note, style: text.bodySmall),
-                      ],
-                    ],
-                  ),
-                ),
-                IconButton(
-                  tooltip: 'Remove ${event.title}',
-                  onPressed: () async {
-                    if (await _confirmRemove(context)) onRemove();
-                  },
-                  icon: const StrokeIcon(StrokeIconKind.close, size: 18),
-                ),
-              ],
-            ),
-          ),
-        ),
-        if (showDivider) Divider(height: 1, color: scheme.outlineVariant),
-      ],
     );
   }
 }

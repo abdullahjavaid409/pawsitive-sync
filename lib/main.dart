@@ -1,12 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter/widgets.dart';
+import 'package:pawsitive_sync/data/medicine_search.dart';
 import 'package:pawsitive_sync/app.dart';
 import 'package:pawsitive_sync/core/config/app_config.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/data/dose_reminders.dart';
 import 'package:pawsitive_sync/data/engagement.dart';
+import 'package:pawsitive_sync/data/firebase_setup.dart';
 import 'package:pawsitive_sync/data/household_api.dart';
 import 'package:pawsitive_sync/data/household_store.dart';
 import 'package:pawsitive_sync/data/pet_photo_store.dart';
@@ -98,6 +100,10 @@ Future<void> _warmUp(
     await care.loadRecentHistory();
     await Future.wait([
       DoseReminders.prepare(),
+      // Medicine names found online before, for offline search.
+      MedicineSearch.load(),
+      // Optional sign-in only; never awaited by anything on screen.
+      FirebaseSetup.initialize().then((_) {}),
       () async {
         await RevenueCatService.initialize();
         // Identifies the store account, then reads the entitlement.

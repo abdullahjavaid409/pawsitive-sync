@@ -28,6 +28,12 @@ enum StrokeIconKind {
   link,
   share,
   lock,
+  calendarCheck,
+  heart,
+  home,
+  chart,
+  history,
+  userCheck,
 }
 
 /// One icon family for the whole app: Phosphor, Regular weight (a light
@@ -67,6 +73,12 @@ class StrokeIcon extends StatelessWidget {
     StrokeIconKind.link => PhosphorIconsRegular.link,
     StrokeIconKind.share => PhosphorIconsRegular.shareFat,
     StrokeIconKind.lock => PhosphorIconsRegular.lockSimple,
+    StrokeIconKind.calendarCheck => PhosphorIconsRegular.calendarCheck,
+    StrokeIconKind.heart => PhosphorIconsRegular.heart,
+    StrokeIconKind.home => PhosphorIconsRegular.house,
+    StrokeIconKind.chart => PhosphorIconsRegular.chartBar,
+    StrokeIconKind.history => PhosphorIconsRegular.clockCounterClockwise,
+    StrokeIconKind.userCheck => PhosphorIconsRegular.userCheck,
   };
 
   @override

@@ -7,6 +7,7 @@ import 'package:pawsitive_sync/core/widgets/pro_lock.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
+import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/data/dose_reminders.dart';
 import 'package:pawsitive_sync/data/reminders/reminder_settings.dart';
@@ -124,6 +125,10 @@ class NotificationSettings extends StatelessWidget {
                           from: 'settings_weekly',
                         ),
                       ),
+                      // Brand colour, like the plan card's See Pro.
+                      style: TextButton.styleFrom(
+                        foregroundColor: context.paws.brandDark,
+                      ),
                       child: const Text('See Pro'),
                     ),
                   ),
@@ -153,6 +158,10 @@ class NotificationSettings extends StatelessWidget {
                           from: 'settings_refill',
                         ),
                       ),
+                      // Brand colour, like the plan card's See Pro.
+                      style: TextButton.styleFrom(
+                        foregroundColor: context.paws.brandDark,
+                      ),
                       child: const Text('See Pro'),
                     ),
                   ),
@@ -169,6 +178,11 @@ class NotificationSettings extends StatelessWidget {
                 if (s.quietHours)
                   ListTile(
                     title: const Text('Change quiet hours'),
+                    // A chevron so it reads as a row you can open.
+                    trailing: const StrokeIcon(
+                      StrokeIconKind.chevronRight,
+                      size: 20,
+                    ),
                     onTap: () => _pickQuietHours(context, s, save),
                   ),
               ],

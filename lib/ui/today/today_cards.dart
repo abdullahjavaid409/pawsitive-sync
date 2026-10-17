@@ -1,7 +1,6 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:phosphor_icons/phosphor_icons.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/care_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/ledger.dart';
@@ -10,6 +9,7 @@ import 'package:pawsitive_sync/core/widgets/press_scale.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/domain/models.dart';
+import 'package:pawsitive_sync/ui/meds/medicine_forms.dart';
 
 /// Small uppercase label above a title or inside a card ("TODAY'S ROUNDS").
 class Eyebrow extends StatelessWidget {
@@ -509,7 +509,7 @@ class _LogRow extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
             child: Row(
               children: [
-                _MedicineTile(dose: dose),
+                MedicineTile(amount: dose.amount),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -561,40 +561,16 @@ class _LogRow extends StatelessWidget {
 
 /// A recognisable shape per medicine kind, read from the dose unit:
 /// a syringe for units, a drop for millilitres, a pill otherwise.
-class _MedicineTile extends StatelessWidget {
-  const _MedicineTile({required this.dose});
+class MedicineTile extends StatelessWidget {
+  const MedicineTile({super.key, required this.amount});
 
-  final Dose dose;
+  /// The dose amount ("2 units", "0.5 ml", "1 tablet").
+  final String amount;
 
+  // Same glyphs as the add-medicine form picker, guessed from the unit.
   @override
-  Widget build(BuildContext context) {
-    final amount = dose.amount.toLowerCase();
-    final scheme = Theme.of(context).colorScheme;
-    final paws = context.paws;
-    final (icon, tint, ink) = amount.contains('unit')
-        ? (
-            PhosphorIconsDuotone.syringe,
-            scheme.primaryContainer,
-            scheme.primary,
-          )
-        : amount.contains('ml')
-        ? (
-            PhosphorIconsDuotone.drop,
-            paws.states.unsureContainer,
-            paws.states.unsure,
-          )
-        : (PhosphorIconsDuotone.pill, paws.warningBg, paws.warningIcon);
-    return Container(
-      width: 40,
-      height: 40,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: tint,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: ExcludeSemantics(child: PhosphorIcon(icon, size: 22, color: ink)),
-    );
-  }
+  Widget build(BuildContext context) =>
+      MedicineFormIcon(form: MedicineForm.fromAmount(amount), size: 40);
 }
 
 class _GiverBadge extends StatelessWidget {
@@ -746,14 +722,14 @@ class _AlsoDue extends StatelessWidget {
                     if (pet != null)
                       PetPortrait(pet, size: 40)
                     else
-                      _MedicineTile(dose: dose),
+                      MedicineTile(amount: dose.amount),
                     if (pet != null)
                       Positioned(
                         right: -4,
                         bottom: -4,
                         child: Transform.scale(
                           scale: 0.55,
-                          child: _MedicineTile(dose: dose),
+                          child: MedicineTile(amount: dose.amount),
                         ),
                       ),
                   ],
@@ -982,9 +958,13 @@ class HeroPicture extends StatelessWidget {
     this.onAddPhoto,
     this.overlay,
     this.caption,
+    this.height = 176,
   });
 
   final Pet? pet;
+
+  /// Picture height; the Pets profile uses a taller, portrait-friendly one.
+  final double height;
 
   /// When set, this pet's name and details sit over the bottom of the photo.
   final Pet? caption;
@@ -1040,7 +1020,7 @@ class HeroPicture extends StatelessWidget {
             excludeFromSemantics: true,
           );
     return SizedBox(
-      height: 176,
+      height: height,
       child: Stack(
         fit: StackFit.expand,
         children: [

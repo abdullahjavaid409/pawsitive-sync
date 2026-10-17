@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:pawsitive_sync/core/motion/app_motion.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
+import 'package:pawsitive_sync/core/widgets/system_menu.dart';
 
 /// A page body with the shared content inset and keyboard dismissal behavior.
 ///
@@ -164,6 +165,7 @@ class PawsTextFormField extends StatelessWidget {
       suffixText: suffixText ?? base.suffixText,
     );
     return TextFormField(
+      contextMenuBuilder: appContextMenuBuilder,
       controller: controller,
       initialValue: initialValue,
       decoration: resolvedDecoration,
@@ -495,21 +497,22 @@ class CheckMark extends StatelessWidget {
       width: size,
       height: size,
       alignment: Alignment.center,
+      // v14: round, ink when on, a soft ink ring when off.
       decoration: BoxDecoration(
-        color: selected ? scheme.primary : Colors.transparent,
-        borderRadius: BorderRadius.circular(tokens.radii.sm),
+        color: selected ? scheme.onSurface : Colors.transparent,
+        shape: BoxShape.circle,
         border: Border.all(
           color: selected
-              ? tokens.states.selectedContent
-              : tokens.borders.standard,
-          width: 1.5,
+              ? scheme.onSurface
+              : scheme.onSurface.withValues(alpha: 0.25),
+          width: 2,
         ),
       ),
       child: selected
           ? StrokeIcon(
               StrokeIconKind.check,
-              size: size * 0.66,
-              color: scheme.onPrimary,
+              size: size * 0.6,
+              color: tokens.surfaces.card,
             )
           : null,
     );
@@ -655,31 +658,15 @@ class OnboardingShell extends StatelessWidget {
     final theme = Theme.of(context);
     final tokens = context.paws;
     final spacing = tokens.spacing;
+    // v14 onboarding: the app's tile inputs, and a taller full-width pill.
     return Theme(
       data: theme.copyWith(
-        inputDecorationTheme: theme.inputDecorationTheme.copyWith(
-          border: OutlineInputBorder(
-            borderRadius: tokens.radii.cardShape,
-            borderSide: BorderSide(color: tokens.borders.subtle),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: tokens.radii.cardShape,
-            borderSide: BorderSide(color: tokens.borders.subtle),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: tokens.radii.cardShape,
-            borderSide: BorderSide(color: tokens.borders.focus, width: 1.5),
-          ),
-        ),
         filledButtonTheme: FilledButtonThemeData(
           style: FilledButton.styleFrom(
-            minimumSize: Size(double.infinity, tokens.controlHeights.large),
-            padding: EdgeInsets.symmetric(
-              horizontal: spacing.xl,
-              vertical: spacing.lg,
-            ),
-            textStyle: theme.textTheme.titleLarge,
-            shape: RoundedRectangleBorder(borderRadius: tokens.radii.chipShape),
+            minimumSize: const Size(double.infinity, 52),
+            padding: EdgeInsets.symmetric(horizontal: spacing.xl),
+            textStyle: theme.textTheme.titleMedium,
+            shape: const StadiumBorder(),
           ),
         ),
       ),
@@ -750,6 +737,7 @@ class OnboardingFooter extends StatelessWidget {
   Widget build(BuildContext context) {
     final spacing = context.paws.spacing;
     return Padding(
+      // Same side gutter as the body, so the button lines up with it.
       padding: EdgeInsets.fromLTRB(
         spacing.pageHorizontal,
         spacing.md,
@@ -761,18 +749,28 @@ class OnboardingFooter extends StatelessWidget {
   }
 }
 
+/// v14 step header: a round back button, ink progress segments, and an
+/// optional "Skip" on the right.
 class OnboardingHeader extends StatelessWidget {
-  const OnboardingHeader({super.key, required this.step, required this.onBack});
+  const OnboardingHeader({
+    super.key,
+    required this.step,
+    required this.onBack,
+    this.onSkip,
+  });
 
   final int step;
   final VoidCallback onBack;
 
+  /// Shown as "Skip" for optional steps; null hides it.
+  final VoidCallback? onSkip;
+
+  /// v14 setup has four steps after the welcome.
   static const _labels = [
     'Your pet',
-    'Pet details',
-    'Health',
-    'Care circle',
-    'Reminders',
+    'First medicine',
+    'Household',
+    'Notifications',
   ];
 
   @override
@@ -781,59 +779,190 @@ class OnboardingHeader extends StatelessWidget {
     final text = Theme.of(context).textTheme;
     final tokens = context.paws;
     final spacing = tokens.spacing;
-    return Column(
+    return Row(
       children: [
-        Row(
-          children: [
-            IconButton(
-              onPressed: onBack,
-              tooltip: 'Back',
-              style: IconButton.styleFrom(
-                backgroundColor: tokens.surfaces.card,
-                side: BorderSide(color: tokens.borders.subtle),
-                minimumSize: Size.square(tokens.controlHeights.icon),
-              ),
-              icon: StrokeIcon(
-                StrokeIconKind.chevronLeft,
-                size: 20,
-                color: scheme.onSurface,
-              ),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            boxShadow: PawsElevation.card(Theme.of(context).brightness),
+          ),
+          child: IconButton(
+            onPressed: onBack,
+            tooltip: 'Back',
+            style: IconButton.styleFrom(
+              backgroundColor: tokens.surfaces.card,
+              minimumSize: const Size.square(44),
             ),
-            SizedBox(width: spacing.md),
-            Expanded(child: Text(_labels[step - 1], style: text.titleSmall)),
-            Text(
-              MediaQuery.textScalerOf(context).scale(14) > 20
-                  ? '$step/5'
-                  : '$step of 5',
-              style: text.bodyMedium,
+            icon: StrokeIcon(
+              StrokeIconKind.chevronLeft,
+              size: 20,
+              color: scheme.onSurface,
             ),
-          ],
+          ),
         ),
-        SizedBox(height: spacing.lg),
-        Semantics(
-          label: 'Setup progress',
-          value: 'Step $step of 5',
-          child: Row(
-            children: [
-              for (var i = 0; i < 5; i++) ...[
-                if (i > 0) SizedBox(width: spacing.xs + spacing.xxs),
-                Expanded(
-                  child: AnimatedContainer(
-                    duration: AppMotion.enterOf(context),
-                    height: spacing.xs,
-                    decoration: BoxDecoration(
-                      color: i < step ? scheme.primary : scheme.outlineVariant,
-                      borderRadius: BorderRadius.circular(spacing.xs),
+        SizedBox(width: spacing.md),
+        Expanded(
+          child: Semantics(
+            label: 'Setup progress, ${_labels[step - 1]}',
+            value: 'Step $step of ${_labels.length}',
+            child: Row(
+              children: [
+                for (var i = 0; i < _labels.length; i++) ...[
+                  if (i > 0) SizedBox(width: spacing.xs),
+                  Expanded(
+                    child: AnimatedContainer(
+                      duration: AppMotion.enterOf(context),
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: i < step
+                            ? scheme.onSurface
+                            : scheme.onSurface.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(2),
+                      ),
                     ),
                   ),
-                ),
+                ],
               ],
-            ],
+            ),
           ),
+        ),
+        SizedBox(width: spacing.md),
+        SizedBox(
+          width: 52,
+          child: onSkip == null
+              ? null
+              : TextButton(
+                  onPressed: onSkip,
+                  style: TextButton.styleFrom(
+                    foregroundColor: scheme.onSurfaceVariant,
+                    minimumSize: const Size(44, 44),
+                    padding: EdgeInsets.zero,
+                    // Text on the page's right edge, like the content below.
+                    alignment: AlignmentDirectional.centerEnd,
+                    textStyle: text.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  child: const Text('Skip'),
+                ),
         ),
       ],
     );
   }
+}
+
+/// v14 ChoiceChips: equal pills in a row, ink when selected, cream with a
+/// soft shadow otherwise. Wraps two per row at large text.
+class ChoicePills<T> extends StatelessWidget {
+  const ChoicePills({
+    super.key,
+    required this.label,
+    required this.options,
+    required this.value,
+    required this.labelOf,
+    required this.onChanged,
+  });
+
+  /// Read as the group's name ("Species").
+  final String label;
+  final List<T> options;
+  final T? value;
+  final String Function(T option) labelOf;
+  final ValueChanged<T> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final tokens = context.paws;
+    final text = Theme.of(context).textTheme;
+    final big = MediaQuery.textScalerOf(context).scale(1) > 1.3;
+    Widget pill(T option) {
+      final selected = option == value;
+      return Semantics(
+        inMutuallyExclusiveGroup: true,
+        checked: selected,
+        button: true,
+        label: labelOf(option),
+        excludeSemantics: true,
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: () => onChanged(option),
+          child: AnimatedContainer(
+            duration: tokens.motion.micro,
+            constraints: const BoxConstraints(minHeight: 44),
+            alignment: Alignment.center,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+            decoration: BoxDecoration(
+              color: selected ? scheme.onSurface : tokens.surfaces.card,
+              borderRadius: BorderRadius.circular(999),
+              boxShadow: selected
+                  ? null
+                  : PawsElevation.card(Theme.of(context).brightness),
+            ),
+            // One line: a long label shrinks a little rather than wrap
+            // mid-word in a narrow pill.
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                labelOf(option),
+                maxLines: 1,
+                textAlign: TextAlign.center,
+                style: text.bodyLarge?.copyWith(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w500,
+                  color: selected ? scheme.surface : scheme.onSurface,
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    final perRow = big && options.length > 2 ? 2 : options.length;
+    return Semantics(
+      label: label,
+      container: true,
+      child: Column(
+        children: [
+          for (var start = 0; start < options.length; start += perRow) ...[
+            if (start > 0) const SizedBox(height: 8),
+            Row(
+              children: [
+                for (var i = start; i < start + perRow; i++) ...[
+                  if (i > start) const SizedBox(width: 8),
+                  Expanded(
+                    child: i < options.length
+                        ? pill(options[i])
+                        : const SizedBox(),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// v14 field label: 13 pt muted, inset to line up with the field's text.
+class FieldLabel extends StatelessWidget {
+  const FieldLabel(this.text, {super.key});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(4, 0, 4, 6),
+    child: Text(
+      text,
+      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+        fontWeight: FontWeight.w500,
+        color: Theme.of(context).colorScheme.onSurfaceVariant,
+      ),
+    ),
+  );
 }
 
 class SelectableOption extends StatelessWidget {
@@ -859,61 +988,63 @@ class SelectableOption extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final tokens = context.paws;
     final spacing = tokens.spacing;
+    // v14 option: a cream card lifted by shadow; selected gets an ink ring.
     return Semantics(
       checked: selected,
-      child: Material(
-        color: selected ? tokens.states.selected : tokens.surfaces.card,
-        shape: RoundedRectangleBorder(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
           borderRadius: tokens.radii.optionShape,
-          side: BorderSide(
-            color: selected ? tokens.borders.focus : tokens.borders.subtle,
-            width: selected ? 1.5 : 1,
-          ),
+          boxShadow: PawsElevation.card(Theme.of(context).brightness),
         ),
-        child: InkWell(
-          onTap: onPressed,
-          borderRadius: tokens.radii.optionShape,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minHeight: minHeight),
-            child: Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: spacing.lg,
-                vertical: spacing.md,
-              ),
-              child: Row(
-                children: [
-                  if (leading != null) ...[
-                    ExcludeSemantics(child: leading!),
-                    SizedBox(width: spacing.md),
-                  ],
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          title,
-                          style: Theme.of(context).textTheme.titleMedium
-                              ?.copyWith(fontWeight: FontWeight.w500),
-                        ),
-                        if (subtitle != null) ...[
-                          SizedBox(height: spacing.xxs),
+        child: Material(
+          color: tokens.surfaces.card,
+          shape: RoundedRectangleBorder(
+            borderRadius: tokens.radii.optionShape,
+            side: selected
+                ? BorderSide(color: scheme.onSurface, width: 1.5)
+                : BorderSide.none,
+          ),
+          child: InkWell(
+            onTap: onPressed,
+            borderRadius: tokens.radii.optionShape,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: minHeight),
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: spacing.lg,
+                  vertical: spacing.md,
+                ),
+                child: Row(
+                  children: [
+                    if (leading != null) ...[
+                      ExcludeSemantics(child: leading!),
+                      SizedBox(width: spacing.md),
+                    ],
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
                           Text(
-                            subtitle!,
-                            style: Theme.of(context).textTheme.bodyMedium
-                                ?.copyWith(
-                                  color: selected
-                                      ? tokens.states.selectedContent
-                                      : scheme.onSurfaceVariant,
-                                ),
+                            title,
+                            style: Theme.of(context).textTheme.titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w500),
                           ),
+                          if (subtitle != null) ...[
+                            SizedBox(height: spacing.xxs),
+                            Text(
+                              subtitle!,
+                              style: Theme.of(context).textTheme.bodyMedium
+                                  ?.copyWith(color: scheme.onSurfaceVariant),
+                            ),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
-                  ),
-                  SizedBox(width: spacing.lg),
-                  CheckMark(selected: selected),
-                ],
+                    SizedBox(width: spacing.lg),
+                    CheckMark(selected: selected),
+                  ],
+                ),
               ),
             ),
           ),

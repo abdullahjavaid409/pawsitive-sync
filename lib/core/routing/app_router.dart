@@ -13,11 +13,11 @@ import 'package:pawsitive_sync/ui/pets/edit_pet_screen.dart';
 import 'package:pawsitive_sync/ui/meds/medication_screen.dart';
 import 'package:pawsitive_sync/ui/meds/schedule_screen.dart';
 import 'package:pawsitive_sync/ui/onboarding/caregivers_screen.dart';
-import 'package:pawsitive_sync/ui/onboarding/conditions_screen.dart';
 import 'package:pawsitive_sync/ui/onboarding/notifications_screen.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:pawsitive_sync/ui/onboarding/pet_basics_screen.dart';
-import 'package:pawsitive_sync/ui/onboarding/pet_details_screen.dart';
+import 'package:pawsitive_sync/ui/onboarding/first_medicine_screen.dart';
+import 'package:pawsitive_sync/ui/onboarding/ready_screen.dart';
 import 'package:pawsitive_sync/ui/onboarding/welcome_screen.dart';
 import 'package:pawsitive_sync/ui/paywall/paywall_screen.dart';
 import 'package:provider/provider.dart';
@@ -76,14 +76,9 @@ GoRouter createRouter(OnboardingViewModel onboarding) {
             const AdaptivePage(child: PetBasicsScreen()),
       ),
       GoRoute(
-        path: AppRoutes.petDetails,
+        path: AppRoutes.firstMedicine,
         builder: (context, state) =>
-            const AdaptivePage(child: PetDetailsScreen()),
-      ),
-      GoRoute(
-        path: AppRoutes.conditions,
-        builder: (context, state) =>
-            const AdaptivePage(child: ConditionsScreen()),
+            const AdaptivePage(child: FirstMedicineScreen()),
       ),
       GoRoute(
         path: AppRoutes.caregivers,
@@ -94,6 +89,10 @@ GoRouter createRouter(OnboardingViewModel onboarding) {
         path: AppRoutes.notifications,
         builder: (context, state) =>
             const AdaptivePage(child: NotificationsScreen()),
+      ),
+      GoRoute(
+        path: AppRoutes.ready,
+        builder: (context, state) => const AdaptivePage(child: ReadyScreen()),
       ),
       GoRoute(
         path: AppRoutes.paywall,
@@ -174,7 +173,9 @@ GoRouter createRouter(OnboardingViewModel onboarding) {
       GoRoute(
         path: AppRoutes.invite,
         parentNavigatorKey: rootNavigatorKey,
-        builder: (context, state) => const AdaptivePage(child: InviteScreen()),
+        builder: (context, state) => AdaptivePage(
+          child: InviteScreen(initialEmail: state.uri.queryParameters['email']),
+        ),
       ),
       GoRoute(
         path: AppRoutes.join,

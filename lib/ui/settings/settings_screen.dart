@@ -1,18 +1,21 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pawsitive_sync/core/config/app_config.dart';
 import 'package:pawsitive_sync/core/format/pet_names.dart';
 import 'package:pawsitive_sync/core/legal/app_links.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
+import 'package:pawsitive_sync/core/widgets/care_widgets.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
-import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/data/revenue_cat_service.dart';
 import 'package:pawsitive_sync/data/dose_reminders.dart';
 import 'package:pawsitive_sync/data/reminder_choice.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
+import 'package:pawsitive_sync/ui/settings/account_section.dart';
 import 'package:pawsitive_sync/ui/settings/notification_settings.dart';
 import 'package:pawsitive_sync/ui/today/engagement_cards.dart';
 import 'package:provider/provider.dart';
@@ -140,53 +143,66 @@ class _SettingsScreenState extends State<SettingsScreen> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
           children: [
-            Row(
-              children: [
-                IconButton(
-                  tooltip: 'Back',
-                  onPressed: () => context.canPop()
-                      ? context.pop()
-                      : context.go(AppRoutes.household),
-                  icon: StrokeIcon(
-                    StrokeIconKind.chevronLeft,
-                    color: scheme.onSurface,
-                  ),
-                ),
-                // The page title below is the only "Settings" on screen.
-                const Spacer(),
-              ],
+            // Shared back button: its caret lines up with the title.
+            // The page title below is the only "Settings" on screen.
+            const Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: CareBackButton(fallbackRoute: AppRoutes.household),
             ),
             const SizedBox(height: 8),
-            Text('Settings', style: text.displaySmall),
-            Text(
-              'Reminders, plan, and your data',
-              style: text.bodyLarge?.copyWith(color: scheme.onSurfaceVariant),
+            const CarePageHeader(
+              title: 'Settings',
+              subtitle: 'Reminders, plan, and your data',
             ),
             const SizedBox(height: 24),
-            Text('YOUR PLAN', style: text.labelSmall),
+            CareSectionHeader('Your plan'),
             const SizedBox(height: 8),
             SurfaceCard(
               child: Column(
                 children: [
-                  ListTile(
-                    title: Text(care.isPro ? 'Pro' : 'Free'),
-                    subtitle: Text(
-                      care.isPro
-                          ? 'Every pet, invites, refill alerts, vet export'
-                          : 'One pet, one morning medicine · Pro for every dose and shared care',
+                  if (care.isPro)
+                    const ListTile(
+                      title: Text('Pro'),
+                      subtitle: Text(
+                        'Every pet, your whole household, vet export and '
+                        'refill alerts. Synced to everyone’s phone.',
+                      ),
+                    )
+                  else
+                    // What Free keeps, and what it can lose, in plain words.
+                    CareActionTile(
+                      title: 'Free',
+                      subtitle:
+                          'Just you and one pet, saved only on this phone. '
+                          'Delete the app or lose the phone and the log is '
+                          'gone. Pro syncs it for your household.',
+                      action: 'See Pro',
+                      onAction: () => context.push(
+                        AppRoutes.paywallWith(
+                          reason: 'settings',
+                          from: 'settings_plan',
+                        ),
+                      ),
                     ),
-                    trailing: care.isPro
-                        ? null
-                        : TextButton(
-                            onPressed: () => context.push(
-                              AppRoutes.paywallWith(
-                                reason: 'settings',
-                                from: 'settings_plan',
-                              ),
-                            ),
-                            child: const Text('Upgrade'),
-                          ),
-                  ),
+                  // Hidden unless a debug build runs with DEBUG_TOOLS=true.
+                  if (kDebugMode && AppConfig.debugTools) ...[
+                    Divider(height: 1, color: scheme.outlineVariant),
+                    ListTile(
+                      title: Text(
+                        care.isPro
+                            ? 'Debug: switch to Free'
+                            : 'Debug: switch to Pro',
+                      ),
+                      subtitle: const Text(
+                        'Debug build only. Resets to RevenueCat on restart.',
+                      ),
+                      trailing: Switch(
+                        value: care.isPro,
+                        onChanged: (_) => care.debugTogglePro(),
+                      ),
+                      onTap: care.debugTogglePro,
+                    ),
+                  ],
                   Divider(height: 1, color: scheme.outlineVariant),
                   ListTile(
                     title: const Text('Restore purchases'),
@@ -209,7 +225,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
             ),
             const SizedBox(height: 24),
-            Text('NOTIFICATIONS', style: text.labelSmall),
+            const AccountSection(),
+            CareSectionHeader('Notifications'),
             const SizedBox(height: 8),
             NotificationSettings(
               remindersOn: _remindersOn,
@@ -217,7 +234,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               care: care,
             ),
             const SizedBox(height: 24),
-            Text('LEGAL', style: text.labelSmall),
+            CareSectionHeader('Legal'),
             const SizedBox(height: 8),
             SurfaceCard(
               child: Column(
@@ -244,13 +261,20 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   Divider(height: 1, color: scheme.outlineVariant),
                   ListTile(
                     title: const Text('Contact support'),
+                    // Opens outside the app, like the two links above.
+                    trailing: Icon(
+                      Icons.open_in_new,
+                      size: 18,
+                      color: scheme.onSurfaceVariant,
+                    ),
                     onTap: () => _open(Uri.parse(AppLinks.support)),
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 24),
-            Text('ACCOUNT', style: text.labelSmall),
+            // "Account" is already the sign-in section above.
+            CareSectionHeader('Your data'),
             const SizedBox(height: 8),
             if (care.isConnected)
               SurfaceCard(
@@ -320,11 +344,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
             ),
             const SizedBox(height: 8),
-            Text(
-              care.isConnected
-                  ? 'Deletes your account on our server and all app data on this phone.'
-                  : 'Required by Apple and Google: delete removes all app data from this device.',
-              style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+            // Same 4pt inset as the section title above.
+            Padding(
+              padding: CareSectionHeader.inset,
+              child: Text(
+                care.isConnected
+                    ? 'Deletes your account on our server and all app data on this phone.'
+                    : 'Removes every pet, dose and setting from this phone. '
+                          'This can’t be undone.',
+                style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+              ),
             ),
             const SizedBox(height: 24),
             Center(

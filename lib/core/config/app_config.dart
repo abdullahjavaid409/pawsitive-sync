@@ -41,6 +41,11 @@ abstract final class AppConfig {
   /// without it iOS treats the level as "active" anyway, so off is safe.
   static const iosTimeSensitive = bool.fromEnvironment('IOS_TIME_SENSITIVE');
 
+  /// Debug-only tools (the Settings Pro/Free switch). Hidden by default so
+  /// debug runs show exactly what users see; the code stays for QA. Turn on
+  /// with `--dart-define=DEBUG_TOOLS=true`. Release builds never show them.
+  static const debugTools = bool.fromEnvironment('DEBUG_TOOLS');
+
   static bool get hasApi => apiBaseUrl.trim().isNotEmpty;
 
   static bool get hasRevenueCat =>

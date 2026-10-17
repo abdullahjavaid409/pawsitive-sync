@@ -8,11 +8,12 @@ import 'package:pawsitive_sync/core/widgets/press_scale.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 
+// v14 tab bar: calendar-check, heart, house, bar chart.
 const _appTabs = [
-  (StrokeIconKind.calendar, 'Today'),
-  (StrokeIconKind.paw, 'Pets'),
-  (StrokeIconKind.people, 'Household'),
-  (StrokeIconKind.file, 'Reports'),
+  (StrokeIconKind.calendarCheck, 'Today'),
+  (StrokeIconKind.heart, 'Pets'),
+  (StrokeIconKind.home, 'Household'),
+  (StrokeIconKind.chart, 'Reports'),
 ];
 
 /// Keeps each tab stack alive behind one bottom bar or side rail.
@@ -90,16 +91,12 @@ class _CompactShell extends StatelessWidget {
         child: DecoratedBox(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(32),
+            // v14 shadow-bar: one warm, soft lift (0 10 32 / 16%).
             boxShadow: const [
               BoxShadow(
-                color: Color(0x14000000),
-                blurRadius: 2,
-                offset: Offset(0, 1),
-              ),
-              BoxShadow(
-                color: Color(0x24000000),
-                blurRadius: 30,
-                offset: Offset(0, 12),
+                color: Color(0x294A341E),
+                blurRadius: 32,
+                offset: Offset(0, 10),
               ),
             ],
           ),
@@ -110,7 +107,7 @@ class _CompactShell extends StatelessWidget {
               filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
               child: DecoratedBox(
                 decoration: BoxDecoration(
-                  color: tokens.surfaces.card.withValues(alpha: 0.78),
+                  color: tokens.surfaces.card.withValues(alpha: 0.75),
                   borderRadius: BorderRadius.circular(32),
                   border: Border.all(
                     color: dark
@@ -139,8 +136,11 @@ class _CompactShell extends StatelessWidget {
                                   curve: Curves.easeOutCubic,
                                   height: 52,
                                   decoration: BoxDecoration(
+                                    // v14: a 7% ink wash, not a brand tint.
                                     color: i == current
-                                        ? scheme.primaryContainer
+                                        ? scheme.onSurface.withValues(
+                                            alpha: 0.07,
+                                          )
                                         : Colors.transparent,
                                     borderRadius: BorderRadius.circular(26),
                                   ),
@@ -149,9 +149,9 @@ class _CompactShell extends StatelessWidget {
                                     children: [
                                       StrokeIcon(
                                         _appTabs[i].$1,
-                                        size: 22,
+                                        size: 21,
                                         color: i == current
-                                            ? tokens.states.selectedContent
+                                            ? scheme.onSurface
                                             : scheme.onSurfaceVariant,
                                       ),
                                       const SizedBox(height: 2),
@@ -164,12 +164,10 @@ class _CompactShell extends StatelessWidget {
                                             .labelSmall
                                             ?.copyWith(
                                               fontWeight: i == current
-                                                  ? FontWeight.w700
+                                                  ? FontWeight.w600
                                                   : FontWeight.w500,
                                               color: i == current
-                                                  ? tokens
-                                                        .states
-                                                        .selectedContent
+                                                  ? scheme.onSurface
                                                   : scheme.onSurfaceVariant,
                                             ),
                                       ),

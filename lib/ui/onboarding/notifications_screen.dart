@@ -1,17 +1,19 @@
 import 'package:flutter/material.dart';
-import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:go_router/go_router.dart';
+import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
-import 'package:pawsitive_sync/core/widgets/moment_art.dart';
-import 'package:pawsitive_sync/ui/onboarding/onboarding_visuals.dart';
-import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
+import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/data/dose_reminders.dart';
+import 'package:pawsitive_sync/data/reminders/reminder_settings.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
+import 'package:pawsitive_sync/ui/onboarding/onboarding_visuals.dart';
 import 'package:provider/provider.dart';
 
-/// Explains dose reminders before the trial offer.
+/// v14 RemindersStep: what's worth a notification, as three switches.
+/// "When a dose is due" is the master switch (iOS permission); the other
+/// two are the follow-up nudge and the refill heads-up (Pro) in Settings.
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
 
@@ -21,36 +23,30 @@ class NotificationsScreen extends StatefulWidget {
 
 class _NotificationsScreenState extends State<NotificationsScreen> {
   bool _busy = false;
+  bool _due = true;
+  bool _late = true;
+  bool _supply = true;
 
-  Future<void> _choose(BuildContext context, {required bool ask}) async {
+  Future<void> _choose({required bool ask}) async {
     if (_busy) return;
-    AppLog.event('onboarding.step', {'step': 'notifications', 'ask': ask});
+    final on = ask && _due;
+    AppLog.event('onboarding.step', {
+      'step': 'notifications',
+      'ask': on,
+      'late': _late,
+      'supply': _supply,
+    });
     setState(() => _busy = true);
     try {
       final model = context.read<OnboardingViewModel>();
-      if (!ask) {
-        model.chooseReminders(false);
-        await showMoment(
-          context,
-          name: 'reminders.off',
-          message: 'Reminders stay off. You can allow them later in Settings.',
-        );
-        if (!context.mounted) return;
-        context.go(AppRoutes.paywall);
-        return;
-      }
-      final allowed = await DoseReminders.ask();
-      if (!context.mounted) return;
+      final current = await ReminderSettingsStore.read();
+      await ReminderSettingsStore.write(
+        current.copyWith(followUp: _late, refill: _supply),
+      );
+      final allowed = on && await DoseReminders.ask();
+      if (!mounted) return;
       model.chooseReminders(allowed);
-      if (!allowed) {
-        await showMoment(
-          context,
-          name: 'reminders.off',
-          message: 'Reminders stay off. You can allow them later in Settings.',
-        );
-        if (!context.mounted) return;
-      }
-      context.go(AppRoutes.paywall);
+      context.go(AppRoutes.ready);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -58,144 +54,89 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-    final name = context.watch<OnboardingViewModel>().petName.trim();
-    final pet = name.isEmpty ? 'your pet' : name;
+    final isPro = context.watch<CareRepository>().isPro;
+    final rows = [
+      (
+        'When a dose is due',
+        'A quiet nudge at the scheduled time',
+        _due,
+        (bool v) => setState(() => _due = v),
+        false,
+      ),
+      (
+        'If a dose is late',
+        'One reminder 30 minutes after, if nobody logged it',
+        _due && _late,
+        (bool v) => setState(() => _late = v),
+        !_due,
+      ),
+      (
+        'When supply runs low',
+        isPro
+            ? 'Once a tracked supply is nearly out'
+            : 'Pro · turns on if you upgrade',
+        // Free never gets these, so the switch isn't shown on for them.
+        // The saved choice stays on, so Pro starts with it.
+        isPro && _due && _supply,
+        (bool v) => setState(() => _supply = v),
+        !_due || !isPro,
+      ),
+    ];
 
     return OnboardingStep(
       onBack: () => context.go(AppRoutes.caregivers),
       child: OnboardingShell(
         header: OnboardingHeader(
-          step: 5,
+          step: 4,
           onBack: () => context.go(AppRoutes.caregivers),
         ),
         body: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            OnboardingTitle(
-              'Care, right on time.',
-              'A gentle reminder when $pet’s medicine is due. One less thing to remember.',
+            const OnboardingTitle(
+              'Stay in the loop',
+              'Choose what’s worth a notification. You can change this later.',
             ),
             const SizedBox(height: 28),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surfaceContainerLowest,
-                borderRadius: BorderRadius.circular(PawsRadii.cardValue),
-                border: Border.all(
-                  color: Theme.of(context).colorScheme.outlineVariant,
-                ),
-              ),
+            SurfaceCard(
               child: Column(
                 children: [
-                  const OnboardingArtwork('reminder', height: 80),
-                  const SizedBox(height: 8),
-                  Semantics(
-                    button: true,
-                    label: 'Preview a dose reminder on the lock screen',
-                    child: Material(
-                      color: scheme.surfaceContainerLowest,
-                      borderRadius: BorderRadius.circular(PawsRadii.cardValue),
-                      clipBehavior: Clip.antiAlias,
-                      child: InkWell(
-                        onTap: () => context.push(AppRoutes.lock),
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                children: [
-                                  const AppIconMark(size: 26),
-                                  const SizedBox(width: 8),
-                                  Expanded(
-                                    child: Text(
-                                      'Gave It',
-                                      style: text.titleSmall,
-                                    ),
-                                  ),
-                                  Text('now', style: text.bodySmall),
-                                ],
-                              ),
-                              const SizedBox(height: 14),
-                              Text(
-                                '$pet’s evening dose is due',
-                                style: text.titleMedium,
-                              ),
-                              const SizedBox(height: 16),
-                              const Divider(),
-                              const SizedBox(height: 12),
-                              Text(
-                                'Preview on lock screen',
-                                style: text.titleSmall?.copyWith(
-                                  color: context.paws.brandDark,
-                                ),
-                              ),
-                            ],
-                          ),
+                  for (final (i, (title, detail, value, onChanged, off))
+                      in rows.indexed) ...[
+                    if (i > 0) Divider(height: 1, color: context.paws.hairline),
+                    SwitchListTile(
+                      value: value,
+                      // Without due reminders the other two have nothing
+                      // to follow.
+                      onChanged: off ? null : onChanged,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 2,
+                      ),
+                      title: Text(
+                        title,
+                        style: Theme.of(context).textTheme.titleSmall,
+                      ),
+                      subtitle: Text(
+                        detail,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                       ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),
-            const SizedBox(height: 28),
-            const _Point(
-              StrokeIconKind.check,
-              'Log a dose from your lock screen',
-            ),
-            const _Point(
-              StrokeIconKind.people,
-              'See when someone else has given it',
-            ),
-            const _Point(
-              StrokeIconKind.bell,
-              'Get a heads-up before a refill is due',
-            ),
           ],
         ),
-        footer: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            FilledButton(
-              onPressed: _busy ? null : () => _choose(context, ask: true),
-              child: const Text('Turn on reminders'),
-            ),
-            const SizedBox(height: 4),
-            TextButton(
-              onPressed: _busy ? null : () => _choose(context, ask: false),
-              child: const Text('Not now'),
-            ),
-          ],
+        footer: OnboardingCta(
+          label: _due ? 'Turn on notifications' : 'Continue',
+          busy: _busy,
+          onPressed: () => _choose(ask: true),
+          secondary: _due ? 'Not now' : null,
+          onSecondary: () => _choose(ask: false),
         ),
-      ),
-    );
-  }
-}
-
-class _Point extends StatelessWidget {
-  const _Point(this.icon, this.label);
-
-  final StrokeIconKind icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 18),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          StrokeIcon(icon, size: 20, color: context.paws.brandDark),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(label, style: Theme.of(context).textTheme.bodyLarge),
-          ),
-        ],
       ),
     );
   }

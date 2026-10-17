@@ -28,9 +28,6 @@ enum PaywallReason {
 
   /// The recurring idle upgrade prompt on Today.
   weekly,
-
-  /// The daily idle upgrade prompt in a free user’s first week.
-  firstWeek,
 }
 
 extension PaywallReasonQuery on PaywallReason {
@@ -48,7 +45,6 @@ extension PaywallReasonQuery on PaywallReason {
     PaywallReason.history => 'history',
     PaywallReason.weeklySummary => 'weekly_summary',
     PaywallReason.weekly => 'weekly',
-    PaywallReason.firstWeek => 'first_week',
   };
 
   static PaywallReason? fromQuery(String? raw) {
@@ -66,7 +62,6 @@ extension PaywallReasonQuery on PaywallReason {
       'history' => PaywallReason.history,
       'weekly_summary' => PaywallReason.weeklySummary,
       'weekly' => PaywallReason.weekly,
-      'first_week' => PaywallReason.firstWeek,
       _ => null,
     };
   }
@@ -74,8 +69,8 @@ extension PaywallReasonQuery on PaywallReason {
   /// Pain-first headline + optional subline for this moment.
   (String headline, String? subline) get copy => switch (this) {
     PaywallReason.secondPet => (
-      'Every pet deserves the same care',
-      'Free covers one pet. Pro keeps every pet’s doses in one list, so nobody gets missed.',
+      'Room for every pet',
+      'Free covers one pet. Pro keeps every pet’s doses in one shared log, so nobody gets missed.',
     ),
     PaywallReason.invite => (
       'Did your partner already give it?',
@@ -120,10 +115,6 @@ extension PaywallReasonQuery on PaywallReason {
     PaywallReason.weekly => (
       'Peace of mind for everyone who cares for them',
       'Every pet and medicine, shared care, full history, and refill alerts.',
-    ),
-    PaywallReason.firstWeek => (
-      'Your first week, done right',
-      'Lock in the habit now: every pet, every medicine, everyone who helps.',
     ),
     PaywallReason.onboarding => (
       'Never wonder “did they already get it?”',

@@ -120,12 +120,22 @@ extension CareAccount on CareRepository {
     await step('whats_new', WhatsNewState.clear);
     await step('push', PushService.clearLocal);
     await step('widget', AppleWidgets.clear);
-    await step('analytics', () async => AnalyticsService.clear());
+    await step('analytics', AnalyticsService.clear);
+    // The sign-in account goes too. Settings asks for a fresh sign-in first
+    // when Firebase needs one; if it still can't, this phone at least signs
+    // out and the server no longer links the account to anything.
+    await step('sign_in', () async {
+      if (await AccountService.deleteSignInAccount() != null) {
+        await AccountService.signOut();
+      }
+    });
     // Last sweep: any preference a future store forgets to clear (also
     // removes the delete-pending flag).
     await step('prefs', () async {
       final prefs = await SharedPreferences.getInstance();
       await prefs.clear();
+      // Its saved names went with the wipe; drop the in-memory copy too.
+      MedicineSearch.forget();
     });
     _accountDeletePending = false;
   }

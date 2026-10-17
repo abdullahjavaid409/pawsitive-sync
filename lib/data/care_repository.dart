@@ -6,9 +6,12 @@ import 'dart:math';
 
 import 'package:characters/characters.dart';
 import 'package:flutter/foundation.dart';
+import 'package:pawsitive_sync/core/config/app_config.dart';
 import 'package:pawsitive_sync/core/constants/pet_limits.dart';
 import 'package:pawsitive_sync/core/legal/app_links.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
+import 'package:pawsitive_sync/data/medicine_search.dart';
+import 'package:pawsitive_sync/data/account_service.dart';
 import 'package:pawsitive_sync/data/analytics_service.dart';
 import 'package:pawsitive_sync/data/apple_widgets.dart';
 import 'package:pawsitive_sync/data/care_events_store.dart';
@@ -37,6 +40,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 part 'care_repository_account.dart';
 part 'care_repository_household.dart';
 part 'care_repository_photos.dart';
+part 'care_repository_signin.dart';
 
 /// When a log says it was given: its day plus its time label. Reads
 /// "8:02 AM", "11:51 p.m.", "23:51" and "12:05am"; null when either part
@@ -148,6 +152,25 @@ class ReportEntry {
   final LogOutcome outcome;
 }
 
+/// One calendar day in a report: doses due that day and how many were
+/// logged as given. Drives the day grid on Reports.
+class DayTally {
+  const DayTally({
+    required this.day,
+    required this.expected,
+    required this.given,
+  });
+
+  final DateTime day;
+  final int expected;
+  final int given;
+
+  /// Nothing was scheduled (before the first medicine started, or a gap).
+  bool get isEmpty => expected == 0;
+  bool get allGiven => expected > 0 && given >= expected;
+  bool get noneGiven => expected > 0 && given == 0;
+}
+
 class PetReport {
   const PetReport({
     required this.from,
@@ -158,7 +181,15 @@ class PetReport {
     this.uncertain = 0,
     this.missedDoses = const [],
     this.recent = const [],
+    this.days = const [],
+    this.loggers = 0,
   });
+
+  /// Every day in range, oldest first.
+  final List<DayTally> days;
+
+  /// How many different people logged a dose as given in range.
+  final int loggers;
 
   final DateTime from;
   final DateTime to;
@@ -285,6 +316,9 @@ class CareRepository extends ChangeNotifier {
 
   /// Account deletion in flight, shared by repeated taps.
   Future<String?>? _deleting;
+
+  /// The running [CareSignIn.saveSignIn], shared by a second tap.
+  Future<String?>? _savingSignIn;
   bool _accountDeletePending = false;
 
   @override
@@ -388,6 +422,10 @@ class CareRepository extends ChangeNotifier {
   BillingPlan _plan = BillingPlan.yearly;
   Future<String?>? _connecting;
   DateTime? _lastSyncedAt;
+
+  /// When this phone last pulled a confirmed household snapshot; null until
+  /// the first successful sync. Today shows it as "updated 8:02 AM".
+  DateTime? get lastSyncedAt => _lastSyncedAt;
 
   /// Last successful server snapshot, kept across launches so a cold open
   /// within [SyncPolicy.maxAge] uses local data instead of the network.
@@ -493,7 +531,29 @@ class CareRepository extends ChangeNotifier {
 
   /// Pro only ever comes from RevenueCat: this phone’s own subscription, or
   /// the household’s (server copy of a partner’s RevenueCat entitlement).
-  bool get isPro => _storeProValid || _householdProValid;
+  /// Debug builds with `DEBUG_TOOLS` alone may flip it from Settings.
+  bool get isPro {
+    if (kDebugMode && AppConfig.debugTools && _debugPro != null) {
+      return _debugPro!;
+    }
+    return _realPro;
+  }
+
+  /// What RevenueCat and the server actually say, ignoring the debug
+  /// switch. Anything that leaves the phone uses this, never [isPro].
+  bool get _realPro => _storeProValid || _householdProValid;
+
+  /// Debug-only Pro/Free switch. Memory only: a restart goes back to what
+  /// RevenueCat says. `kDebugMode` is const, so release builds drop it. The
+  /// live server still checks the real entitlement for household features.
+  bool? _debugPro;
+
+  void debugTogglePro() {
+    if (!kDebugMode || !AppConfig.debugTools) return;
+    _debugPro = !isPro;
+    AppLog.event('debug.pro_toggled', {'pro': _debugPro!});
+    _changed();
+  }
 
   /// RevenueCat says Pro *and* its expiry (if any) hasn’t passed by this
   /// phone’s clock — the SDK’s offline cache alone is never trusted past it.
@@ -549,7 +609,8 @@ class CareRepository extends ChangeNotifier {
 
   BillingPlan get plan => _plan;
 
-  /// Pro-only: invite caregivers to a shared household.
+  /// Pro-only: inviting starts server sync, so it sits behind the trial.
+  /// Joining someone's household is always free.
   bool get canInviteHousehold => isPro;
 
   /// Pro-only: export/share vet reports.
@@ -558,7 +619,7 @@ class CareRepository extends ChangeNotifier {
   /// Pro-only: running-low supply alerts on Today and medication detail.
   bool get canShowLowSupplyAlerts => isPro;
 
-  /// Free tier allows one pet; Pro allows up to [PetLimits.maxPetsPerHousehold].
+  /// Free tier allows [PetLimits.maxPetsFree] pets; Pro allows up to [PetLimits.maxPetsPerHousehold].
   bool get canAddPet {
     if (_pets.length >= PetLimits.maxPetsPerHousehold) return false;
     return isPro || _pets.length < PetLimits.maxPetsFree;
@@ -677,6 +738,14 @@ class CareRepository extends ChangeNotifier {
   static const formerMemberName = 'Former member';
 
   Pet? get primaryPet => _pets.isEmpty ? null : _pets.first;
+
+  /// Server medicine search. Empty with no API configured; throws when
+  /// unreachable so the caller can tell offline apart from "no match".
+  Future<List<Map<String, dynamic>>> searchMedicinesOnline(String query) async {
+    final api = _api;
+    if (api == null) return const [];
+    return api.searchMedicines(query);
+  }
 
   Medication? medicationById(String id) {
     for (final medication in _medications) {
@@ -879,6 +948,37 @@ class CareRepository extends ChangeNotifier {
   int get givenDoseLogCount =>
       _logs.where((log) => log.outcome == LogOutcome.given).length;
 
+  /// The first dose after today, within a week: its medicine and local
+  /// time. Null when nothing active is scheduled in that window. [petId]
+  /// narrows it to one pet.
+  ({Medication medication, DateTime at})? nextAfterToday({String? petId}) {
+    for (var offset = 1; offset <= 7; offset++) {
+      // Calendar fields, not Duration: safe across daylight-saving changes.
+      final date = DateTime(now.year, now.month, now.day + offset);
+      final day = dayKey(date);
+      ({Medication medication, DateTime at})? best;
+      for (final m in _medications) {
+        if (m.isArchived || (petId != null && m.petId != petId)) continue;
+        if (!m.isActiveOn(day)) continue;
+        for (final part in m.parts) {
+          final minute = m.minuteFor(part);
+          final at = DateTime(
+            date.year,
+            date.month,
+            date.day,
+            minute ~/ 60,
+            minute % 60,
+          );
+          if (best == null || at.isBefore(best.at)) {
+            best = (medication: m, at: at);
+          }
+        }
+      }
+      if (best != null) return best;
+    }
+    return null;
+  }
+
   Dose? get nextDue {
     for (final dose in doses) {
       if (dose.status == DoseStatus.due) return dose;
@@ -946,6 +1046,9 @@ class CareRepository extends ChangeNotifier {
                 ? log.timeLabel
                 : '$day · ${log.timeLabel}',
             note: log.note,
+            dayLabel: day,
+            time: log.timeLabel,
+            outcome: log.outcome,
           );
         }(),
     ];
@@ -1006,6 +1109,10 @@ class CareRepository extends ChangeNotifier {
     final lines = <ReportLine>[];
     final missedDoses = <MissedDose>[];
     final recent = <ReportEntry>[];
+    // Per-day tallies for the Reports grid, keyed by day key.
+    final dayExpected = <String, int>{};
+    final dayGiven = <String, int>{};
+    final givers = <String>{};
     var skipped = 0;
     var uncertain = 0;
     final notes = <String, int>{};
@@ -1027,6 +1134,7 @@ class CareRepository extends ChangeNotifier {
             continue;
           }
           expected++;
+          dayExpected[key] = (dayExpected[key] ?? 0) + 1;
           if (!logged.contains('$key|${part.name}')) {
             missedDoses.add(
               MissedDose(
@@ -1046,6 +1154,8 @@ class CareRepository extends ChangeNotifier {
         switch (log.outcome) {
           case LogOutcome.given:
             given++;
+            dayGiven[log.day] = (dayGiven[log.day] ?? 0) + 1;
+            givers.add(log.memberId);
           case LogOutcome.skipped:
             lineSkipped++;
           case LogOutcome.uncertain:
@@ -1094,6 +1204,23 @@ class CareRepository extends ChangeNotifier {
       notes: notes,
       missedDoses: missedDoses.take(PetReport.maxMissedListed).toList(),
       recent: recent.take(PetReport.maxRecent).toList(),
+      days: [
+        for (
+          var day = from;
+          !day.isAfter(today);
+          day = DateTime(day.year, day.month, day.day + 1)
+        )
+          DayTally(
+            day: day,
+            expected: dayExpected[dayKey(day)] ?? 0,
+            // A late log for an unscheduled slot can't push a day past done.
+            given: min(
+              dayGiven[dayKey(day)] ?? 0,
+              dayExpected[dayKey(day)] ?? 0,
+            ),
+          ),
+      ],
+      loggers: givers.length,
     );
   }
 
@@ -1570,16 +1697,23 @@ class CareRepository extends ChangeNotifier {
   /// [label] when none is cached (or when [force]). The token is cached in
   /// secure storage; [sitterLink] holds name + expiry. Concurrent calls
   /// share one request.
-  Future<String?> ensureSitterWebLink({bool force = false, String? label}) {
+  /// [days]: how long a new link works (1–30); null keeps the server's 30.
+  Future<String?> ensureSitterWebLink({
+    bool force = false,
+    String? label,
+    int? days,
+  }) {
     return _sitterLinkRunning ??= _ensureSitterWebLink(
       force: force,
       label: label,
+      days: days,
     ).whenComplete(() => _sitterLinkRunning = null);
   }
 
   Future<String?> _ensureSitterWebLink({
     required bool force,
     String? label,
+    int? days,
   }) async {
     lastError = null;
     if (!canInviteHousehold) {
@@ -1618,21 +1752,21 @@ class CareRepository extends ChangeNotifier {
     }
     final name = normalizeSitterLabel(label);
     try {
-      final link = await api.createSitterLink(label: name).catchError((
-        Object error,
-      ) async {
-        // 403: the server doesn’t see household Pro yet (RevenueCat webhook
-        // or share step still in flight). Share this phone’s Pro once, retry once.
-        if (error is! HouseholdException ||
-            error.status != 403 ||
-            error.isRoleForbidden ||
-            !_storePro) {
-          throw error;
-        }
-        AppLog.event('sitter.link_retry', {'reason': 'household_not_pro'});
-        await startTrial();
-        return api.createSitterLink(label: name);
-      });
+      final link = await api
+          .createSitterLink(label: name, days: days)
+          .catchError((Object error) async {
+            // 403: the server doesn’t see household Pro yet (RevenueCat webhook
+            // or share step still in flight). Share this phone’s Pro once, retry once.
+            if (error is! HouseholdException ||
+                error.status != 403 ||
+                error.isRoleForbidden ||
+                !_storePro) {
+              throw error;
+            }
+            AppLog.event('sitter.link_retry', {'reason': 'household_not_pro'});
+            await startTrial();
+            return api.createSitterLink(label: name, days: days);
+          });
       if (link.token.isEmpty) {
         AppLog.event('sitter.link_failed', {'reason': 'empty_token'});
         return null;
@@ -2012,7 +2146,29 @@ class CareRepository extends ChangeNotifier {
 
   /// A subscription bought before sharing lives only in this phone’s
   /// RevenueCat account; the new household starts as Free, so push it up.
-  Future<void> _carryProOnline(HouseholdApi api) async {
+  Future<void> _carryProOnline(HouseholdApi api) =>
+      _shareProOnce(() => _carryProOnlineNow(api));
+
+  /// The one Pro share in flight, if any. Connecting and the resume-time
+  /// store sync can both decide to share in the same second (Apple
+  /// Sign-In resumes the app mid-connect); they join one request instead
+  /// of sending two.
+  Future<void>? _proShareInFlight;
+
+  Future<void> _shareProOnce(Future<void> Function() run) {
+    final inFlight = _proShareInFlight;
+    if (inFlight != null) {
+      AppLog.event('billing.share_pro.joined');
+      return inFlight;
+    }
+    final future = run();
+    _proShareInFlight = future;
+    return future.whenComplete(() {
+      if (identical(_proShareInFlight, future)) _proShareInFlight = null;
+    });
+  }
+
+  Future<void> _carryProOnlineNow(HouseholdApi api) async {
     try {
       final billing = await api.startTrial();
       _isPro = billing.isPro;
@@ -2427,6 +2583,10 @@ class CareRepository extends ChangeNotifier {
     int supplyTotal = 0,
     String endDay = '',
     Map<DayPart, int> times = const {},
+    int everyDays = 1,
+    bool withFood = false,
+    String site = '',
+    String? startDay,
   }) {
     lastError = null;
     if (_roleBlocks('medication.add', ownerOnly: false)) {
@@ -2494,9 +2654,15 @@ class CareRepository extends ChangeNotifier {
       ],
       supplyTotal: supplyTotal,
       dosesLeft: supplyTotal,
-      startDay: dayKey(now),
+      // Weekly medicines start on their chosen weekday (today or later).
+      startDay: startDay != null && startDay.compareTo(dayKey(now)) >= 0
+          ? startDay
+          : dayKey(now),
       endDay: endDay,
       times: DoseTimes.normalize(times, parts),
+      everyDays: Medication.repeatOptions.contains(everyDays) ? everyDays : 1,
+      withFood: withFood,
+      site: site.trim(),
     );
     return _write(
       'medication.add',
@@ -2512,6 +2678,8 @@ class CareRepository extends ChangeNotifier {
         if (endDay.isNotEmpty) 'endDay': endDay,
         if (supplyTotal > 0) 'tracksSupply': true,
         if (medication.times.isNotEmpty) 'customTimes': medication.times.length,
+        if (medication.everyDays != 1) 'everyDays': medication.everyDays,
+        if (medication.withFood) 'withFood': true,
       },
       queue: () => _op('addMedication', medication.toJson()),
     );
@@ -2701,12 +2869,16 @@ class CareRepository extends ChangeNotifier {
       return false;
     }
 
+    final nextWeight = weightKg < 0 ? 0.0 : weightKg;
     final updated = existing.copyWith(
       name: trimmed,
       species: species,
       ageYears: PetLimits.clampAge(ageYears),
-      weightKg: weightKg < 0 ? 0 : weightKg,
+      weightKg: nextWeight,
       conditions: List.unmodifiable(nextConditions),
+      weights: nextWeight > 0 && nextWeight != existing.weightKg
+          ? _withWeighIn(existing.weights, dayKey(now), nextWeight)
+          : existing.weights,
     );
 
     final unchanged =
@@ -2756,6 +2928,73 @@ class CareRepository extends ChangeNotifier {
     return ok;
   }
 
+  /// Adds today's weigh-in (replacing an earlier one today), oldest first,
+  /// keeping the newest [Pet.maxWeights].
+  static List<WeightEntry> _withWeighIn(
+    List<WeightEntry> weights,
+    String day,
+    double kg,
+  ) {
+    final next = [
+      for (final w in weights)
+        if (w.day != day) w,
+      WeightEntry(day: day, kg: kg),
+    ]..sort((a, b) => a.day.compareTo(b.day));
+    return List.unmodifiable(
+      next.length > Pet.maxWeights
+          ? next.sublist(next.length - Pet.maxWeights)
+          : next,
+    );
+  }
+
+  /// Writes the household note on [petId]'s profile, signed by you and
+  /// dated today. Empty text clears it. Offline it saves here and queues
+  /// one `updatePet` op that carries the note.
+  Future<bool> setCareNote(String petId, String text) async {
+    lastError = null;
+    if (_roleBlocks('pet.note', ownerOnly: false)) return false;
+    final existing = tryPetById(petId);
+    if (existing == null) {
+      lastError = 'This pet is no longer in your household.';
+      AppLog.event('pet.note.missing', {'petId': petId});
+      return false;
+    }
+    final note = text.trim();
+    if (note.length > Pet.maxNoteLength) {
+      lastError = 'Keep the note under ${Pet.maxNoteLength} characters.';
+      return false;
+    }
+    if (note == existing.careNote) return true;
+    final updated = existing.copyWith(
+      careNote: note,
+      careNoteBy: note.isEmpty ? '' : you.id,
+      careNoteDay: note.isEmpty ? '' : dayKey(now),
+    );
+    return _write(
+      'pet.note',
+      (api) async {
+        final saved = await api.updatePet(updated, withNote: true);
+        final index = _pets.indexWhere((pet) => pet.id == petId);
+        if (index >= 0) {
+          _pets[index] = saved.withPhoto(
+            photoKey: _pets[index].photoKey,
+            photoUrl: _pets[index].photoUrl,
+            photoVersion: _pets[index].photoVersion,
+            photoSync: _pets[index].photoSync,
+            photoPath: _pets[index].photoPath,
+          );
+        }
+      },
+      () {
+        final index = _pets.indexWhere((pet) => pet.id == petId);
+        if (index >= 0) _pets[index] = updated;
+        return true;
+      },
+      fields: {'petId': petId, 'cleared': note.isEmpty},
+      queue: () => _op('updatePet', updated.toJson(withNote: true)),
+    );
+  }
+
   static bool _sameConditions(List<String> a, List<String> b) {
     if (a.length != b.length) return false;
     final left = {...a};
@@ -2790,7 +3029,9 @@ class CareRepository extends ChangeNotifier {
   /// so partners get Pro too. Never grants Pro on its own, and does nothing
   /// on a solo phone (Pro there *is* the RevenueCat entitlement). Kept under
   /// its old name; the endpoint is still `/v1/billing/trial`.
-  Future<void> startTrial() async {
+  Future<void> startTrial() => _shareProOnce(_shareProNow);
+
+  Future<void> _shareProNow() async {
     if (!_storePro) {
       AppLog.event('billing.share_pro.skipped', {
         'reason': 'no_store_entitlement',
@@ -2934,7 +3175,8 @@ class CareRepository extends ChangeNotifier {
     'medication_count': '${_medications.length}',
     'household_members': '${_members.length}',
     'has_household': '$hasHousehold',
-    'is_pro': '$isPro',
+    // Real plan only: the debug switch must never reach RevenueCat.
+    'is_pro': '$_realPro',
   };
 
   /// Live store updates (late purchase, Ask to Buy approval, renewal,

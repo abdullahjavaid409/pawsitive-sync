@@ -153,6 +153,9 @@ class HouseholdException implements Exception {
   /// 401 because the owner removed this member.
   bool get isMemberRemoved => code == 'member_removed';
 
+  /// 404 on recovery: this sign-in was never saved to a household.
+  bool get isNoHousehold => code == 'no_household';
+
   /// 404 because the invite code is past its 7 days.
   bool get isInviteExpired => code == 'invite_expired';
 
@@ -220,6 +223,26 @@ class HouseholdApi {
     return _session(body);
   }
 
+  /// New phone: a verified sign-in (Firebase ID token) gets this member's
+  /// household back with a fresh device token. 404 [isNoHousehold] when the
+  /// account was never saved to a household.
+  Future<HouseholdSession> recoverAccount(String idToken) async {
+    final body = await _send('POST', '/v1/auth/firebase/recover', {
+      'idToken': idToken,
+    });
+    return _session(body);
+  }
+
+  /// Saves this member's sign-in so the household can be recovered later.
+  Future<void> linkAccount(String idToken) async {
+    await _send('POST', '/v1/auth/firebase/link', {'idToken': idToken});
+  }
+
+  /// Forgets this member's sign-in (signing out of the account).
+  Future<void> unlinkAccount() async {
+    await _send('POST', '/v1/auth/firebase/unlink');
+  }
+
   Future<HouseholdSnapshot> fetchHousehold() async {
     return _snapshot(await _send('GET', '/v1/household'));
   }
@@ -229,11 +252,12 @@ class HouseholdApi {
     return _pet(_map(body['pet']));
   }
 
-  Future<Pet> updatePet(Pet pet) async {
+  /// [withNote] sends the household note too (note edits only).
+  Future<Pet> updatePet(Pet pet, {bool withNote = false}) async {
     final body = await _send(
       'PATCH',
       '/v1/pets/${Uri.encodeComponent(pet.id)}',
-      pet.toJson(),
+      pet.toJson(withNote: withNote),
     );
     return _pet(_map(body['pet']));
   }
@@ -405,9 +429,11 @@ class HouseholdApi {
   /// Creates a time-limited browser link for sitters (Pro households).
   /// [id] is empty from servers older than v5.
   Future<({String token, String url, DateTime expiresAt, String id})>
-  createSitterLink({String? label}) async {
+  createSitterLink({String? label, int? days}) async {
     final body = await _send('POST', '/v1/sitter-links', {
       if (label != null && label.isNotEmpty) 'label': label,
+      // 1–30; older servers ignore it and give 30 days.
+      if (days != null) 'days': days.clamp(1, 30),
     });
     final rawToken = body['token'];
     if (rawToken is! String || rawToken.isEmpty) {
@@ -493,6 +519,26 @@ class HouseholdApi {
 
   Future<void> leaveHousehold() async {
     await _send('POST', '/v1/members/leave');
+  }
+
+  /// Medicine names beyond the phone's own list; public, no household
+  /// needed. Rows are `{name, form, use, species}`. Throws like any call.
+  Future<List<Map<String, dynamic>>> searchMedicines(String query) async {
+    final body = await _send(
+      'GET',
+      Uri(
+        path: '/v1/medicines/search',
+        queryParameters: {'q': query},
+      ).toString(),
+      null,
+      const Duration(seconds: 8),
+    );
+    final results = body['results'];
+    return [
+      if (results is List)
+        for (final row in results)
+          if (row is Map) Map<String, dynamic>.from(row),
+    ];
   }
 
   Future<Map<String, dynamic>> exportHousehold() async {
@@ -708,6 +754,15 @@ Pet _pet(Map<String, dynamic> json) {
     // Local-store fields; absent in server answers and older saved households.
     photoVersion: _int(json['photoVersion']),
     photoSync: _enum(PhotoSync.values, json['photoSync'], PhotoSync.none),
+    // Absent from old servers and old saved data: no note, no history.
+    careNote: '${json['careNote'] ?? ''}',
+    careNoteBy: '${json['careNoteBy'] ?? ''}',
+    careNoteDay: '${json['careNoteDay'] ?? ''}',
+    weights: [
+      for (final raw
+          in json['weights'] is List ? json['weights'] as List : const [])
+        ?WeightEntry.tryParse(raw),
+    ],
   );
 }
 
@@ -739,6 +794,15 @@ Medication _medication(Map<String, dynamic> json) {
     times: _times(json, parts),
     // Absent unless set (old servers never set it).
     needsPro: json['needsPro'] == true,
+    // Absent from old servers: every day, no food note, no site. Anything
+    // but 2 or 7 reads as every day, so junk never skips a dose.
+    everyDays: switch (json['everyDays']) {
+      2 => 2,
+      7 => 7,
+      _ => 1,
+    },
+    withFood: json['withFood'] == true,
+    site: '${json['site'] ?? ''}',
   );
 }
 

@@ -64,43 +64,35 @@ class MedicationScreen extends StatelessWidget {
     return Scaffold(
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(24, 8, 24, 28),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
           children: [
             Row(
               children: [
-                TextButton.icon(
-                  onPressed: () => context.canPop()
-                      ? context.pop()
-                      : context.go(AppRoutes.today),
-                  style: TextButton.styleFrom(
-                    foregroundColor: scheme.primary,
-                    textStyle: text.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w400,
-                    ),
-                    padding: const EdgeInsets.only(left: 0),
-                  ),
-                  icon: StrokeIcon(
-                    StrokeIconKind.chevronLeft,
-                    size: 22,
-                    color: scheme.primary,
-                  ),
-                  label: const Text('Back'),
-                ),
-                const Spacer(),
-                // Only the owner stops (archives) a medicine.
+                // Same icon back button as every other pushed screen.
+                const CareBackButton(fallbackRoute: AppRoutes.today),
+                // Only the owner stops (archives) a medicine; end-aligned so
+                // it sits on the right edge.
                 if (care.canArchive)
-                  Flexible(
-                    child: TextButton(
-                      // Logged as nav.push to=stop_medicine (the dialog).
-                      onPressed: () => _confirmStop(context, care, medication),
-                      style: TextButton.styleFrom(
-                        foregroundColor: scheme.error,
-                        textStyle: text.titleSmall,
-                      ),
-                      child: const Text(
-                        'Stop medicine',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                  Expanded(
+                    child: Align(
+                      alignment: AlignmentDirectional.centerEnd,
+                      child: TextButton(
+                        // Logged as nav.push to=stop_medicine (the dialog).
+                        onPressed: () =>
+                            _confirmStop(context, care, medication),
+                        style: TextButton.styleFrom(
+                          foregroundColor: scheme.error,
+                          textStyle: text.titleSmall,
+                          // Text ends on the same line as the pet photo and
+                          // the header's right edge; still 44pt tall.
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          minimumSize: const Size(44, 44),
+                        ),
+                        child: const Text(
+                          'Stop medicine',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ),
                   ),
@@ -150,8 +142,9 @@ class MedicationScreen extends StatelessWidget {
                     Row(
                       children: [
                         Text(
-                          showLowAlert ? 'SUPPLY · LOW' : 'SUPPLY',
-                          style: text.labelSmall?.copyWith(
+                          showLowAlert ? 'Supply · low' : 'Supply',
+                          style: text.bodySmall?.copyWith(
+                            fontWeight: FontWeight.w600,
                             color: showLowAlert
                                 ? tokens.warning
                                 : scheme.onSurfaceVariant,
@@ -266,12 +259,19 @@ class MedicationScreen extends StatelessWidget {
                   ],
                 ),
               ),
-            const SectionLabel('SCHEDULE'),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(0, 24, 0, 10),
+              child: CareSectionHeader('Schedule'),
+            ),
             SurfaceCard(
               child: Column(
                 children: [
                   _Pair(label: 'Dose', value: medication.doseLabel),
                   _Pair(label: 'When', value: medication.whenLabel),
+                  if (medication.site.isNotEmpty)
+                    _Pair(label: 'Where', value: medication.site),
+                  if (medication.withFood)
+                    const _Pair(label: 'With food', value: 'Yes'),
                   // One row per part; editors can change the time
                   // (reminders re-plan as soon as it’s saved).
                   for (final part in medication.parts)
@@ -295,10 +295,10 @@ class MedicationScreen extends StatelessWidget {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(8, 24, 8, 8),
+              padding: const EdgeInsets.fromLTRB(4, 24, 4, 10),
               child: Row(
                 children: [
-                  Text('LAST 7 DAYS', style: text.labelSmall),
+                  Text('Last 7 days', style: text.headlineSmall),
                   const SizedBox(width: 12),
                   // Takes the rest of the line and wraps at large text
                   // instead of pushing past the edge.
@@ -335,10 +335,13 @@ class MedicationScreen extends StatelessWidget {
                                     decoration: BoxDecoration(
                                       color: day.expected == 0
                                           ? tokens.neutral
+                                          // Given is green everywhere (v14).
                                           : day.given >= day.expected
-                                          ? scheme.primary
+                                          ? tokens.states.success
                                           : day.given > 0
-                                          ? tokens.amber
+                                          ? tokens.states.success.withValues(
+                                              alpha: 0.25,
+                                            )
                                           : scheme.surfaceContainerLowest,
                                       border: day.expected > 0 && day.given == 0
                                           ? Border.all(color: scheme.outline)

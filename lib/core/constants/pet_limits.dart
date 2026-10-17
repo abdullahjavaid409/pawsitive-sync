@@ -2,7 +2,9 @@
 abstract final class PetLimits {
   static const maxNameLength = 40;
 
-  /// Free tier: one pet. Pro unlocks up to [maxPetsPerHousehold].
+  /// Free tier: one pet, on this phone only. Everything that uses the
+  /// server (sharing, sync, sitter links) is Pro, so Free costs nothing to
+  /// serve. Pro unlocks up to [maxPetsPerHousehold].
   static const maxPetsFree = 1;
   static const maxPetsPerHousehold = 10;
 

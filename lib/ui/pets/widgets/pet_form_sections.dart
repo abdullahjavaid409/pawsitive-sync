@@ -4,6 +4,7 @@ import 'package:pawsitive_sync/core/constants/pet_limits.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/domain/pet_conditions.dart';
+import 'package:pawsitive_sync/core/widgets/system_menu.dart';
 
 /// Species chips used on add- and edit-pet screens.
 class PetSpeciesPicker extends StatelessWidget {
@@ -13,29 +14,24 @@ class PetSpeciesPicker extends StatelessWidget {
     required this.onChanged,
   });
 
-  final Species species;
+  /// Null until picked (Add pet); Edit profile passes the saved one.
+  final Species? species;
   final ValueChanged<Species> onChanged;
 
+  // v14 ChoiceChips: one row of equal pills, ink when selected.
   @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        for (final value in Species.values)
-          ChoiceChip(
-            label: Text(switch (value) {
-              Species.cat => 'Cat',
-              Species.dog => 'Dog',
-              Species.rabbit => 'Rabbit',
-              Species.other => 'Other',
-            }),
-            selected: species == value,
-            onSelected: (_) => onChanged(value),
-          ),
-      ],
-    );
-  }
+  Widget build(BuildContext context) => ChoicePills<Species>(
+    label: 'Species',
+    options: Species.values,
+    value: species,
+    labelOf: (value) => switch (value) {
+      Species.cat => 'Cat',
+      Species.dog => 'Dog',
+      Species.rabbit => 'Rabbit',
+      Species.other => 'Other',
+    },
+    onChanged: onChanged,
+  );
 }
 
 /// Optional age and weight row for pet forms.
@@ -55,6 +51,7 @@ class PetAgeWeightFields extends StatelessWidget {
       children: [
         Expanded(
           child: TextField(
+            contextMenuBuilder: appContextMenuBuilder,
             controller: age,
             keyboardType: TextInputType.number,
             inputFormatters: [
@@ -70,6 +67,7 @@ class PetAgeWeightFields extends StatelessWidget {
         const SizedBox(width: 12),
         Expanded(
           child: TextField(
+            contextMenuBuilder: appContextMenuBuilder,
             controller: weight,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             inputFormatters: [
@@ -102,20 +100,14 @@ class PetConditionsPicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
     final name = petName.trim().isEmpty ? 'your pet' : petName.trim();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('What is $name being treated for?', style: text.titleMedium),
-        const SizedBox(height: 8),
-        Text(
-          'Pick all that apply. You can change this anytime.',
-          style: text.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
-        ),
-        const SizedBox(height: 16),
+        // Same label style as the fields above (v14 FieldLabel).
+        FieldLabel('What is $name being treated for? Pick any'),
+        const SizedBox(height: 4),
         for (final option in PetConditions.options) ...[
           SelectableOption(
             title: option.$1,

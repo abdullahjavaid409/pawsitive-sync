@@ -11,12 +11,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// prompts only open after a flow has finished.
 ///
 /// One exception to "once ever": the recurring reminder on an idle visit
-/// to Today — [firstWeek] once a day for the first [weeklyEvery] after
-/// install (never on install day), then [weekly] once per [weeklyEvery].
+/// to Today — [weekly], at most once per [weeklyEvery], and never in the
+/// first [weeklyEvery] after install (the onboarding paywall and Today's
+/// Pro card already said it).
 abstract final class ProPrompts {
   static const _shownKey = 'pro_prompts_shown_v1';
   static const _lastKey = 'pro_prompts_last_v1';
   static const _lowDismissedKey = 'pro_prompts_low_dismissed_v1';
+  static const _todayCardKey = 'pro_prompts_today_card_hidden_v1';
   static const _pendingKey = 'pro_prompts_pending_v1';
   static const _firstSeenKey = 'pro_prompts_first_seen_v1';
 
@@ -28,9 +30,6 @@ abstract final class ProPrompts {
 
   /// Recurring idle upgrade prompt (also its paywall reason).
   static const weekly = 'weekly';
-
-  /// Daily idle upgrade prompt in the first week (also its paywall reason).
-  static const firstWeek = 'first_week';
 
   /// Gap between two [weekly] prompts, and the quiet start after install.
   static const weeklyEvery = Duration(days: 7);
@@ -111,8 +110,8 @@ abstract final class ProPrompts {
     }
   }
 
-  /// [firstWeek] or [weekly] when it’s due, else null. The first call
-  /// only records when the app was first seen.
+  /// [weekly] when it’s due, else null. The first call only records when
+  /// the app was first seen.
   static Future<String?> _takeRecurring(
     SharedPreferences prefs,
     DateTime now,
@@ -132,26 +131,14 @@ abstract final class ProPrompts {
         (lastShown != null && now.isBefore(lastShown))) {
       return null;
     }
-    final String trigger;
-    if (now.difference(firstSeen) < weeklyEvery) {
-      // First week: once per calendar day, never on install day (that
-      // day already had the onboarding paywall).
-      if (_sameDay(now, firstSeen)) return null;
-      if (lastShown != null && _sameDay(now, lastShown)) return null;
-      trigger = firstWeek;
-    } else {
-      if (lastShown != null && now.difference(lastShown) < weeklyEvery) {
-        return null;
-      }
-      trigger = weekly;
+    if (now.difference(firstSeen) < weeklyEvery) return null;
+    if (lastShown != null && now.difference(lastShown) < weeklyEvery) {
+      return null;
     }
     await prefs.setInt(_lastKey, now.millisecondsSinceEpoch);
-    AppLog.event('billing.prompt.shown', {'trigger': trigger});
-    return trigger;
+    AppLog.event('billing.prompt.shown', {'trigger': weekly});
+    return weekly;
   }
-
-  static bool _sameDay(DateTime a, DateTime b) =>
-      a.year == b.year && a.month == b.month && a.day == b.day;
 
   /// Medicines whose free low-supply card was dismissed. Ids that are no
   /// longer low are dropped, so the next low episode shows the card again.
@@ -185,6 +172,28 @@ abstract final class ProPrompts {
       AppLog.error('billing.prompt_failed', error, stack, {
         'op': 'low_dismiss',
       });
+    }
+  }
+
+  /// Whether the Free "What Pro adds" card on Today was closed. Closed
+  /// means closed for good: it never comes back on its own.
+  static Future<bool> todayCardHidden() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.getBool(_todayCardKey) ?? false;
+    } on Object catch (error, stack) {
+      AppLog.error('billing.prompt_failed', error, stack, {'op': 'today_read'});
+      return true;
+    }
+  }
+
+  static Future<void> hideTodayCard() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_todayCardKey, true);
+      AppLog.event('billing.today_pro_card.dismissed');
+    } on Object catch (error, stack) {
+      AppLog.error('billing.prompt_failed', error, stack, {'op': 'today_hide'});
     }
   }
 }

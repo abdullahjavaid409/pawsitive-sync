@@ -396,9 +396,21 @@ abstract final class PushService {
       );
       AppLog.event('push.partner_logged', {'logId': logId});
     } catch (error, stack) {
+      if (error is PlatformException && _notAllowed(error)) {
+        // Notifications are off for this app: a choice, not a bug.
+        AppLog.event('push.partner_skipped', {'reason': 'not_allowed'});
+        return;
+      }
       AppLog.error('push.partner_logged_failed', error, stack, {
         'logId': logId,
       });
     }
   }
+}
+
+/// iOS refuses to show a notification when the person hasn't allowed them
+/// (UNErrorDomain 1 / "not authorized"). Expected, so it isn't an error.
+bool _notAllowed(PlatformException error) {
+  final text = '${error.code} ${error.message}'.toLowerCase();
+  return text.contains('not authorized') || text.contains('notallowed');
 }

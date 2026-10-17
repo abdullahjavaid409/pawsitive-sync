@@ -8,6 +8,7 @@ import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
+import 'package:pawsitive_sync/core/widgets/system_menu.dart';
 
 /// Joins someone’s household with the 6-letter code they shared.
 class JoinScreen extends StatefulWidget {
@@ -143,6 +144,7 @@ class _JoinScreenState extends State<JoinScreen> {
                   Text('Invite code', style: text.titleSmall),
                   const SizedBox(height: 8),
                   TextField(
+                    contextMenuBuilder: appContextMenuBuilder,
                     controller: _code,
                     autofocus: widget.initialCode == null,
                     textCapitalization: TextCapitalization.characters,
@@ -178,6 +180,7 @@ class _JoinScreenState extends State<JoinScreen> {
                   ),
                   const SizedBox(height: 8),
                   TextField(
+                    contextMenuBuilder: appContextMenuBuilder,
                     controller: _name,
                     autofocus: widget.initialCode != null,
                     textCapitalization: TextCapitalization.words,

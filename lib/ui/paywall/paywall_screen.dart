@@ -3,18 +3,22 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/data/reminders/trial_reminder.dart';
-import 'package:pawsitive_sync/core/widgets/ledger.dart';
+import 'package:pawsitive_sync/core/constants/pet_limits.dart';
+import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/core/legal/app_links.dart';
 import 'package:pawsitive_sync/core/legal/subscription_disclosure.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
+import 'package:pawsitive_sync/core/widgets/post_frame.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
+import 'package:pawsitive_sync/data/account_service.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/data/dose_reminders.dart';
 import 'package:pawsitive_sync/data/revenue_cat_service.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/domain/paywall_reason.dart';
+import 'package:pawsitive_sync/ui/account/account_sheet.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -34,47 +38,6 @@ class PaywallScreen extends StatefulWidget {
 }
 
 class _PaywallScreenState extends State<PaywallScreen> {
-  /// Pain → solution. Always free — never paywall safety.
-  static const _freeFeatures = [
-    (
-      'Did I already give it?',
-      'One-tap logging, double-dose checks, and “not sure if given” for one pet.',
-    ),
-    (
-      'What’s due today?',
-      'Morning, afternoon, and evening doses in one Today list with reminders.',
-    ),
-    (
-      'Works without Wi‑Fi',
-      'Log doses offline. Sync when you connect — safety is never locked behind Pro.',
-    ),
-  ];
-
-  /// Pain → solution. Pro gates only — multi-pet/meds, history, household,
-  /// export, supply, weekly summary.
-  static const _proFeatures = [
-    (
-      'Every pet, every medicine',
-      'Up to 10 pets, every medicine and dose time with reminders, plus full history.',
-    ),
-    (
-      'No more “did you give it?” texts',
-      'Invite your partner or sitter. Everyone sees who gave each dose, and when.',
-    ),
-    (
-      'Answers ready for the vet',
-      'Export a clear week-by-week report to share at checkups.',
-    ),
-    (
-      'Never run out by surprise',
-      'Running-low alerts before the bottle is empty, while there’s time to refill.',
-    ),
-    (
-      'A Sunday check-in',
-      'A weekly summary of every dose given, so you know the week went right.',
-    ),
-  ];
-
   bool _busy = false;
   bool _restoring = false;
   String? _error;
@@ -241,6 +204,12 @@ class _PaywallScreenState extends State<PaywallScreen> {
         });
         return;
       }
+      // Pro is server-synced: offer to save it to an account now, while the
+      // reason is fresh. "Not now" just continues; Settings offers it again.
+      if (AccountService.currentUser == null && mounted) {
+        await showAccountSheet(context, mode: AccountSheetMode.save);
+        if (!mounted) return;
+      }
     } else {
       AppLog.event('billing.trial.store_unavailable');
       setState(() {
@@ -275,8 +244,10 @@ class _PaywallScreenState extends State<PaywallScreen> {
   Future<void> _finishSetup() async {
     final care = context.read<CareRepository>();
     final model = context.read<OnboardingViewModel>();
+    String? afterSetup;
     if (!_isUpgradeFlow && model.hasValidPetName) {
       care.applyOnboarding(model);
+      afterSetup = await _saveFirstMedicine(care, model);
       await model.finish(reminders: model.remindersOn);
       if (!mounted) return;
       if (model.remindersOn) {
@@ -301,13 +272,74 @@ class _PaywallScreenState extends State<PaywallScreen> {
       return;
     }
     context.go(AppRoutes.today);
+    final messenger = ScaffoldMessenger.of(context);
+    if (afterSetup != null) {
+      messenger.showSnackBar(SnackBar(content: Text(afterSetup)));
+    }
+    // Setup asked to invite people: the invite flow (Pro) opens with the
+    // first address, or a plain note on Free so nothing typed is lost.
+    if (model.inviteAfterSetup) {
+      model.inviteAfterSetup = false;
+      if (care.canInviteHousehold) {
+        final email = model.invites.firstOrNull;
+        afterThisFrame(
+          context,
+          () => context.push(
+            email == null
+                ? AppRoutes.invite
+                : Uri(
+                    path: AppRoutes.invite,
+                    queryParameters: {'email': email},
+                  ).toString(),
+          ),
+        );
+      } else if (model.invites.isNotEmpty) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              'Inviting ${model.invites.join(', ')} is part of Pro. '
+              'You can do it from Household any time.',
+            ),
+          ),
+        );
+      }
+    }
+  }
+
+  /// Setup's medicine step, saved now that the pet exists. Returns a note
+  /// for the person when it couldn't be saved (never dropped silently).
+  Future<String?> _saveFirstMedicine(
+    CareRepository care,
+    OnboardingViewModel model,
+  ) async {
+    final pet = care.pets.lastOrNull;
+    if (!model.hasMedicine || pet == null || model.medName.trim().isEmpty) {
+      return null;
+    }
+    final supply = int.tryParse(model.medSupply.trim()) ?? 0;
+    final ok = await care.addMedication(
+      petId: pet.id,
+      name: model.medName,
+      amount: model.medAmountText,
+      parts: [
+        for (final part in DayPart.values)
+          if (model.medParts.contains(part)) part,
+      ],
+      supplyTotal: supply > 0 ? supply : 0,
+      everyDays: model.medEveryDays,
+      withFood: model.medWithFood,
+      site: model.medSite,
+      startDay: dayKey(care.now),
+    );
+    if (ok) return null;
+    return '${model.medName.trim()} wasn’t added: '
+        '${care.lastError ?? 'try again from Pets'}';
   }
 
   @override
   Widget build(BuildContext context) {
     final care = context.watch<CareRepository>();
     final scheme = Theme.of(context).colorScheme;
-    final tokens = context.paws;
     final text = Theme.of(context).textTheme;
     final yearly = care.plan == BillingPlan.yearly;
     final locked = _busy || _restoring;
@@ -326,25 +358,31 @@ class _PaywallScreenState extends State<PaywallScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Row(
-                children: [
-                  IconButton(
-                    tooltip: upgradeFlow ? 'Close' : 'Continue free',
-                    onPressed: locked
-                        ? null
-                        : () =>
-                              upgradeFlow ? _dismissPaywall() : _continueFree(),
-                    icon: StrokeIcon(
-                      StrokeIconKind.close,
-                      color: scheme.onSurfaceVariant,
+              // 12pt in, so the ✕ glyph and the "Restore" label sit on the
+              // same 24pt edges as the copy below (buttons pad 12 inside).
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(
+                  children: [
+                    IconButton(
+                      tooltip: upgradeFlow ? 'Close' : 'Continue free',
+                      onPressed: locked
+                          ? null
+                          : () => upgradeFlow
+                                ? _dismissPaywall()
+                                : _continueFree(),
+                      icon: StrokeIcon(
+                        StrokeIconKind.close,
+                        color: scheme.onSurfaceVariant,
+                      ),
                     ),
-                  ),
-                  const Spacer(),
-                  TextButton(
-                    onPressed: locked ? null : _restore,
-                    child: Text(_restoring ? 'Restoring…' : 'Restore'),
-                  ),
-                ],
+                    const Spacer(),
+                    TextButton(
+                      onPressed: locked ? null : _restore,
+                      child: Text(_restoring ? 'Restoring…' : 'Restore'),
+                    ),
+                  ],
+                ),
               ),
               Expanded(
                 child: ListView(
@@ -403,65 +441,56 @@ class _PaywallScreenState extends State<PaywallScreen> {
                         days: days,
                         plan: care.plan,
                         price: _price(care.plan),
+                        start: care.now,
                       ),
                     ],
                     const SizedBox(height: 24),
-                    Text('Pro unlocks', style: text.titleMedium),
-                    const SizedBox(height: 4),
-                    Text(
-                      'One plan covers everyone who cares for your pet: '
-                      'partners, family and sitters.',
-                      style: text.bodyMedium?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    _FeatureCard(
-                      hairline: scheme.primary.withValues(alpha: 0.35),
-                      background: scheme.primaryContainer.withValues(
-                        alpha: 0.25,
-                      ),
-                      children: [
-                        for (final (index, feature) in _proFeatures.indexed)
+                    // v14: one Free vs Pro table, the row for this moment
+                    // highlighted, then the promise that safety stays free.
+                    _Comparison(highlight: _highlightFor(_moment)),
+                    const SizedBox(height: 16),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
                           Padding(
-                            padding: EdgeInsets.only(
-                              bottom: index == _proFeatures.length - 1 ? 0 : 16,
-                            ),
-                            child: _FeatureRow(
-                              title: feature.$1,
-                              detail: feature.$2,
-                              accent: scheme.primary,
+                            padding: const EdgeInsets.only(top: 2),
+                            child: Icon(
+                              Icons.verified_user_outlined,
+                              size: 16,
+                              color: scheme.onSurface,
                             ),
                           ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-                    Text('Always free', style: text.titleMedium),
-                    const SizedBox(height: 4),
-                    Text(
-                      'Dose safety is never behind a paywall.',
-                      style: text.bodyMedium?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    _FeatureCard(
-                      hairline: tokens.hairline,
-                      children: [
-                        for (final (index, feature) in _freeFeatures.indexed)
-                          Padding(
-                            padding: EdgeInsets.only(
-                              bottom: index == _freeFeatures.length - 1
-                                  ? 0
-                                  : 16,
-                            ),
-                            child: _FeatureRow(
-                              title: feature.$1,
-                              detail: feature.$2,
-                              accent: scheme.onSurfaceVariant,
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text.rich(
+                              TextSpan(
+                                children: [
+                                  TextSpan(
+                                    text:
+                                        'Logging doses and the double-dose '
+                                        'check stay free, always. ',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                      color: scheme.onSurface,
+                                    ),
+                                  ),
+                                  const TextSpan(
+                                    text:
+                                        'One subscription covers your whole '
+                                        'household.',
+                                  ),
+                                ],
+                              ),
+                              style: text.bodySmall?.copyWith(
+                                color: scheme.onSurfaceVariant,
+                                height: 1.45,
+                              ),
                             ),
                           ),
-                      ],
+                        ],
+                      ),
                     ),
                   ],
                 ),
@@ -546,77 +575,6 @@ class _PaywallScreenState extends State<PaywallScreen> {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _FeatureCard extends StatelessWidget {
-  const _FeatureCard({
-    required this.hairline,
-    required this.children,
-    this.background,
-  });
-
-  final Color hairline;
-  final Color? background;
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: background ?? scheme.surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(PawsRadii.cardValue),
-        border: Border.all(color: hairline),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-        child: Column(children: children),
-      ),
-    );
-  }
-}
-
-class _FeatureRow extends StatelessWidget {
-  const _FeatureRow({
-    required this.title,
-    required this.detail,
-    required this.accent,
-  });
-
-  final String title;
-  final String detail;
-  final Color accent;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final text = Theme.of(context).textTheme;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(top: 2),
-          child: StrokeIcon(StrokeIconKind.check, size: 18, color: accent),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: text.titleSmall),
-              const SizedBox(height: 2),
-              Text(
-                detail,
-                style: text.bodyMedium?.copyWith(
-                  color: scheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
     );
   }
 }
@@ -728,48 +686,329 @@ class _TrialTimeline extends StatelessWidget {
     required this.days,
     required this.plan,
     required this.price,
+    required this.start,
   });
 
   final int days;
   final BillingPlan plan;
   final String price;
 
+  /// Today: the timeline shows real calendar dates ("Oct 19"), not trial
+  /// day numbers, so people can see when they would pay.
+  final DateTime start;
+
+  static const _months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+
+  /// "Oct 19" for [start] plus [offset] days.
+  static String dateAfter(DateTime start, int offset) {
+    final day = DateTime(start.year, start.month, start.day + offset);
+    return '${_months[day.month - 1]} ${day.day}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final text = Theme.of(context).textTheme;
     final reminder = TrialReminder.reminderDay(days);
     final period = SubscriptionDisclosure.period(plan);
+    final steps = [
+      (
+        date: 'Today',
+        title: 'Full Pro access',
+        detail: 'Nothing to pay today.',
+        icon: StrokeIconKind.check,
+      ),
+      if (reminder != null)
+        (
+          date: dateAfter(start, reminder),
+          title: 'We remind you',
+          detail: 'A notice before the trial ends, if notifications are on.',
+          icon: StrokeIconKind.bell,
+        ),
+      (
+        date: dateAfter(start, days),
+        title: '$price per $period starts',
+        detail: 'Cancel anytime before, in your store subscriptions.',
+        icon: StrokeIconKind.calendar,
+      ),
+    ];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Text('How your free trial works', style: text.titleMedium),
         const SizedBox(height: 12),
-        LedgerSheet(
+        SurfaceCard(
+          padding: const EdgeInsets.fromLTRB(18, 18, 18, 6),
+          child: Column(
+            children: [
+              for (var i = 0; i < steps.length; i++)
+                _TrialStep(
+                  date: steps[i].date,
+                  title: steps[i].title,
+                  detail: steps[i].detail,
+                  icon: steps[i].icon,
+                  current: i == 0,
+                  last: i == steps.length - 1,
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// One stop on the trial timeline: a round marker on a vertical rail, then
+/// the date, what happens and the detail. Today is filled; later stops are
+/// quiet so the eye lands on "nothing to pay today".
+class _TrialStep extends StatelessWidget {
+  const _TrialStep({
+    required this.date,
+    required this.title,
+    required this.detail,
+    required this.icon,
+    required this.current,
+    required this.last,
+  });
+
+  final String date;
+  final String title;
+  final String detail;
+  final StrokeIconKind icon;
+  final bool current;
+  final bool last;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final tokens = context.paws;
+    final text = Theme.of(context).textTheme;
+    return Semantics(
+      label: '$date: $title. $detail',
+      excludeSemantics: true,
+      child: IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const LedgerLine(
-              time: 'TODAY',
-              title: 'Full Pro access',
-              detail: 'Nothing to pay today.',
-              mark: LedgerMark.given,
-            ),
-            if (reminder != null)
-              LedgerLine(
-                time: 'DAY $reminder',
-                title: 'We remind you',
-                detail:
-                    'A notice before the trial ends, if notifications are on.',
-                mark: LedgerMark.later,
+            SizedBox(
+              width: 32,
+              child: Column(
+                children: [
+                  Container(
+                    width: 32,
+                    height: 32,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: current
+                          ? scheme.primary
+                          : scheme.surfaceContainerLow,
+                      shape: BoxShape.circle,
+                    ),
+                    child: StrokeIcon(
+                      icon,
+                      size: 16,
+                      color: current ? scheme.onPrimary : tokens.brandDark,
+                    ),
+                  ),
+                  if (!last)
+                    Expanded(
+                      child: Container(
+                        width: 2,
+                        margin: const EdgeInsets.symmetric(vertical: 4),
+                        color: scheme.outlineVariant,
+                      ),
+                    ),
+                ],
               ),
-            LedgerLine(
-              time: 'DAY $days',
-              title: '$price per $period starts',
-              detail: 'Cancel anytime before, in your store subscriptions.',
-              mark: LedgerMark.later,
-              last: true,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      date,
+                      style: text.labelLarge?.copyWith(
+                        color: current
+                            ? tokens.brandDark
+                            : scheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(title, style: text.titleMedium),
+                    const SizedBox(height: 2),
+                    Text(detail, style: text.bodyMedium),
+                  ],
+                ),
+              ),
             ),
           ],
         ),
-      ],
+      ),
+    );
+  }
+}
+
+/// The table row to highlight for the moment that opened the paywall.
+String? _highlightFor(PaywallReason? reason) => switch (reason) {
+  PaywallReason.secondPet => 'pets',
+  PaywallReason.moreMeds => 'meds',
+  PaywallReason.moreDoseTimes => 'times',
+  PaywallReason.invite || PaywallReason.uncertain => 'share',
+  PaywallReason.vetExport => 'report',
+  PaywallReason.history => 'history',
+  PaywallReason.refill => 'refill',
+  PaywallReason.weeklySummary => 'summary',
+  _ => null,
+};
+
+/// v14 comparison: feature, Free, Pro. Values mirror [PetLimits].
+class _Comparison extends StatelessWidget {
+  const _Comparison({required this.highlight});
+
+  final String? highlight;
+
+  static final _rows = <(String, String, Object, Object)>[
+    ('logging', 'Dose logging & double-dose check', true, true),
+    (
+      'pets',
+      'Pets',
+      '${PetLimits.maxPetsFree}',
+      'Up to ${PetLimits.maxPetsPerHousehold}',
+    ),
+    ('meds', 'Medicines per pet', '${PetLimits.maxMedsPerPetFree}', 'No limit'),
+    ('times', 'Dose times a day', 'Morning', 'Any time'),
+    ('share', 'Household & sitters', false, true),
+    ('report', 'Vet-ready reports', false, true),
+    ('history', 'History', '${PetLimits.freeHistoryDays} days', 'All of it'),
+    ('refill', 'Refill reminders', false, true),
+    ('summary', 'Weekly summary', false, true),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    final paws = context.paws;
+    Widget cell(Object value, {required bool pro}) {
+      final words = value == true
+          ? 'Included'
+          : value == false
+          ? 'Not included'
+          : '$value';
+      return Semantics(
+        label: '${pro ? 'Pro' : 'Free'}: $words',
+        excludeSemantics: true,
+        child: Center(
+          child: switch (value) {
+            true => StrokeIcon(
+              StrokeIconKind.check,
+              size: 16,
+              color: pro ? scheme.primary : scheme.onSurfaceVariant,
+            ),
+            false => Icon(
+              Icons.remove,
+              size: 16,
+              color: scheme.onSurfaceVariant.withValues(alpha: 0.5),
+            ),
+            _ => Text(
+              '$value',
+              textAlign: TextAlign.center,
+              style: text.bodySmall?.copyWith(
+                fontSize: 13,
+                fontWeight: pro ? FontWeight.w600 : FontWeight.w400,
+                color: pro ? scheme.onSurface : scheme.onSurfaceVariant,
+              ),
+            ),
+          },
+        ),
+      );
+    }
+
+    return SurfaceCard(
+      child: Column(
+        children: [
+          ExcludeSemantics(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 12, 8),
+              child: Row(
+                children: [
+                  const Expanded(child: SizedBox()),
+                  SizedBox(
+                    width: 64,
+                    child: Text(
+                      'Free',
+                      textAlign: TextAlign.center,
+                      style: text.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w500,
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 84,
+                    child: Text(
+                      'Pro',
+                      textAlign: TextAlign.center,
+                      style: text.bodySmall?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        color: scheme.primary,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          for (final (id, label, free, pro) in _rows)
+            Semantics(
+              container: true,
+              label: label,
+              child: Container(
+                constraints: const BoxConstraints(minHeight: 44),
+                padding: const EdgeInsets.fromLTRB(16, 10, 12, 10),
+                decoration: BoxDecoration(
+                  color: id == highlight ? paws.surfaces.background : null,
+                  border: Border(top: BorderSide(color: paws.divider)),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: ExcludeSemantics(
+                        child: Text(
+                          label,
+                          style: text.bodyMedium?.copyWith(
+                            fontSize: 14,
+                            color: scheme.onSurface,
+                            fontWeight: id == highlight
+                                ? FontWeight.w600
+                                : FontWeight.w400,
+                          ),
+                        ),
+                      ),
+                    ),
+                    SizedBox(width: 64, child: cell(free, pro: false)),
+                    SizedBox(width: 84, child: cell(pro, pro: true)),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

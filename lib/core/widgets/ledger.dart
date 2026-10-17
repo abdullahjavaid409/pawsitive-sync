@@ -542,8 +542,8 @@ class GaveItButton extends StatelessWidget {
   }
 }
 
-/// The day as a strip of boxes: given, due now, later. Replaces a progress
-/// ring with the same marks the log uses.
+/// The day as a strip of boxes (given, due now, later), in the same marks
+/// the log uses.
 class LedgerStrip extends StatelessWidget {
   const LedgerStrip({
     super.key,

@@ -1,8 +1,8 @@
 import 'dart:math' as math;
-import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:flutter/services.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 
@@ -163,70 +163,79 @@ class _Toast extends StatelessWidget {
       opacity = 1;
       dy = 0;
     }
-    final dark = Theme.of(context).brightness == Brightness.dark;
     final text = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    // v14 toast: an ink tile above the tab bar, check + message + Undo.
     return Positioned(
-      left: 24,
-      right: 24,
-      top: MediaQuery.paddingOf(context).top + 12,
+      left: 16,
+      right: 16,
+      bottom: MediaQuery.paddingOf(context).bottom + 88,
       child: Align(
         child: Transform.translate(
-          offset: Offset(0, dy),
+          offset: Offset(0, -dy),
           child: Opacity(
             opacity: opacity,
             child: Semantics(
               liveRegion: true,
               container: true,
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(22),
-                // Frosted glass, the one floating surface on the page.
-                child: BackdropFilter(
-                  filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: dark
-                          ? const Color(0xC7242730)
-                          : const Color(0xD9FFFFFF),
-                      borderRadius: BorderRadius.circular(22),
-                      border: Border.all(
-                        color: dark
-                            ? const Color(0x1AFFFFFF)
-                            : const Color(0xB3FFFFFF),
-                        width: 0.5,
-                      ),
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: scheme.inverseSurface,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: const [
+                    BoxShadow(
+                      color: Color(0x294A341E),
+                      blurRadius: 32,
+                      offset: Offset(0, 10),
                     ),
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(14, 12, 18, 12),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const ExcludeSemantics(
-                            child: Text('🎉', style: TextStyle(fontSize: 20)),
-                          ),
-                          const SizedBox(width: 10),
-                          Flexible(
-                            child: Text(
-                              message,
-                              style: text.titleSmall,
-                              maxLines: 2,
-                            ),
-                          ),
-                          if (onUndo != null) ...[
-                            const SizedBox(width: 8),
-                            TextButton(
-                              onPressed: onUndo,
-                              style: TextButton.styleFrom(
-                                minimumSize: const Size(48, 40),
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                ),
-                              ),
-                              child: const Text('Undo'),
-                            ),
-                          ],
-                        ],
+                  ],
+                ),
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    16,
+                    onUndo == null ? 12 : 6,
+                    onUndo == null ? 16 : 6,
+                    onUndo == null ? 12 : 6,
+                  ),
+                  child: Row(
+                    children: [
+                      ExcludeSemantics(
+                        child: StrokeIcon(
+                          StrokeIconKind.check,
+                          size: 16,
+                          color: scheme.onInverseSurface.withValues(alpha: 0.8),
+                        ),
                       ),
-                    ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          message,
+                          style: text.bodyMedium?.copyWith(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w500,
+                            color: scheme.onInverseSurface,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (onUndo != null) ...[
+                        const SizedBox(width: 8),
+                        TextButton(
+                          onPressed: onUndo,
+                          style: TextButton.styleFrom(
+                            foregroundColor: scheme.onInverseSurface,
+                            minimumSize: const Size(48, 40),
+                            padding: const EdgeInsets.symmetric(horizontal: 14),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            textStyle: text.labelLarge?.copyWith(fontSize: 14),
+                          ),
+                          child: const Text('Undo'),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ),

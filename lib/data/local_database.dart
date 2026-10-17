@@ -33,7 +33,7 @@ class LocalDatabase {
 
   /// v2: `medications.times` (custom reminder times, JSON or NULL).
   /// v3: `medications.needs_pro` (server marked it over Free’s limits).
-  static const schemaVersion = 3;
+  static const schemaVersion = 4;
 
   final DatabaseFactory? _factory;
   final Future<String> Function() _path;
@@ -166,6 +166,35 @@ class LocalDatabase {
         'ALTER TABLE medications ADD COLUMN needs_pro INTEGER NOT NULL DEFAULT 0',
       );
     }
+    if (from < 4) {
+      // v14 fields: medicine repeat / food / site, pet note and weigh-ins.
+      await db.execute(
+        'ALTER TABLE medications ADD COLUMN every_days INTEGER NOT NULL DEFAULT 1',
+      );
+      await db.execute(
+        'ALTER TABLE medications ADD COLUMN with_food INTEGER NOT NULL DEFAULT 0',
+      );
+      await db.execute(
+        "ALTER TABLE medications ADD COLUMN site TEXT NOT NULL DEFAULT ''",
+      );
+      // Guarded: every real store has pets, but an upgrade must never fail
+      // on a partial file.
+      final hasPets = (await db.rawQuery(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'pets'",
+      )).isNotEmpty;
+      if (hasPets) {
+        await db.execute(
+          "ALTER TABLE pets ADD COLUMN care_note TEXT NOT NULL DEFAULT ''",
+        );
+        await db.execute(
+          "ALTER TABLE pets ADD COLUMN care_note_by TEXT NOT NULL DEFAULT ''",
+        );
+        await db.execute(
+          "ALTER TABLE pets ADD COLUMN care_note_day TEXT NOT NULL DEFAULT ''",
+        );
+        await db.execute('ALTER TABLE pets ADD COLUMN weights TEXT');
+      }
+    }
     AppLog.event('store.migrated', {'from': from, 'to': to});
   }
 
@@ -184,7 +213,10 @@ class LocalDatabase {
           species TEXT NOT NULL, age_years INTEGER NOT NULL,
           weight_kg REAL NOT NULL, breed TEXT NOT NULL, sex TEXT NOT NULL,
           conditions TEXT NOT NULL, photo_key TEXT,
-          photo_version INTEGER NOT NULL, photo_sync TEXT NOT NULL)''')
+          photo_version INTEGER NOT NULL, photo_sync TEXT NOT NULL,
+          care_note TEXT NOT NULL DEFAULT '',
+          care_note_by TEXT NOT NULL DEFAULT '',
+          care_note_day TEXT NOT NULL DEFAULT '', weights TEXT)''')
       ..execute('''
         CREATE TABLE medications (
           id TEXT PRIMARY KEY, position INTEGER NOT NULL, pet_id TEXT NOT NULL,
@@ -192,7 +224,10 @@ class LocalDatabase {
           supply_total INTEGER NOT NULL, doses_left INTEGER NOT NULL,
           start_day TEXT NOT NULL, end_day TEXT NOT NULL,
           archived INTEGER NOT NULL, archived_at TEXT, times TEXT,
-          needs_pro INTEGER NOT NULL DEFAULT 0)''')
+          needs_pro INTEGER NOT NULL DEFAULT 0,
+          every_days INTEGER NOT NULL DEFAULT 1,
+          with_food INTEGER NOT NULL DEFAULT 0,
+          site TEXT NOT NULL DEFAULT '')''')
       ..execute('''
         CREATE TABLE dose_logs (
           id TEXT PRIMARY KEY, medication_id TEXT NOT NULL, part TEXT NOT NULL,
@@ -269,6 +304,12 @@ abstract final class LocalRows {
     'photo_key': pet.photoKey,
     'photo_version': pet.photoVersion,
     'photo_sync': pet.photoSync.name,
+    'care_note': pet.careNote,
+    'care_note_by': pet.careNoteBy,
+    'care_note_day': pet.careNoteDay,
+    'weights': pet.weights.isEmpty
+        ? null
+        : jsonEncode([for (final w in pet.weights) w.toJson()]),
   };
 
   static Pet toPet(Map<String, Object?> row) => petFromJson({
@@ -283,6 +324,10 @@ abstract final class LocalRows {
     'photoKey': row['photo_key'],
     'photoVersion': row['photo_version'],
     'photoSync': row['photo_sync'],
+    'careNote': row['care_note'],
+    'careNoteBy': row['care_note_by'],
+    'careNoteDay': row['care_note_day'],
+    'weights': _json(row['weights']),
   });
 
   static Map<String, Object?> medication(Medication m, int position) => {
@@ -300,6 +345,9 @@ abstract final class LocalRows {
     'archived_at': m.archivedAt,
     'times': m.times.isEmpty ? null : jsonEncode(DoseTimes.encode(m.times)),
     'needs_pro': m.needsPro ? 1 : 0,
+    'every_days': m.everyDays,
+    'with_food': m.withFood ? 1 : 0,
+    'site': m.site,
   };
 
   static Medication toMedication(Map<String, Object?> row) {
@@ -316,6 +364,9 @@ abstract final class LocalRows {
       'endDay': row['end_day'],
       'times': _json(row['times']),
       'needsPro': row['needs_pro'] == 1,
+      'everyDays': row['every_days'],
+      'withFood': row['with_food'] == 1,
+      'site': row['site'],
     });
     if (row['archived'] != 1) return parsed;
     return parsed.copyWith(archivedAt: '${row['archived_at'] ?? ''}');

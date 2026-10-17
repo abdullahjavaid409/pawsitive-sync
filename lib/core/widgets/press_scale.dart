@@ -21,7 +21,9 @@ class _PressScaleState extends State<PressScale> {
   static const _release = Cubic(0.34, 1.56, 0.64, 1);
 
   void _set(bool down) {
-    if (!widget.enabled || down == _down) return;
+    // The tap can remove this widget (a sheet opens, a card updates) before
+    // the finger lifts; the pointer-up then arrives after dispose.
+    if (!mounted || !widget.enabled || down == _down) return;
     setState(() => _down = down);
   }
 

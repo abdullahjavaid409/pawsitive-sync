@@ -87,6 +87,10 @@ class Pet {
     this.photoVersion = 0,
     this.photoSync = PhotoSync.none,
     this.photoPath,
+    this.careNote = '',
+    this.careNoteBy = '',
+    this.careNoteDay = '',
+    this.weights = const [],
   });
 
   final String id;
@@ -121,6 +125,25 @@ class Pet {
 
   bool get hasPhoto => photoPath != null;
 
+  /// Household note shown on the pet's profile ("Give insulin only after
+  /// she has eaten"). Empty when there is none.
+  final String careNote;
+
+  /// Member id of whoever last wrote [careNote].
+  final String careNoteBy;
+
+  /// Local day [careNote] was last written, YYYY-MM-DD.
+  final String careNoteDay;
+
+  /// Weigh-ins, oldest first, at most [maxWeights]. Grows when the weight
+  /// changes; drives the weight chart on Reports.
+  final List<WeightEntry> weights;
+
+  static const maxWeights = 24;
+
+  /// Longest household note, matching the server's limit.
+  static const maxNoteLength = 280;
+
   String get speciesLabel => switch (species) {
     Species.cat => 'Cat',
     Species.dog => 'Dog',
@@ -129,8 +152,10 @@ class Pet {
   };
 
   /// What the API accepts for create/update. Photo fields have their own
-  /// endpoints and are never sent here.
-  Map<String, Object?> toJson() => {
+  /// endpoints and are never sent here. The household note goes only with
+  /// note edits ([withNote]), so an offline profile edit can't overwrite a
+  /// note a partner wrote meanwhile (the server keeps what it has).
+  Map<String, Object?> toJson({bool withNote = false}) => {
     'id': id,
     'name': name,
     'species': species.name,
@@ -139,11 +164,18 @@ class Pet {
     'breed': breed,
     'sex': sex,
     'conditions': conditions,
+    if (withNote) ...{
+      'careNote': careNote,
+      'careNoteBy': careNoteBy,
+      'careNoteDay': careNoteDay,
+    },
+    // Weigh-ins change with the weight, on the same edit.
+    'weights': [for (final w in weights) w.toJson()],
   };
 
   /// [toJson] plus this phone’s photo state, for the local store only.
   Map<String, Object?> toStoreJson() => {
-    ...toJson(),
+    ...toJson(withNote: true),
     if (photoKey != null) 'photoKey': photoKey,
     if (photoVersion != 0) 'photoVersion': photoVersion,
     if (photoSync != PhotoSync.none) 'photoSync': photoSync.name,
@@ -159,6 +191,10 @@ class Pet {
     double? weightKg,
     int? onTimePercent,
     int? dailyMeds,
+    String? careNote,
+    String? careNoteBy,
+    String? careNoteDay,
+    List<WeightEntry>? weights,
   }) {
     return Pet(
       id: id,
@@ -176,6 +212,10 @@ class Pet {
       photoVersion: photoVersion,
       photoSync: photoSync,
       photoPath: photoPath,
+      careNote: careNote ?? this.careNote,
+      careNoteBy: careNoteBy ?? this.careNoteBy,
+      careNoteDay: careNoteDay ?? this.careNoteDay,
+      weights: weights ?? this.weights,
     );
   }
 
@@ -211,8 +251,43 @@ class Pet {
       photoPath: identical(photoPath, _keep)
           ? this.photoPath
           : photoPath as String?,
+      careNote: careNote,
+      careNoteBy: careNoteBy,
+      careNoteDay: careNoteDay,
+      weights: weights,
     );
   }
+}
+
+/// One weigh-in: the local day and kilograms.
+class WeightEntry {
+  const WeightEntry({required this.day, required this.kg});
+
+  /// YYYY-MM-DD.
+  final String day;
+  final double kg;
+
+  Map<String, Object?> toJson() => {'day': day, 'kg': kg};
+
+  /// Null for junk (bad day or weight), so one bad row never breaks a pet.
+  static WeightEntry? tryParse(Object? raw) {
+    if (raw is! Map) return null;
+    final day = raw['day'];
+    final kg = raw['kg'];
+    if (day is! String || !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(day)) {
+      return null;
+    }
+    final value = kg is num ? kg.toDouble() : double.tryParse('$kg');
+    if (value == null || value <= 0 || value >= 100) return null;
+    return WeightEntry(day: day, kg: value);
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is WeightEntry && other.day == day && other.kg == kg;
+
+  @override
+  int get hashCode => Object.hash(day, kg);
 }
 
 class Dose {
@@ -290,6 +365,9 @@ class Medication {
     this.archivedAt,
     this.times = const {},
     this.needsPro = false,
+    this.everyDays = 1,
+    this.withFood = false,
+    this.site = '',
   });
 
   final String id;
@@ -297,6 +375,19 @@ class Medication {
   final String name;
   final String amount;
   final List<DayPart> parts;
+
+  /// How often it repeats, counted from [startDay]: 1 every day, 2 every
+  /// other day, 7 once a week (on [startDay]'s weekday).
+  final int everyDays;
+
+  /// "Give with food": shown on every dose so nobody forgets.
+  final bool withFood;
+
+  /// Where it's given for drops and topicals ("Left eye"); empty otherwise.
+  final String site;
+
+  /// Allowed values of [everyDays].
+  static const repeatOptions = [1, 2, 7];
 
   /// Custom reminder time per part (minute of day). Missing parts use the
   /// part’s default; see [DoseTimes] for the rules.
@@ -372,9 +463,26 @@ class Medication {
     'Dec',
   ];
 
-  bool isActiveOn(String day) =>
-      startDay.compareTo(day) <= 0 &&
-      (endDay.isEmpty || endDay.compareTo(day) >= 0);
+  /// Scheduled on [day] (YYYY-MM-DD): inside the course and, for every-2-
+  /// days or weekly medicines, on one of its repeat days. Every schedule in
+  /// the app (Today, reminders, reports, widgets) asks this one question.
+  bool isActiveOn(String day) {
+    if (startDay.compareTo(day) > 0) return false;
+    if (endDay.isNotEmpty && endDay.compareTo(day) < 0) return false;
+    if (everyDays <= 1) return true;
+    final start = DateTime.tryParse(startDay);
+    final date = DateTime.tryParse(day);
+    // Unreadable days fall back to "every day": a reminder too many beats a
+    // silently skipped dose.
+    if (start == null || date == null) return true;
+    // UTC midnights: whole days, no DST hour drifting the count.
+    final days = DateTime.utc(
+      date.year,
+      date.month,
+      date.day,
+    ).difference(DateTime.utc(start.year, start.month, start.day)).inDays;
+    return days % everyDays == 0;
+  }
 
   bool get endsSoon {
     if (endDay.isEmpty) return false;
@@ -389,6 +497,7 @@ class Medication {
 
   bool get tracksSupply => supplyTotal > 0;
 
+  /// Low when about three days' worth (by count) is left.
   bool get isLow => tracksSupply && dosesLeft <= (parts.length * 3).clamp(3, 9);
 
   double get supplyFraction =>
@@ -407,20 +516,53 @@ class Medication {
     return '${items.take(items.length - 1).join(', ')} & ${items.last}';
   }
 
+  /// "Every 2 days", "Mondays", or empty for every day.
+  String get repeatLabel {
+    if (everyDays <= 1) return '';
+    if (everyDays == 7) {
+      final start = DateTime.tryParse(startDay);
+      if (start == null) return 'Once a week';
+      const names = [
+        'Mondays',
+        'Tuesdays',
+        'Wednesdays',
+        'Thursdays',
+        'Fridays',
+        'Saturdays',
+        'Sundays',
+      ];
+      return names[start.weekday - 1];
+    }
+    return 'Every $everyDays days';
+  }
+
   String get whenLabel {
     if (parts.isEmpty) return '';
+    if (everyDays > 1) {
+      final at = [for (final p in parts) p.label.toLowerCase()].join(' & ');
+      return '$repeatLabel · $at';
+    }
     if (parts.length == 1) return 'Every ${parts.first.label.toLowerCase()}';
     final rest = [for (final part in parts.skip(1)) part.label.toLowerCase()];
     final head = [parts.first.label, ...rest.take(rest.length - 1)].join(', ');
     return '$head & ${rest.last}';
   }
 
-  String get detail => [if (amount.isNotEmpty) amount, whenLabel].join(' · ');
+  /// "2 drops · Left eye" — the amount and where it goes.
+  String get doseWithSite =>
+      [if (amount.isNotEmpty) amount, if (site.isNotEmpty) site].join(' · ');
+
+  String get detail => [
+    if (doseWithSite.isNotEmpty) doseWithSite,
+    whenLabel,
+    if (withFood) 'with food',
+  ].join(' · ');
 
   /// Rough last day of supply, or empty when supply is not tracked.
   String lastsUntil(DateTime now) {
     if (!tracksSupply || parts.isEmpty) return '';
-    final days = dosesLeft ~/ parts.length;
+    // Doses per active day, spread over every-N-day repeats.
+    final days = dosesLeft ~/ parts.length * (everyDays < 1 ? 1 : everyDays);
     final end = DateTime(now.year, now.month, now.day + days);
     const months = [
       'Jan',
@@ -460,6 +602,9 @@ class Medication {
       archivedAt: archivedAt ?? this.archivedAt,
       times: times ?? this.times,
       needsPro: needsPro ?? this.needsPro,
+      everyDays: everyDays,
+      withFood: withFood,
+      site: site,
     );
   }
 
@@ -479,6 +624,10 @@ class Medication {
     if (times.isNotEmpty) 'times': DoseTimes.encode(times),
     // Read back from saved data; the server ignores it and decides itself.
     if (needsPro) 'needsPro': true,
+    // Additive; older servers ignore them and treat it as every day.
+    if (everyDays != 1) 'everyDays': everyDays,
+    if (withFood) 'withFood': true,
+    if (site.isNotEmpty) 'site': site,
   };
 }
 
@@ -620,12 +769,25 @@ class ActivityItem {
     required this.emphasis,
     required this.timeLabel,
     this.note,
+    this.dayLabel = '',
+    this.time = '',
+    this.outcome = LogOutcome.given,
   });
 
   final String memberId;
   final String actor;
   final String action;
   final String emphasis;
+
+  /// "8:02 AM" today, "Yesterday · 8:02 AM" before: for one-line uses.
   final String timeLabel;
   final String? note;
+
+  /// "Today", "Yesterday" or a short date: the group an activity list
+  /// files this row under.
+  final String dayLabel;
+
+  /// Clock time alone ("8:02 AM"), shown inside its day group.
+  final String time;
+  final LogOutcome outcome;
 }

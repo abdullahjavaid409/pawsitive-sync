@@ -21,12 +21,13 @@ class PawsTypeStyle {
   /// heads). Never below 20 pt, where a display serif loses legibility.
   static const displayFamily = 'Instrument Serif';
 
-  /// SF Pro Text on Apple devices (Flutter's proxy name); Roboto elsewhere.
+  /// Figtree (Magic Patterns v14), bundled so iOS and Android match.
   /// Everything people read or tap uses it.
-  static const bodyFamily = 'CupertinoSystemText';
+  static const bodyFamily = 'Figtree';
 
-  /// SF Pro Display for large numbers and clocks (20 pt and up).
-  static const numberFamily = 'CupertinoSystemDisplay';
+  /// Large numbers and clocks. Same face as the body in v14; callers add
+  /// tabular figures so counts don't jitter as they change.
+  static const numberFamily = 'Figtree';
 
   /// Ledger stamps only: times and amounts, with tabular figures.
   static const monoFamily = 'Atkinson Hyperlegible Mono';
@@ -96,65 +97,66 @@ class PawsTypography {
   final PawsTypeStyle stamp;
 
   // Serif display roles use weight 400: the face has a single weight and a
-  // synthesised bold looks smeared. SF roles carry Apple's tracking for
-  // their size (17 pt -0.41, 15 pt -0.23, 13 pt -0.08, 11 pt +0.06).
+  // synthesised bold looks smeared. v14 scale: title 38, headline 34,
+  // section 26, each tracked tighter as it grows. Figtree roles keep a
+  // hair of positive tracking (0.003em), as in the prototype.
   static const standard = PawsTypography(
     display: PawsTypeStyle(
-      fontSize: 40,
-      height: 1.05,
+      fontSize: 38,
+      height: 1.0,
       weight: FontWeight.w400,
-      letterSpacing: -0.4,
+      letterSpacing: -0.38,
       family: PawsTypeStyle.displayFamily,
     ),
     headline: PawsTypeStyle(
-      fontSize: 30,
-      height: 1.1,
+      fontSize: 34,
+      height: 1.08,
       weight: FontWeight.w400,
-      letterSpacing: -0.3,
+      letterSpacing: -0.34,
       family: PawsTypeStyle.displayFamily,
     ),
     section: PawsTypeStyle(
-      fontSize: 24,
-      height: 1.15,
+      fontSize: 26,
+      height: 1.1,
       weight: FontWeight.w400,
-      letterSpacing: -0.2,
+      letterSpacing: -0.13,
       family: PawsTypeStyle.displayFamily,
     ),
     title: PawsTypeStyle(
       fontSize: 17,
       height: 1.3,
       weight: FontWeight.w600,
-      letterSpacing: -0.41,
+      letterSpacing: 0.05,
     ),
     subtitle: PawsTypeStyle(
       fontSize: 16,
       height: 1.3,
       weight: FontWeight.w600,
-      letterSpacing: -0.32,
+      letterSpacing: 0.05,
     ),
     label: PawsTypeStyle(
       fontSize: 15,
       height: 1.3,
       weight: FontWeight.w600,
-      letterSpacing: -0.23,
+      letterSpacing: 0.05,
     ),
     body: PawsTypeStyle(
       fontSize: 17,
       height: 1.4,
       weight: FontWeight.w400,
-      letterSpacing: -0.41,
+      letterSpacing: 0.05,
     ),
     bodySecondary: PawsTypeStyle(
       fontSize: 15,
       height: 1.35,
       weight: FontWeight.w400,
-      letterSpacing: -0.23,
+      letterSpacing: 0.05,
     ),
     caption: PawsTypeStyle(
       fontSize: 13,
       height: 1.3,
       weight: FontWeight.w400,
-      letterSpacing: -0.08,
+      letterSpacing: 0.05,
     ),
     labelSmall: PawsTypeStyle(
       fontSize: 11,
@@ -186,13 +188,13 @@ class PawsTypography {
 /// since shadows don't read on a near-black page.
 abstract final class PawsElevation {
   static const _light = [
-    BoxShadow(color: Color(0x0D1A1C24), blurRadius: 2, offset: Offset(0, 1)),
-    BoxShadow(color: Color(0x121A1C24), blurRadius: 24, offset: Offset(0, 8)),
+    BoxShadow(color: Color(0x0D4A341E), blurRadius: 2, offset: Offset(0, 1)),
+    BoxShadow(color: Color(0x124A341E), blurRadius: 28, offset: Offset(0, 10)),
   ];
 
   static const _hero = [
-    BoxShadow(color: Color(0x0D1A1C24), blurRadius: 2, offset: Offset(0, 1)),
-    BoxShadow(color: Color(0x171A1C24), blurRadius: 30, offset: Offset(0, 12)),
+    BoxShadow(color: Color(0x0D4A341E), blurRadius: 2, offset: Offset(0, 1)),
+    BoxShadow(color: Color(0x174A341E), blurRadius: 32, offset: Offset(0, 12)),
   ];
 
   /// Resting cards: the log, tiles, rows.
@@ -340,8 +342,8 @@ class PawsRadii {
   /// Rows and stamps: ledger lines, not bubbles.
   static const rowValue = 4.0;
 
-  /// Bottom-sheet top corners.
-  static const sheetValue = 16.0;
+  /// Bottom-sheet top corners (v14: rounded-t-[28px]).
+  static const sheetValue = 28.0;
 
   static const standard = PawsRadii(
     xs: 4,
@@ -352,11 +354,12 @@ class PawsRadii {
     xxl: 16,
     pill: 999,
     card: cardValue,
-    input: 8,
-    button: 10,
-    chip: 6,
+    // v14: fields are 16px cream tiles, buttons and chips are full pills.
+    input: 16,
+    button: 999,
+    chip: 999,
     sheet: sheetValue,
-    option: 10,
+    option: 16,
   );
 
   BorderRadius get cardShape => BorderRadius.circular(card);
@@ -423,7 +426,7 @@ class PawsControlHeights {
   static const defaults = PawsControlHeights(
     compact: 40,
     standard: 48,
-    button: 48,
+    button: 52,
     input: 56,
     large: largeValue,
     chip: 40,
@@ -604,8 +607,8 @@ class PawsSemanticStates {
     error: AppColors.error,
     errorContainer: AppColors.errorContainer,
     onError: AppColors.white,
-    disabled: Color(0x1F1A1C24),
-    disabledContent: Color(0x611A1C24),
+    disabled: Color(0x1F2A211B),
+    disabledContent: Color(0x612A211B),
     unsure: AppColors.unsure,
     unsureContainer: AppColors.unsureBg,
   );
@@ -623,7 +626,7 @@ class PawsSemanticStates {
     errorContainer: AppColors.errorContainer,
     onError: AppColors.darkSurface,
     disabled: Color(0x1FFFFFFF),
-    disabledContent: Color(0x61EDEAE3),
+    disabledContent: Color(0x61F4ECE0),
     unsure: AppColors.darkUnsure,
     unsureContainer: AppColors.darkUnsureBg,
   );

@@ -50,7 +50,7 @@ abstract final class AppLog {
       );
     }
     _print(name, fields);
-    AnalyticsService.track(name);
+    AnalyticsService.track(name, fields);
   }
 
   static void error(

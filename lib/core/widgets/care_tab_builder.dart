@@ -6,10 +6,9 @@ import 'package:provider/provider.dart';
 ///
 /// The tab shell (StatefulShellRoute.indexedStack) keeps every tab mounted,
 /// and routes under a pushed page stay mounted too; both sit under
-/// `TickerMode(enabled: false)`. With a plain `context.watch`, every change
-/// (each dose, each sync start/finish) rebuilt all four tabs and recomputed
-/// reports nobody was looking at. Hidden screens now skip those rebuilds
-/// and catch up once, when they are shown again.
+/// `TickerMode(enabled: false)`. A plain `context.watch` would rebuild all
+/// four tabs on every change (each dose, each sync); hidden screens skip
+/// those rebuilds and catch up once, when they are shown again.
 class CareTabBuilder extends StatefulWidget {
   const CareTabBuilder({super.key, required this.builder});
 
