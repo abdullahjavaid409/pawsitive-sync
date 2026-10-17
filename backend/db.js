@@ -194,6 +194,15 @@ async function migrateLocked(pool) {
       member_id text NOT NULL,
       linked_at timestamptz NOT NULL DEFAULT now()
     );
+    CREATE TABLE IF NOT EXISTS account_links (
+      provider text NOT NULL,
+      subject text NOT NULL,
+      household_id text NOT NULL REFERENCES households (id) ON DELETE CASCADE,
+      member_id text NOT NULL,
+      linked_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (provider, subject)
+    );
+    CREATE INDEX IF NOT EXISTS account_links_member_idx ON account_links (household_id, member_id);
     CREATE TABLE IF NOT EXISTS care_events (
       household_id text NOT NULL REFERENCES households (id) ON DELETE CASCADE,
       id text NOT NULL,
@@ -278,6 +287,27 @@ async function migrateLocked(pool) {
     -- that ended before an offline add synced). Never rejected: the medicine
     -- and its doses stay, apps pause its reminders until Pro.
     ALTER TABLE medications ADD COLUMN IF NOT EXISTS needs_pro boolean NOT NULL DEFAULT false;
+  `);
+  // v9 — Magic Patterns v14 fields. All additive with defaults, so a v8
+  // server (rollback) and older apps keep working: they read every day, no
+  // food note, no site, no pet note and no weigh-ins.
+  await pool.query(`
+    ALTER TABLE medications ADD COLUMN IF NOT EXISTS every_days integer NOT NULL DEFAULT 1;
+    ALTER TABLE medications ADD COLUMN IF NOT EXISTS with_food boolean NOT NULL DEFAULT false;
+    ALTER TABLE medications ADD COLUMN IF NOT EXISTS site text NOT NULL DEFAULT '';
+    ALTER TABLE pets ADD COLUMN IF NOT EXISTS care_note text NOT NULL DEFAULT '';
+    ALTER TABLE pets ADD COLUMN IF NOT EXISTS care_note_by text NOT NULL DEFAULT '';
+    ALTER TABLE pets ADD COLUMN IF NOT EXISTS care_note_day text NOT NULL DEFAULT '';
+    ALTER TABLE pets ADD COLUMN IF NOT EXISTS weights jsonb;
+  `);
+  // v10 — medicine search answers, shared by everyone: one Groq call per
+  // query, ever. A new table, so older servers ignore it.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS medicine_search_cache (
+      query text PRIMARY KEY,
+      results jsonb NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
   `);
   // One-time: the old household-wide Pro flag moves onto the owner's row so
   // nobody loses Pro. Guarded by a meta key so it never re-runs (a later
@@ -439,7 +469,37 @@ function readPet(input) {
     conditions: list(input?.conditions, 12)
       .map((item) => text(item, "condition", { max: 40, required: false }))
       .filter(Boolean),
+    // Absent (undefined) from older apps and from profile edits: the upsert
+    // keeps what's stored, so an offline profile edit never wipes a note.
+    ...(input?.careNote === undefined ? {} : readCareNote(input)),
+    weights: input?.weights === undefined ? undefined : readWeights(input.weights),
   };
+}
+
+/** The household note, who wrote it and the day. Empty clears all three. */
+function readCareNote(input) {
+  const careNote = text(input.careNote, "pet.careNote", { max: 280, required: false });
+  if (!careNote) return { careNote: "", careNoteBy: "", careNoteDay: "" };
+  return {
+    careNote,
+    careNoteBy: input.careNoteBy ? id(input.careNoteBy, "pet.careNoteBy") : "",
+    careNoteDay: /^\d{4}-\d{2}-\d{2}$/.test(input.careNoteDay ?? "") ? input.careNoteDay : "",
+  };
+}
+
+/** Weigh-ins: newest 24, valid days and weights only, oldest first. */
+function readWeights(value) {
+  return list(value, 200)
+    .filter(
+      (w) =>
+        /^\d{4}-\d{2}-\d{2}$/.test(w?.day ?? "") &&
+        typeof w?.kg === "number" &&
+        w.kg > 0 &&
+        w.kg < 100,
+    )
+    .map((w) => ({ day: w.day, kg: Math.round(w.kg * 100) / 100 }))
+    .sort((a, b) => a.day.localeCompare(b.day))
+    .slice(-24);
 }
 
 const clockPattern = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -486,6 +546,10 @@ function readMedication(input) {
     // Compared as a string against YYYY-MM-DD days, so anything else means "no end".
     endDay: /^\d{4}-\d{2}-\d{2}$/.test(input?.endDay ?? "") ? input.endDay : "",
     times: readTimes(input?.times, chosen),
+    // Only 1, 2 or 7 repeat; anything else is every day (never skips).
+    everyDays: [2, 7].includes(input?.everyDays) ? input.everyDays : 1,
+    withFood: input?.withFood === true,
+    site: text(input?.site, "medication.site", { max: 40, required: false }),
   };
 }
 
@@ -505,12 +569,18 @@ function readLog(input) {
 
 async function insertPet(client, householdId, pet) {
   const result = await client.query(
-    `INSERT INTO pets (household_id, id, name, species, age_years, weight_kg, breed, sex, conditions)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb)
+    `INSERT INTO pets (household_id, id, name, species, age_years, weight_kg, breed, sex, conditions,
+                       care_note, care_note_by, care_note_day, weights)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11,$12,$13::jsonb)
      ON CONFLICT (household_id, id) DO UPDATE SET
        name = EXCLUDED.name, species = EXCLUDED.species, age_years = EXCLUDED.age_years,
        weight_kg = EXCLUDED.weight_kg, breed = EXCLUDED.breed, sex = EXCLUDED.sex,
-       conditions = EXCLUDED.conditions
+       conditions = EXCLUDED.conditions,
+       -- Sent only with note edits / by newer apps: otherwise keep stored.
+       care_note = CASE WHEN $14 THEN EXCLUDED.care_note ELSE pets.care_note END,
+       care_note_by = CASE WHEN $14 THEN EXCLUDED.care_note_by ELSE pets.care_note_by END,
+       care_note_day = CASE WHEN $14 THEN EXCLUDED.care_note_day ELSE pets.care_note_day END,
+       weights = CASE WHEN $15 THEN EXCLUDED.weights ELSE pets.weights END
      RETURNING *`,
     [
       householdId,
@@ -522,6 +592,12 @@ async function insertPet(client, householdId, pet) {
       pet.breed,
       pet.sex,
       JSON.stringify(pet.conditions),
+      pet.careNote ?? "",
+      pet.careNoteBy ?? "",
+      pet.careNoteDay ?? "",
+      pet.weights ? JSON.stringify(pet.weights) : null,
+      pet.careNote !== undefined,
+      pet.weights !== undefined,
     ],
   );
   return mapPet(result.rows[0]);
@@ -534,12 +610,14 @@ async function insertMedication(client, householdId, medication) {
   ]);
   if (pet.rowCount === 0) throw new InputError("That pet was removed from the household. Pull down to refresh.");
   const result = await client.query(
-    `INSERT INTO medications (household_id, id, pet_id, name, amount, parts, supply_total, doses_left, start_day, end_day, times)
-     VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11::jsonb)
+    `INSERT INTO medications (household_id, id, pet_id, name, amount, parts, supply_total, doses_left, start_day, end_day, times,
+                              every_days, with_food, site)
+     VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11::jsonb,$13,$14,$15)
      ON CONFLICT (household_id, id) DO UPDATE SET
        name = EXCLUDED.name, amount = EXCLUDED.amount, parts = EXCLUDED.parts,
        supply_total = EXCLUDED.supply_total, doses_left = EXCLUDED.doses_left,
        end_day = EXCLUDED.end_day, archived = false,
+       every_days = EXCLUDED.every_days, with_food = EXCLUDED.with_food, site = EXCLUDED.site,
        -- Old apps never send times: an upsert without them keeps the stored ones.
        times = CASE WHEN $12 THEN EXCLUDED.times ELSE medications.times END
      RETURNING *`,
@@ -556,6 +634,9 @@ async function insertMedication(client, householdId, medication) {
       medication.endDay || "",
       medication.times == null ? null : JSON.stringify(medication.times),
       medication.times !== undefined,
+      medication.everyDays ?? 1,
+      medication.withFood ?? false,
+      medication.site ?? "",
     ],
   );
   return mapMedication(result.rows[0]);
@@ -765,6 +846,8 @@ export async function removeMember(pool, { householdId, memberId }, targetId) {
     }
     await client.query("DELETE FROM device_tokens WHERE household_id = $1 AND member_id = $2", [householdId, target]);
     await client.query("DELETE FROM sitter_links WHERE household_id = $1 AND member_id = $2", [householdId, target]);
+    // A removed person must not be able to sign back in to this household.
+    await deleteAccountLinks(client, householdId, target);
     await client.query("DELETE FROM members WHERE household_id = $1 AND id = $2", [householdId, target]);
     return { removed: true, role: row.role };
   });
@@ -819,6 +902,11 @@ function mapPet(row) {
     breed: row.breed,
     sex: row.sex,
     conditions: row.conditions,
+    // Additive: older apps ignore them.
+    careNote: row.care_note ?? "",
+    careNoteBy: row.care_note_by ?? "",
+    careNoteDay: row.care_note_day ?? "",
+    weights: row.weights ?? [],
   };
 }
 
@@ -837,6 +925,10 @@ function mapMedication(row) {
     ...(row.times ? { times: row.times } : {}),
     // Additive: only sent when set; old apps ignore it.
     ...(row.needs_pro ? { needsPro: true } : {}),
+    // Additive, only when not the default; older apps read every day.
+    ...(row.every_days && row.every_days !== 1 ? { everyDays: row.every_days } : {}),
+    ...(row.with_food ? { withFood: true } : {}),
+    ...(row.site ? { site: row.site } : {}),
   };
 }
 
@@ -1314,6 +1406,68 @@ export async function linkAppleAccount(pool, { householdId, memberId }, appleUse
   return { linked: true };
 }
 
+async function deleteAccountLinks(client, householdId, memberId) {
+  await client.query("DELETE FROM account_links WHERE household_id = $1 AND member_id = $2", [householdId, memberId]);
+  await client.query("DELETE FROM apple_links WHERE household_id = $1 AND member_id = $2", [householdId, memberId]);
+}
+
+/**
+ * Ties a verified sign-in (Firebase uid) to this member so the household can
+ * come back on a new phone. Any member may link their own sign-in. One
+ * sign-in leads to one membership; linking again moves it (newest wins).
+ */
+export async function linkAccount(pool, { householdId, memberId }, provider, subject) {
+  const who = text(subject, "subject", { max: 128 });
+  const kind = oneOf(provider, ["firebase"], "provider", "firebase");
+  await pool.query(
+    `INSERT INTO account_links (provider, subject, household_id, member_id)
+     VALUES ($1,$2,$3,$4)
+     ON CONFLICT (provider, subject) DO UPDATE
+       SET household_id = EXCLUDED.household_id, member_id = EXCLUDED.member_id, linked_at = now()`,
+    [kind, who, householdId, memberId],
+  );
+  return { linked: true };
+}
+
+/** Removes this member's sign-in link (signing out of the account). */
+export async function unlinkAccount(pool, { householdId, memberId }) {
+  const result = await pool.query("DELETE FROM account_links WHERE household_id = $1 AND member_id = $2", [
+    householdId,
+    memberId,
+  ]);
+  return { unlinked: result.rowCount > 0 };
+}
+
+/**
+ * New phone: a verified sign-in gets a fresh device token for its member.
+ * The old phone's token stops working (a lost phone is locked out). Null
+ * when no household is linked or the member no longer exists.
+ */
+export async function recoverAccount(pool, provider, subject) {
+  const who = text(subject, "subject", { max: 128 });
+  const kind = oneOf(provider, ["firebase"], "provider", "firebase");
+  return transaction(pool, async (client) => {
+    const link = (
+      await client.query(
+        "SELECT household_id, member_id FROM account_links WHERE provider = $1 AND subject = $2 FOR UPDATE",
+        [kind, who],
+      )
+    ).rows[0];
+    if (!link) return null;
+    const token = newToken();
+    const updated = await client.query(
+      "UPDATE members SET token_hash = $1 WHERE household_id = $2 AND id = $3",
+      [hashToken(token), link.household_id, link.member_id],
+    );
+    if (updated.rowCount === 0) {
+      // Member is gone (removed before links were cleaned up): drop the stale link.
+      await client.query("DELETE FROM account_links WHERE provider = $1 AND subject = $2", [kind, who]);
+      return null;
+    }
+    return { token, householdId: link.household_id, memberId: link.member_id };
+  });
+}
+
 export async function recoverFromApple(pool, appleUserId) {
   const appleId = text(appleUserId, "appleUserId", { max: 128 });
   const link = await pool.query("SELECT household_id, member_id FROM apple_links WHERE apple_user_id = $1", [
@@ -1322,10 +1476,15 @@ export async function recoverFromApple(pool, appleUserId) {
   const row = link.rows[0];
   if (!row) return null;
   const token = newToken();
-  await pool.query(
+  const updated = await pool.query(
     "UPDATE members SET token_hash = $1 WHERE household_id = $2 AND id = $3",
     [hashToken(token), row.household_id, row.member_id],
   );
+  if (updated.rowCount === 0) {
+    // The member was removed: a link to nobody must not hand out a token.
+    await pool.query("DELETE FROM apple_links WHERE apple_user_id = $1", [appleId]);
+    return null;
+  }
   return { token, householdId: row.household_id, memberId: row.member_id };
 }
 
@@ -1372,7 +1531,12 @@ export async function leaveHousehold(pool, { householdId, memberId }) {
       "DELETE FROM members WHERE household_id = $1 AND id = $2 AND role <> 'owner'",
       [householdId, memberId],
     );
-    if (result.rowCount > 0) return { left: true };
+    if (result.rowCount > 0) {
+      // Left for good: their sign-in no longer leads back here. An owner
+      // signing out (below) keeps it, which is how they recover.
+      await deleteAccountLinks(client, householdId, memberId);
+      return { left: true };
+    }
     const owner = await client.query(
       "UPDATE members SET token_hash = NULL WHERE household_id = $1 AND id = $2 AND role = 'owner'",
       [householdId, memberId],
@@ -1402,16 +1566,34 @@ const analyticsEvents = new Set([
   "household.joined",
   "billing.purchase.completed",
   "billing.pro.unlocked",
+  "billing.trial.tap",
+  "billing.rc.purchase_success",
+  "billing.restore.completed",
+  "invite.share_tapped",
   "care_event.added",
   ...(process.env.ANALYTICS_EXTRA_EVENTS ?? "").split(",").map((name) => name.trim()).filter(Boolean),
 ]);
 
+// Counted per placement or step: "billing.paywall.opened.invite". The suffix is
+// a short slug, so the table stays one row per (day, event) with a small,
+// bounded set of names.
+const analyticsSplit = /^(billing\.paywall\.opened|onboarding\.step)\.[a-z0-9_]{1,32}$/;
+
+function analyticsName(name) {
+  return analyticsEvents.has(name) || analyticsSplit.test(name);
+}
+
+/** Phones send counts per name once a day: [{ name, count }]. A missing
+ * count is 1 (older app versions sent one item per event). */
 export async function trackAnalytics(pool, events) {
-  const list = Array.isArray(events) ? events.slice(0, 50) : [];
+  const list = Array.isArray(events) ? events.slice(0, 60) : [];
   const counts = new Map();
   for (const item of list) {
     const name = typeof item?.name === "string" ? item.name : "";
-    if (analyticsEvents.has(name)) counts.set(name, (counts.get(name) ?? 0) + 1);
+    if (!analyticsName(name)) continue;
+    const raw = Number.isInteger(item?.count) ? item.count : 1;
+    const n = Math.min(Math.max(raw, 1), 1000);
+    counts.set(name, (counts.get(name) ?? 0) + n);
   }
   if (counts.size > 0) {
     // One statement per batch instead of one per event.
@@ -1422,7 +1604,7 @@ export async function trackAnalytics(pool, events) {
       [[...counts.keys()], [...counts.values()]],
     );
   }
-  return { recorded: list.length };
+  return { recorded: counts.size };
 }
 
 export async function applyBatchOperation(pool, auth, operation) {
@@ -1516,10 +1698,14 @@ const partTimeLabel = {
 };
 
 function medicationActiveOn(medication, day) {
-  return (
-    medication.startDay <= day &&
-    (medication.endDay === "" || medication.endDay >= day)
-  );
+  if (medication.startDay > day) return false;
+  if (medication.endDay !== "" && medication.endDay < day) return false;
+  const every = medication.everyDays ?? 1;
+  if (every <= 1) return true;
+  // Whole days between YYYY-MM-DD strings (UTC, so DST never shifts it).
+  const days = Math.round((Date.parse(`${day}T00:00:00Z`) - Date.parse(`${medication.startDay}T00:00:00Z`)) / 86400000);
+  // Unreadable days: every day (a reminder too many beats a skipped dose).
+  return Number.isNaN(days) || days % every === 0;
 }
 
 /** "7:00 AM" for a minute of day (same wording as the app's default labels). */
@@ -1547,7 +1733,10 @@ export async function createSitterLink(pool, auth, body) {
   const linkId = newId("slink");
   const memberId = newId("sitter");
   const token = newToken();
-  const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  // The owner picks how long the sitter needs it (v14 "Access ends"):
+  // 1–30 days, 30 when absent (older apps) or out of range.
+  const days = count(body?.days, 30) || 30;
+  const expiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
   // Member + link together or not at all (no orphan sitter members).
   await transaction(pool, async (client) => {
     await client.query(
@@ -2175,6 +2364,8 @@ export async function deleteAccount(pool, { householdId, memberId }, logFn = () 
   await transaction(pool, async (client) => {
     await client.query("DELETE FROM device_tokens WHERE household_id = $1 AND member_id = $2", [householdId, memberId]);
     await client.query("DELETE FROM sitter_links WHERE household_id = $1 AND member_id = $2", [householdId, memberId]);
+    // A deleted account must not be recoverable through its sign-in.
+    await deleteAccountLinks(client, householdId, memberId);
     await client.query("DELETE FROM members WHERE household_id = $1 AND id = $2", [householdId, memberId]);
   });
   logFn("account.deleted", { householdId, role, scope: "member" });

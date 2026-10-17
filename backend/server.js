@@ -24,7 +24,10 @@ import {
   verifyRevenueCatWebhookByLookup,
   joinHousehold,
   leaveHousehold,
+  linkAccount,
   linkAppleAccount,
+  recoverAccount,
+  unlinkAccount,
   loadHousehold,
   logDose,
   memberForToken,
@@ -50,7 +53,9 @@ import {
   wasRemoved,
 } from "./db.js";
 import { verifyAppleIdentityToken } from "./apple.js";
+import { verifyFirebaseIdToken } from "./firebase_auth.js";
 import { requireRole } from "./roles.js";
+import { searchMedicines } from "./medicine_search.js";
 
 const webDir = join(dirname(fileURLToPath(import.meta.url)), "web");
 /** Absolute origin for link-preview images (crawlers need full URLs). */
@@ -134,9 +139,27 @@ const smallBody = 8 * 1024;
 const importBody = 512 * 1024;
 const webhookBody = 64 * 1024;
 const rateWindowMs = 60_000;
-const limits = { default: 120, join: 10, create: 10, recover: 5, billing: 10, webhook: 600 };
+// search: each miss can be a paid Groq call; typing is debounced in the app.
+const limits = { default: 120, join: 10, create: 10, recover: 5, billing: 10, webhook: 600, search: 30 };
 const hits = new Map();
 const maxTrackedClients = 20_000;
+
+/** New (uncached) medicine searches per client per day: each is a paid Groq call. */
+const dailyGroqCalls = Number(process.env.SEARCH_DAILY_LIMIT) || 200;
+const groqCalls = new Map();
+
+function spendGroqCall(req) {
+  const day = new Date().toISOString().slice(0, 10);
+  const key = clientKey(req);
+  const entry = groqCalls.get(key);
+  if (!entry || entry.day !== day) {
+    if (groqCalls.size >= maxTrackedClients) groqCalls.clear();
+    groqCalls.set(key, { day, count: 1 });
+    return true;
+  }
+  entry.count += 1;
+  return entry.count <= dailyGroqCalls;
+}
 
 /**
  * Client IP for rate limiting. Railway's edge appends the address it saw to
@@ -252,10 +275,11 @@ async function connectWithRetry() {
 }
 
 function bucketFor(req, path) {
+  if (path === "/v1/medicines/search") return "search";
   if (req.method !== "POST") return "default";
   if (path === "/v1/join") return "join";
   if (path === "/v1/households") return "create";
-  if (path === "/v1/auth/apple/recover") return "recover";
+  if (path === "/v1/auth/apple/recover" || path === "/v1/auth/firebase/recover") return "recover";
   // Each call is a RevenueCat API request; keep a loop from burning the quota.
   if (path === "/v1/billing/trial") return "billing";
   if (path === "/v1/webhooks/revenuecat") return "webhook";
@@ -397,6 +421,19 @@ async function route(req, url, requestId) {
     return { status: 200, html: sitterPage };
   }
 
+  // Public like the built-in list it extends: Free phones have no token.
+  if (req.method === "GET" && path === "/v1/medicines/search") {
+    const found = await searchMedicines(pool, { query: url.searchParams.get("q") }, fetch, () =>
+      spendGroqCall(req),
+    );
+    log("medicine.search", { requestId, source: found.source, results: found.results.length });
+    // 429, not an empty 200: the app must not save a refusal as "no match".
+    if (found.source === "limited") {
+      return { status: 429, body: { error: "Too many new searches today. Try again tomorrow." } };
+    }
+    return { status: 200, body: { results: found.results } };
+  }
+
   if (req.method === "GET" && path === "/og-sitter.png") {
     return { status: 200, png: sitterPreviewImage };
   }
@@ -448,6 +485,25 @@ async function route(req, url, requestId) {
     }
     log("household.joined", { requestId, householdId: joined.householdId, memberId: joined.memberId });
     return { status: 201, body: { token: joined.token, ...(await snapshot(joined)) } };
+  }
+
+  if (req.method === "POST" && path === "/v1/auth/firebase/recover") {
+    const body = await readJson(req);
+    const signIn = await verifyFirebaseIdToken(body.idToken);
+    if (!signIn.ok) {
+      log("auth.firebase_rejected", { requestId, reason: signIn.reason, route: "recover" });
+      return { status: 401, body: { error: "We couldn’t confirm that sign-in. Try signing in again." } };
+    }
+    const recovered = await recoverAccount(pool, "firebase", signIn.uid);
+    if (!recovered) {
+      log("auth.firebase_no_household", { requestId, provider: signIn.provider });
+      return {
+        status: 404,
+        body: { error: "No household is saved to this account yet.", code: "no_household" },
+      };
+    }
+    log("auth.firebase_recovered", { requestId, householdId: recovered.householdId, provider: signIn.provider });
+    return { status: 200, body: { token: recovered.token, ...(await snapshot(recovered)) } };
   }
 
   if (req.method === "POST" && path === "/v1/auth/apple/recover") {
@@ -680,6 +736,26 @@ async function route(req, url, requestId) {
     if (!removed) return { status: 404, body: { error: "That reminder was already removed." } };
     log("care_event.removed", { requestId, householdId: auth.householdId });
     return { status: 200, body: { ok: true } };
+  }
+
+  if (req.method === "POST" && path === "/v1/auth/firebase/link") {
+    allow("account.link");
+    const body = await readJson(req);
+    const signIn = await verifyFirebaseIdToken(body.idToken);
+    if (!signIn.ok) {
+      log("auth.firebase_rejected", { requestId, reason: signIn.reason, route: "link" });
+      return { status: 401, body: { error: "We couldn’t confirm that sign-in. Try signing in again." } };
+    }
+    const linked = await linkAccount(pool, auth, "firebase", signIn.uid);
+    log("auth.firebase_linked", { requestId, householdId: auth.householdId, provider: signIn.provider });
+    return { status: 200, body: linked };
+  }
+
+  if (req.method === "POST" && path === "/v1/auth/firebase/unlink") {
+    allow("account.link");
+    const result = await unlinkAccount(pool, auth);
+    log("auth.firebase_unlinked", { requestId, householdId: auth.householdId, removed: result.unlinked });
+    return { status: 200, body: result };
   }
 
   if (req.method === "POST" && path === "/v1/auth/apple/link") {

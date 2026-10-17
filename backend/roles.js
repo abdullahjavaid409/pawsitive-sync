@@ -36,6 +36,8 @@ export const rules = Object.freeze({
   "members.manage": ownerOnly,
   "billing.plan": ownerOnly,
   "apple.link": ownerOnly,
+  // Every member can tie their own sign-in to their membership.
+  "account.link": everyone,
 });
 
 /** Outbox operation type → action, for /v1/sync/batch. */

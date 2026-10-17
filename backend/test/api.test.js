@@ -299,6 +299,19 @@ describe("invite codes", () => {
 });
 
 describe("sitter links", () => {
+  test("the owner picks how long a link works (1–30 days, 30 by default)", async () => {
+    const house = await household();
+    await webhook(house, "you", "INITIAL_PURCHASE");
+    const daysOut = (iso) => Math.round((Date.parse(iso) - Date.now()) / 86400000);
+    const week = await call("POST", "/v1/sitter-links", { token: house.owner.token, body: { label: "Jordan", days: 7 } });
+    assert.equal(week.status, 201);
+    assert.equal(daysOut(week.body.expiresAt), 7);
+    const old = await call("POST", "/v1/sitter-links", { token: house.owner.token, body: { label: "Sam" } });
+    assert.equal(daysOut(old.body.expiresAt), 30);
+    const huge = await call("POST", "/v1/sitter-links", { token: house.owner.token, body: { days: 400 } });
+    assert.equal(daysOut(huge.body.expiresAt), 30);
+  });
+
   test("list, last used, revoke at once, expired cleanup", async () => {
     const house = await household();
     await webhook(house, "you", "INITIAL_PURCHASE");
@@ -835,4 +848,45 @@ test("an older marked medicine gets a freed slot before a new one (no double fre
   const meds = (await call("GET", "/v1/household", { token: t })).body.medications.filter((m) => m.petId === "race-pet");
   const free = meds.filter((m) => !m.needsPro).map((m) => m.id);
   assert.deepEqual(free, ["race-b"]);
+});
+
+describe("v14 fields (repeat, with food, site, pet note, weigh-ins)", () => {
+  test("medicine repeat / food / site round-trip; absent when default; junk repeat is every day", async () => {
+    const house = await household();
+    const snap = (await call("GET", "/v1/household", { token: house.owner.token })).body;
+    const med1 = snap.medications.find((m) => m.id === "med-1");
+    assert.equal("everyDays" in med1, false);
+    assert.equal("withFood" in med1, false);
+    const added = await call("POST", "/v1/medications", {
+      token: house.owner.token,
+      body: { id: "med-r", petId: "pet-1", name: "Drops", parts: ["morning"], startDay: today, everyDays: 2, withFood: true, site: "Left eye" },
+    });
+    assert.equal(added.status, 201);
+    assert.equal(added.body.medication.everyDays, 2);
+    assert.equal(added.body.medication.withFood, true);
+    assert.equal(added.body.medication.site, "Left eye");
+    const junk = await call("POST", "/v1/medications", {
+      token: house.owner.token,
+      body: { id: "med-j", petId: "pet-1", name: "Odd", parts: ["morning"], startDay: today, everyDays: 3 },
+    });
+    assert.equal("everyDays" in junk.body.medication, false);
+  });
+
+  test("pet note and weigh-ins: kept when an edit leaves them out, cleared when empty", async () => {
+    const house = await household();
+    const noted = await call("PATCH", "/v1/pets/pet-1", {
+      token: house.owner.token,
+      body: { name: "Miso", species: "cat", careNote: "Only after she eats", careNoteBy: "owner", careNoteDay: today, weights: [{ day: today, kg: 4.2 }, { day: "bad", kg: 3 }] },
+    });
+    assert.equal(noted.status, 200);
+    assert.equal(noted.body.pet.careNote, "Only after she eats");
+    assert.deepEqual(noted.body.pet.weights, [{ day: today, kg: 4.2 }]);
+    // A profile edit from an older app (no note, no weights) keeps both.
+    const edited = await call("PATCH", "/v1/pets/pet-1", { token: house.caregiver.token, body: { name: "Miso B", species: "cat" } });
+    assert.equal(edited.body.pet.careNote, "Only after she eats");
+    assert.deepEqual(edited.body.pet.weights, [{ day: today, kg: 4.2 }]);
+    const cleared = await call("PATCH", "/v1/pets/pet-1", { token: house.owner.token, body: { name: "Miso", species: "cat", careNote: "" } });
+    assert.equal(cleared.body.pet.careNote, "");
+    assert.equal(cleared.body.pet.careNoteBy, "");
+  });
 });
