@@ -39,6 +39,7 @@ class _CaregiversScreenState extends State<CaregiversScreen> {
     final value = _email.text.trim();
     if (value.isEmpty) return;
     if (!_pattern.hasMatch(value)) {
+      AppLog.event('onboarding.invite_invalid', {'reason': 'email'});
       setState(() => _error = 'Enter a full email, like sara@example.com');
       return;
     }

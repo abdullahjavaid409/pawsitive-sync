@@ -315,7 +315,7 @@ void main() {
       await _reveal(tester, find.text('Annual checkup'));
       await tester.tap(find.byTooltip('Remove Annual checkup'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Keep event'));
+      await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
       expect(care.careEvents, hasLength(1));
       await tester.tap(find.byTooltip('Remove Annual checkup'));

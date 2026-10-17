@@ -501,10 +501,14 @@ void main() {
       expectLogged('household.reset');
     });
 
-    test('setPlan logs billing.plan.changed', () async {
+    test('setPlan logs billing.plan.completed once', () async {
       final care = sampleCare();
       await care.setPlan(BillingPlan.monthly);
-      expectLogged('billing.plan.changed', fields: {'plan': 'monthly'});
+      expectLogged(
+        'billing.plan.completed',
+        fields: {'plan': 'monthly', 'source': 'user'},
+      );
+      expectNotLogged('billing.plan.changed');
     });
 
     test('restore without RevenueCat logs billing.restore.skipped', () async {

@@ -126,7 +126,7 @@ abstract final class LiveFeatures {
       name: 'Plan + restore',
       tier: FeatureTier.free,
       logs: [
-        'billing.plan.changed',
+        'billing.plan.completed',
         'billing.restore.requested',
         'billing.restore.skipped',
       ],

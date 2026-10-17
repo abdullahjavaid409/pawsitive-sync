@@ -841,14 +841,32 @@ class _TimesCard extends StatelessWidget {
                 final allowed = canUse(part);
                 final on = parts.contains(part) && allowed;
                 return Semantics(
-                  button: allowed,
+                  button: true,
                   checked: on,
                   label:
                       '${_label(part)}, ${ClockFormat.label(part.defaultMinute)}'
                       '${allowed ? '' : ', Pro'}',
                   excludeSemantics: true,
                   child: InkWell(
-                    onTap: allowed ? () => onToggle(part) : null,
+                    // A locked time says why instead of ignoring the tap;
+                    // no paywall mid-setup (it comes after "Go to Today").
+                    onTap: allowed
+                        ? () => onToggle(part)
+                        : () {
+                            AppLog.event('onboarding.locked_time_tap', {
+                              'part': part.name,
+                            });
+                            ScaffoldMessenger.of(context)
+                              ..hideCurrentSnackBar()
+                              ..showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    '${_label(part)} comes with Pro. You can '
+                                    'add it after setup.',
+                                  ),
+                                ),
+                              );
+                          },
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
                         horizontal: 16,

@@ -3002,17 +3002,20 @@ class CareRepository extends ChangeNotifier {
     return left.length == right.length && left.containsAll(right);
   }
 
-  Future<void> setPlan(BillingPlan value) async {
+  /// [source] tells a person's pick (`user`) from the paywall resetting
+  /// its default (`paywall_default`) in the one `billing.plan.completed`
+  /// line this logs.
+  Future<void> setPlan(BillingPlan value, {String source = 'user'}) async {
     if (_plan == value) return;
     _plan = value;
     notifyListeners();
-    AppLog.event('billing.plan.changed', {'plan': value.name});
     if (!isConnected || !isOwner) {
       // Solo phone: the plan is a local paywall choice. Caregivers/sitters
       // can buy their own Pro but don’t change the household’s plan.
       _persist();
       AppLog.event('billing.plan.completed', {
         'plan': value.name,
+        'source': source,
         'local': true,
       });
       return;
@@ -3021,7 +3024,7 @@ class CareRepository extends ChangeNotifier {
       'billing.plan',
       (api) async => _plan = await api.setPlan(value),
       () => true,
-      fields: {'plan': value.name},
+      fields: {'plan': value.name, 'source': source},
     );
   }
 

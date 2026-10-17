@@ -521,13 +521,17 @@ class MedicationScreen extends StatelessWidget {
       routeSettings: const RouteSettings(name: 'stop_medicine'),
       builder: (context) => AlertDialog(
         title: Text('Stop ${medication.name}?'),
-        content: const Text(
-          'It leaves Today for everyone in the household. Past doses stay in the vet report.',
+        // Solo phones have no one else to mention.
+        content: Text(
+          care.isConnected
+              ? 'It leaves Today for everyone in the household. Past doses '
+                    'stay in the vet report.'
+              : 'It leaves Today. Past doses stay in the vet report.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Keep it'),
+            child: const Text('Cancel'),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),

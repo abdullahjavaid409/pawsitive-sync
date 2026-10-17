@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/data/medicine_search.dart';
@@ -97,7 +98,10 @@ class MedicineSuggestionList extends StatelessWidget {
         _Row(
           leading: const SizedBox.square(dimension: 40),
           title: 'Use “$name”',
-          onTap: onUseTyped!,
+          onTap: () {
+            AppLog.event('medicine.search.typed', {'length': name.length});
+            onUseTyped!();
+          },
         ),
       for (final medicine in results)
         _Row(
@@ -107,7 +111,14 @@ class MedicineSuggestionList extends StatelessWidget {
             medicine.form.label,
             if (medicine.use.isNotEmpty) medicine.use,
           ].join(' · '),
-          onTap: () => onPick(medicine),
+          onTap: () {
+            // Form only: the log records the choice, not what the pet takes.
+            AppLog.event('medicine.search.picked', {
+              'form': medicine.form.name,
+              'row': results.indexOf(medicine),
+            });
+            onPick(medicine);
+          },
         ),
       if (searching)
         Semantics(

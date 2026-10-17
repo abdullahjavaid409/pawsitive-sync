@@ -194,7 +194,7 @@ void main() {
       await qa.see('Vet checkup');
       qa.event('care_event.added', {'kind': 'vetVisit'});
       await qa.tap(find.byTooltip('Remove Vet checkup'));
-      await qa.tap(find.text('Keep event'));
+      await qa.tap(find.text('Cancel'));
       await qa.see('Vet checkup');
       qa.noEvent('care_event.removed');
       await qa.tap(find.byTooltip('Remove Vet checkup'));

@@ -369,7 +369,7 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialog).pop(false),
-              child: const Text('Keep editing'),
+              child: const Text('Cancel'),
             ),
             TextButton(
               onPressed: () => Navigator.of(dialog).pop(true),

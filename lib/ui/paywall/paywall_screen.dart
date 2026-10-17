@@ -84,7 +84,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
     // household’s billing plan on the server.
     if (!care.isPro && care.plan != BillingPlan.yearly) {
       AppLog.unawaitedLogged(
-        care.setPlan(BillingPlan.yearly),
+        care.setPlan(BillingPlan.yearly, source: 'paywall_default'),
         'billing.plan.failed',
       );
     }
@@ -413,8 +413,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
                       // Apple: the billed amount is the most prominent
                       // price; the per-month breakdown stays subordinate.
                       // developer.apple.com/app-store/subscriptions
-                      subtitle:
-                          '$_yearlyPerMonth/mo · whole household',
+                      subtitle: '$_yearlyPerMonth/mo · whole household',
                       price: '${_price(BillingPlan.yearly)}/yr',
                       badge: _yearlyBadge,
                       onPressed: locked

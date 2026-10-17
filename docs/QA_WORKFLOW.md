@@ -150,7 +150,7 @@ One line per action: the repository logs the outcome (`*.completed` / `*.rejecte
 
 | Step | Action | Expected log |
 |------|--------|--------------|
-| 9.1 | Select plan on paywall | `billing.plan.changed` |
+| 9.1 | Select plan on paywall | `billing.plan.completed source=user` (opening the paywall may log `source=paywall_default`) |
 | 9.2 | Start trial / purchase | `billing.purchase.*` or `billing.trial.*` |
 | 9.3 | Restore (Settings) | `billing.restore.settings`, `billing.restore.completed` |
 | 9.4 | App resume | `app.resumed`, `billing.sync.*` |

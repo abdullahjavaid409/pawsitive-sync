@@ -106,7 +106,7 @@ class _CareEventTile extends StatelessWidget {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('Keep event'),
+              child: const Text('Cancel'),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(context, true),
