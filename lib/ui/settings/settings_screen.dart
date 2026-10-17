@@ -289,7 +289,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       builder: (context) => AlertDialog(
                         title: const Text('Leave this household?'),
                         content: const Text(
-                          'Your dose history on this phone will be cleared. You can rejoin with an invite code.',
+                          'Your pets and medicines stay on this phone. The '
+                          'household’s dose history and its people are '
+                          'removed. You can rejoin with an invite code.',
                         ),
                         actions: [
                           TextButton(

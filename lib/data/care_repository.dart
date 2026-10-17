@@ -3294,8 +3294,10 @@ class CareRepository extends ChangeNotifier {
     });
   }
 
-  /// Leaves the shared household on the server, then clears this phone.
-  /// Returns a message when it could not (nothing is cleared then).
+  /// Leaves the shared household on the server, then turns this phone into a
+  /// solo, offline setup that keeps its pets and medicines (see
+  /// [_keepPetsAfterLeave]). Returns a message when it could not (nothing
+  /// changes then).
   Future<String?> leaveHousehold() async {
     final api = _api;
     if (api != null && isConnected) {
@@ -3311,9 +3313,79 @@ class CareRepository extends ChangeNotifier {
         }
       }
     }
-    AppLog.event('household.left', {'wasConnected': isConnected});
-    await reset();
+    final wasConnected = isConnected;
+    await _keepPetsAfterLeave();
+    AppLog.event('household.left', {
+      'wasConnected': wasConnected,
+      'pets': _pets.length,
+      'medications': _medications.length,
+    });
     return null;
+  }
+
+  /// After leaving, this phone keeps its pets, medicines (active and
+  /// stopped), their photos and care events, so nothing the person set up
+  /// is lost and dose logging carries on offline. What goes: the household
+  /// link, the other people in it, its dose history (much of it logged by
+  /// others), invite and sitter links, and any queued uploads.
+  ///
+  /// Unlike [reset] this keeps the RevenueCat identity: someone who pays
+  /// keeps Pro on this phone after leaving. The onboarding answers stay
+  /// marked done, which is right here — the pets are still on the phone, so
+  /// launch never rebuilds a pet from them (main.dart only does that when
+  /// there are no pets).
+  Future<void> _keepPetsAfterLeave() async {
+    // Shared photos become this phone's own (pending upload if shared again).
+    await _keepPhotosAfterHouseholdGone();
+    final you = this.you;
+    _apply(
+      token: null,
+      memberId: 'you',
+      inviteCode: '',
+      isPro: false,
+      plan: _plan,
+      // The server id ("house-…:you") means nothing without the household.
+      members: [
+        Member(
+          id: 'you',
+          name: you.name,
+          initials: you.initials,
+          role: MemberRole.owner,
+          avatarTone: you.avatarTone,
+          isYou: true,
+        ),
+      ],
+      pets: List.of(_pets),
+      medications: List.of(_medications),
+      logs: const [],
+    );
+    // The household's logs leave the disk too on the next save.
+    _deletedLogIds.clear();
+    _replaceSavedLogs = true;
+    try {
+      await SecureTokens.deleteSitterTokens();
+    } on Object catch (error, stack) {
+      AppLog.error('sitter.token_clear_failed', error, stack);
+    }
+    try {
+      // Queued writes were for the old household; replaying them would fail.
+      await _syncEngine.outbox.clear();
+    } on Object catch (error, stack) {
+      AppLog.error('store.clear_failed', error, stack, {'table': 'outbox'});
+    }
+    _sitterLink = null;
+    _sitterLinks.clear();
+    syncError = null;
+    _lastSyncedAt = null;
+    _offlineFailures = 0;
+    _lastFailureAt = null;
+    try {
+      await (await SharedPreferences.getInstance()).remove(_lastSyncKey);
+    } on Object catch (error, stack) {
+      AppLog.error('store.last_sync_failed', error, stack);
+    }
+    _changed();
+    await flushPersist();
   }
 
   /// Forgets this phone’s household, for sign-out or a fresh start.

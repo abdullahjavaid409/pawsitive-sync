@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/data/household_api.dart';
+import 'package:pawsitive_sync/data/household_store.dart';
 import 'package:pawsitive_sync/data/sync_engine.dart';
 import 'package:pawsitive_sync/data/sync_outbox.dart';
 import 'package:pawsitive_sync/domain/models.dart';
@@ -71,8 +72,9 @@ void main() {
   tearDown(AppLog.disableTestCapture);
 
   Future<CareRepository> connectedCare(
-    Map<String, FakeReply Function(Object? body)> extra,
-  ) async {
+    Map<String, FakeReply Function(Object? body)> extra, {
+    HouseholdStore? store,
+  }) async {
     adapter = _RouteAdapter({
       'POST /v1/households': (_) => (201, connectHouseholdBody()),
       'POST /v1/devices/register': (_) => (200, {'ok': true}),
@@ -84,6 +86,7 @@ void main() {
         dio: Dio()..httpClientAdapter = adapter,
       ),
       syncEngine: SyncEngine(outbox: outbox),
+      store: store,
       clock: () => DateTime(2026, 10, 3, 14),
     );
     await care.addPet(name: 'Milo', species: Species.cat);
@@ -339,18 +342,46 @@ void main() {
   });
 
   group('Leave household', () {
-    test('tells the server, then clears this phone', () async {
+    test('tells the server, then keeps pets and medicines solo', () async {
       final care = await connectedCare({
         'POST /v1/members/leave': (_) => (200, {'left': true}),
       });
+      final pets = care.pets.length;
+      final meds = care.medications.length;
+      expect(pets, greaterThan(0));
 
       expect(await care.leaveHousehold(), isNull);
 
       expect(adapter.bodiesFor('POST /v1/members/leave'), hasLength(1));
       expect(care.isConnected, isFalse);
-      expect(care.pets, isEmpty);
-      expectLogged('household.left', fields: {'wasConnected': true});
-      expectLogged('household.reset');
+      // Nothing the person set up is lost; the household's people and
+      // history are.
+      expect(care.pets, hasLength(pets));
+      expect(care.medications, hasLength(meds));
+      expect(care.members, hasLength(1));
+      expect(care.you.id, 'you');
+      expect(care.inviteCode, isEmpty);
+      expectLogged(
+        'household.left',
+        fields: {'wasConnected': true, 'pets': pets, 'medications': meds},
+      );
+      // Not a full reset: RevenueCat identity and local setup stay.
+      expectNotLogged('household.reset');
+    });
+
+    test('pets kept after leaving survive a relaunch', () async {
+      final care = await connectedCare({
+        'POST /v1/members/leave': (_) => (200, {'left': true}),
+      }, store: HouseholdStore());
+      final pets = care.pets.map((p) => p.id).toList();
+
+      await care.leaveHousehold();
+      // A new store in the same test reads what the first one saved.
+      final reopened = CareRepository(store: HouseholdStore());
+      await reopened.restore();
+
+      expect(reopened.pets.map((p) => p.id), pets);
+      expect(reopened.isConnected, isFalse);
     });
 
     test('offline leave keeps the household and explains why', () async {
