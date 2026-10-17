@@ -8,6 +8,7 @@ import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/data/dose_reminders.dart';
 import 'package:pawsitive_sync/data/engagement.dart';
+import 'package:pawsitive_sync/data/account_service.dart';
 import 'package:pawsitive_sync/data/firebase_setup.dart';
 import 'package:pawsitive_sync/data/household_api.dart';
 import 'package:pawsitive_sync/data/household_store.dart';
@@ -103,7 +104,11 @@ Future<void> _warmUp(
       // Medicine names found online before, for offline search.
       MedicineSearch.load(),
       // Optional sign-in only; never awaited by anything on screen.
-      FirebaseSetup.initialize().then((_) {}),
+      // Then drops a sign-in left behind by a save/restore the app was
+      // killed in the middle of, so "signed in" always means "saved".
+      FirebaseSetup.initialize().then(
+        (_) => AccountService.clearInterruptedLink(),
+      ),
       () async {
         await RevenueCatService.initialize();
         // Identifies the store account, then reads the entitlement.

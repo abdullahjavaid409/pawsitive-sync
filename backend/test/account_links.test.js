@@ -155,6 +155,20 @@ describe("account links", () => {
     assert.deepEqual(await linkAccount(pool, owner, "firebase", subject), { linked: true });
   });
 
+  test("two phones saving one sign-in at once: one wins, the other is asked", async () => {
+    const first = await household();
+    const second = await household();
+    const subject = uid();
+    const results = await Promise.all([
+      linkAccount(pool, first.owner, "firebase", subject),
+      linkAccount(pool, second.owner, "firebase", subject),
+    ]);
+    assert.equal(results.filter((r) => r.linked === true).length, 1, "exactly one links");
+    assert.equal(results.filter((r) => r.linked === false).length, 1, "the other gets a conflict");
+    const winner = results[0].linked ? first : second;
+    assert.equal((await recoverAccount(pool, "firebase", subject)).householdId, winner.owner.householdId);
+  });
+
   test("a link to a member that is gone is taken over without asking", async () => {
     const { owner, helper } = await household();
     const other = await household();

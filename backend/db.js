@@ -1424,7 +1424,13 @@ async function deleteAccountLinks(client, householdId, memberId) {
  * `{ linked: false, conflict: { pets, petNames, lastDay } }` so the phone
  * can ask the person (restore that one, or replace it).
  */
-export async function linkAccount(pool, { householdId, memberId }, provider, subject, { replace = false } = {}) {
+export async function linkAccount(pool, member, provider, subject, options = {}) {
+  const first = await linkAccountOnce(pool, member, provider, subject, options);
+  // Lost an insert race: the row exists now, so this pass locks and decides.
+  return first.retry ? linkAccountOnce(pool, member, provider, subject, options) : first;
+}
+
+async function linkAccountOnce(pool, { householdId, memberId }, provider, subject, { replace = false } = {}) {
   const who = text(subject, "subject", { max: 128 });
   const kind = oneOf(provider, ["firebase"], "provider", "firebase");
   return transaction(pool, async (client) => {
@@ -1461,11 +1467,22 @@ export async function linkAccount(pool, { householdId, memberId }, provider, sub
         };
       }
     }
+    if (!existing) {
+      // No row to lock yet: two phones saving the same sign-in at the same
+      // instant must not silently overwrite each other. Insert-if-absent;
+      // losing the race means someone else just linked, so check again.
+      const inserted = await client.query(
+        `INSERT INTO account_links (provider, subject, household_id, member_id)
+         VALUES ($1,$2,$3,$4)
+         ON CONFLICT (provider, subject) DO NOTHING`,
+        [kind, who, householdId, memberId],
+      );
+      if (inserted.rowCount === 1) return { linked: true };
+      return { retry: true };
+    }
     await client.query(
-      `INSERT INTO account_links (provider, subject, household_id, member_id)
-       VALUES ($1,$2,$3,$4)
-       ON CONFLICT (provider, subject) DO UPDATE
-         SET household_id = EXCLUDED.household_id, member_id = EXCLUDED.member_id, linked_at = now()`,
+      `UPDATE account_links SET household_id = $3, member_id = $4, linked_at = now()
+       WHERE provider = $1 AND subject = $2`,
       [kind, who, householdId, memberId],
     );
     return { linked: true, ...(elsewhere ? { replaced: true } : {}) };

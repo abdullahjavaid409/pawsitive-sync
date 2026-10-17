@@ -10,6 +10,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/data/firebase_setup.dart';
 import 'package:pawsitive_sync/firebase_options.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 /// How the person signed in.
@@ -184,6 +185,43 @@ abstract final class AccountService {
   }
 
   /// Signs out of the account on this phone. The household stays.
+  static const _linkPendingKey = 'account_link_pending_v1';
+
+  /// Marks a save/restore as running (true) or finished (false). Set right
+  /// after the sign-in succeeds and cleared once the household link is
+  /// done or given up, success or not. Never throws.
+  static Future<void> markLinkPending(bool pending) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (pending) {
+        await prefs.setBool(_linkPendingKey, true);
+      } else {
+        await prefs.remove(_linkPendingKey);
+      }
+    } on Object catch (error, stack) {
+      AppLog.error('account.link_pending_failed', error, stack);
+    }
+  }
+
+  /// At launch: a save/restore that never finished (app killed mid-link or
+  /// on the "already saves a household" question) left this phone signed
+  /// in to an account that saves nothing here. Sign out so Settings and
+  /// Today don't read it as saved. Never throws.
+  static Future<void> clearInterruptedLink() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (!(prefs.getBool(_linkPendingKey) ?? false)) return;
+      AppLog.event('account.link_interrupted', {
+        'signedIn':
+            FirebaseSetup.isReady && FirebaseAuth.instance.currentUser != null,
+      });
+      await signOut();
+      await prefs.remove(_linkPendingKey);
+    } on Object catch (error, stack) {
+      AppLog.error('account.link_pending_failed', error, stack);
+    }
+  }
+
   static Future<void> signOut() async {
     try {
       if (_googleReady != null) {

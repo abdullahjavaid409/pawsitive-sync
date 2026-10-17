@@ -113,29 +113,46 @@ class _AccountSheetState extends State<_AccountSheet> {
   }
 
   Future<void> _useSignIn(String idToken, String? email) async {
+    // If the app dies before the finally, the next launch signs this
+    // half-finished sign-in out (AccountService.clearInterruptedLink).
+    await AccountService.markLinkPending(true);
+    var linked = false;
+    try {
+      linked = await _linkSignIn(idToken, email);
+    } finally {
+      // One rule for every way out (error, Cancel, sheet closed mid-way):
+      // never stay signed in to an account that saves nothing here.
+      if (!linked) await AccountService.signOut();
+      await AccountService.markLinkPending(false);
+    }
+  }
+
+  /// True once the server saved (or restored) the household for this
+  /// sign-in. The UI only updates while the sheet is still open; the
+  /// outcome holds either way.
+  Future<bool> _linkSignIn(String idToken, String? email) async {
     final care = context.read<CareRepository>();
     String? error;
     if (widget.mode == AccountSheetMode.save) {
       var result = await care.saveSignIn(idToken);
       if (result case SignInSaveConflict(:final conflict)) {
-        if (!mounted) return;
-        final replace = await _confirmReplaceSaved(conflict);
+        // Sheet gone: nobody to ask, so keep the saved household.
+        final replace = mounted && await _confirmReplaceSaved(conflict);
         AppLog.event('account.link_conflict_choice', {
           'choice': replace ? 'replace' : 'keep',
+          if (!mounted) 'reason': 'sheet_closed',
         });
         if (!replace) {
-          // Nothing changed on the server; don't stay signed in to an
-          // account that saves a different household on this phone.
-          await AccountService.signOut();
-          if (!mounted) return;
-          setState(() {
-            _busy = null;
-            _error =
-                'Nothing changed. That household stays saved to this '
-                'account. To use it here, choose “Restore a saved '
-                'household” in Settings.';
-          });
-          return;
+          if (mounted) {
+            setState(() {
+              _busy = null;
+              _error =
+                  'Nothing changed. That household stays saved to this '
+                  'account. To use it here, choose “Restore a saved '
+                  'household” in Settings.';
+            });
+          }
+          return false;
         }
         result = await care.saveSignIn(idToken, replace: true);
       }
@@ -148,32 +165,31 @@ class _AccountSheetState extends State<_AccountSheet> {
       };
     } else {
       // Restoring replaces whatever this phone holds; ask first if that's
-      // anything at all.
-      if (care.pets.isNotEmpty && !await _confirmReplace(care)) {
-        await AccountService.signOut();
+      // anything at all (and never replace once the sheet is gone).
+      if (care.pets.isNotEmpty && !(mounted && await _confirmReplace(care))) {
         if (mounted) setState(() => _busy = null);
-        return;
+        return false;
       }
       error = await care.recoverWithSignIn(idToken);
     }
-    if (!mounted) return;
     if (error != null) {
-      // The household didn't save or come back, so don't stay signed in to
-      // an account that isn't tied to anything.
-      await AccountService.signOut();
-      if (!mounted) return;
+      if (mounted) {
+        setState(() {
+          _busy = null;
+          _error = error;
+        });
+      }
+      return false;
+    }
+    if (mounted) {
+      HapticFeedback.mediumImpact();
       setState(() {
         _busy = null;
-        _error = error;
+        _savedEmail = email;
+        _step = _Step.done;
       });
-      return;
     }
-    HapticFeedback.mediumImpact();
-    setState(() {
-      _busy = null;
-      _savedEmail = email;
-      _step = _Step.done;
-    });
+    return true;
   }
 
   /// The sign-in already saves another household. Saving here would stop
