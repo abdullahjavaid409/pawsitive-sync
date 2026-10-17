@@ -8,6 +8,7 @@ import 'package:pawsitive_sync/data/care_repository.dart';
 import 'package:pawsitive_sync/data/revenue_cat_service.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/domain/paywall_reason.dart';
+import 'package:pawsitive_sync/ui/meds/medicine_forms.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:provider/provider.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
@@ -263,5 +264,96 @@ void main() {
         expect(tester.takeException(), isNull);
       });
     }
+  });
+
+  group('first dose answered during setup', () {
+    Future<CareRepository> finishSetup(
+      WidgetTester tester, {
+      required bool? given,
+      bool hasMedicine = true,
+    }) async {
+      await loadAppFonts();
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final care = CareRepository(clock: () => DateTime(2026, 10, 3, 7));
+      final model = OnboardingViewModel()
+        ..setName('Milo')
+        ..setSpecies(Species.dog)
+        ..setForm(MedicineForm.tablet);
+      model
+        ..medName = 'Apoquel'
+        ..medAmount = '1'
+        ..hasMedicine = hasMedicine
+        ..householdDone = true
+        ..remindersAnswered = true
+        ..firstDoseGiven = given;
+      final router = createRouter(model);
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            ChangeNotifierProvider.value(value: model),
+            ChangeNotifierProvider.value(value: care),
+          ],
+          child: MaterialApp.router(
+            theme: AppTheme.light(),
+            routerConfig: router,
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(context).copyWith(disableAnimations: true),
+              child: child!,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      router.go(AppRoutes.paywall);
+      await tester.pumpAndSettle();
+      final free = find.text('Continue free with 1 pet');
+      await tester.ensureVisible(free);
+      await tester.pumpAndSettle();
+      await tester.tap(free);
+      await tester.pumpAndSettle();
+      addTearDown(() async {
+        await tester.pumpWidget(const SizedBox.shrink());
+        router.dispose();
+        model.dispose();
+        care.dispose();
+      });
+      return care;
+    }
+
+    testWidgets('"Yes, already given" logs today\'s dose (even before 8 AM)', (
+      tester,
+    ) async {
+      final care = await finishSetup(tester, given: true);
+      final med = care.medications.single;
+      expect(
+        care.loggedDose('${med.id}.morning', '2026-10-03')?.outcome,
+        LogOutcome.given,
+      );
+      expectLogged('dose.log.completed', fields: {'offline': true});
+      expectLogged('onboarding.first_dose_logged', fields: {'part': 'morning'});
+    });
+
+    testWidgets('"Not yet" and unanswered log no dose', (tester) async {
+      for (final given in [false, null]) {
+        AppLog.testRecords.clear();
+        final care = await finishSetup(tester, given: given);
+        expect(care.medications, hasLength(1));
+        expect(care.logs, isEmpty);
+        expectNotLogged('dose.log.completed');
+        expectNotLogged('onboarding.first_dose_logged');
+      }
+    });
+
+    testWidgets('no medicine: nothing to log, setup still finishes', (
+      tester,
+    ) async {
+      final care = await finishSetup(tester, given: true, hasMedicine: false);
+      expect(care.pets.single.name, 'Milo');
+      expect(care.logs, isEmpty);
+      expectNotLogged('onboarding.first_dose_logged');
+    });
   });
 }

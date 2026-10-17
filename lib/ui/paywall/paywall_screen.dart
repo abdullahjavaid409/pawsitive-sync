@@ -275,6 +275,22 @@ class _PaywallScreenState extends State<PaywallScreen> {
     final messenger = ScaffoldMessenger.of(context);
     if (afterSetup != null) {
       messenger.showSnackBar(SnackBar(content: Text(afterSetup)));
+    } else if (_firstDoseId case final doseId?) {
+      // A mistaken "Yes, already given" is one tap to take back (Flutter
+      // a11y: important actions can be undone). An action keeps the
+      // SnackBar up under VoiceOver/TalkBack until handled.
+      messenger.showSnackBar(
+        SnackBar(
+          content: const Text('Today’s dose is in the log.'),
+          action: SnackBarAction(
+            label: 'Undo',
+            onPressed: () {
+              final undone = care.undoDose(doseId);
+              AppLog.event('onboarding.first_dose_undone', {'ok': undone});
+            },
+          ),
+        ),
+      );
     }
     // Setup asked to invite people: the invite flow (Pro) opens with the
     // first address, or a plain note on Free so nothing typed is lost.
@@ -317,6 +333,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
       return null;
     }
     final supply = int.tryParse(model.medSupply.trim()) ?? 0;
+    final before = {for (final m in care.medications) m.id};
     final ok = await care.addMedication(
       petId: pet.id,
       name: model.medName,
@@ -331,10 +348,53 @@ class _PaywallScreenState extends State<PaywallScreen> {
       site: model.medSite,
       startDay: dayKey(care.now),
     );
-    if (ok) return null;
-    return '${model.medName.trim()} wasn’t added: '
-        '${care.lastError ?? 'try again from Pets'}';
+    if (!ok) {
+      if (model.firstDoseGiven == true) {
+        AppLog.event('onboarding.first_dose_skipped', {
+          'reason': 'medicine_not_saved',
+        });
+      }
+      return '${model.medName.trim()} wasn’t added: '
+          '${care.lastError ?? 'try again from Pets'}';
+    }
+    if (model.firstDoseGiven == true) await _logFirstDose(care, model, before);
+    return null;
   }
+
+  /// "Yes, already given" on the ready screen: logs today's dose for the
+  /// medicine just saved (offline like any dose). Never blocks setup; a
+  /// failure is logged and the dose can still be logged from Today.
+  Future<void> _logFirstDose(
+    CareRepository care,
+    OnboardingViewModel model,
+    Set<String> before,
+  ) async {
+    final medication = care.medications
+        .where((m) => !before.contains(m.id))
+        .lastOrNull;
+    final part = model.firstDosePart;
+    if (medication == null || !medication.parts.contains(part)) {
+      AppLog.event('onboarding.first_dose_skipped', {
+        'reason': medication == null ? 'medicine_missing' : 'part_missing',
+      });
+      return;
+    }
+    // dose.log.completed / dose.log.rejected come from the repository.
+    final ok = await care.logDose(
+      doseId: '${medication.id}.${part.name}',
+      memberId: care.you.id,
+      amount: medication.amount,
+      timeLabel: CareRepository.clockLabel(care.now),
+    );
+    AppLog.event(
+      ok ? 'onboarding.first_dose_logged' : 'onboarding.first_dose_skipped',
+      {'part': part.name, if (!ok) 'reason': 'log_rejected'},
+    );
+    if (ok) _firstDoseId = '${medication.id}.${part.name}';
+  }
+
+  /// Set when setup logged today's dose, for the Undo on Today.
+  String? _firstDoseId;
 
   @override
   Widget build(BuildContext context) {

@@ -318,7 +318,7 @@ class CareRepository extends ChangeNotifier {
   Future<String?>? _deleting;
 
   /// The running [CareSignIn.saveSignIn], shared by a second tap.
-  Future<String?>? _savingSignIn;
+  Future<SignInSave>? _savingSignIn;
   bool _accountDeletePending = false;
 
   @override

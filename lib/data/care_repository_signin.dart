@@ -10,32 +10,61 @@ extension CareSignIn on CareRepository {
   /// Saves this member's sign-in so the household comes back on a new
   /// phone. A Pro owner who never shared gets their household onto the
   /// server first (that is what makes it recoverable); Free stays local.
-  Future<String?> saveSignIn(String idToken) =>
-      _savingSignIn ??= _saveSignIn(idToken)
-          .whenComplete(() => _savingSignIn = null);
+  ///
+  /// If the sign-in already saves another household, nothing moves: the
+  /// result is [SignInSaveConflict] and the caller asks the person. Only
+  /// then is it called again with [replace] (that household stays on the
+  /// server, it just stops coming back with this sign-in).
+  Future<SignInSave> saveSignIn(String idToken, {bool replace = false}) =>
+      _savingSignIn ??= _saveSignIn(
+        idToken,
+        replace: replace,
+      ).whenComplete(() => _savingSignIn = null);
 
-  Future<String?> _saveSignIn(String idToken) async {
+  Future<SignInSave> _saveSignIn(
+    String idToken, {
+    required bool replace,
+  }) async {
     final api = _api;
     if (api == null) {
       AppLog.event('account.link_skipped', {'reason': 'no_api'});
-      return 'Saving needs the online version of the app.';
+      return const SignInSaveFailed(
+        'Saving needs the online version of the app.',
+      );
     }
     if (!isConnected) {
       if (!isPro) {
         // Free never touches the server: nothing to save the account to.
         AppLog.event('account.link_skipped', {'reason': 'free_tier'});
-        return 'Saving your household to an account comes with Pro.';
+        return const SignInSaveFailed(
+          'Saving your household to an account comes with Pro.',
+        );
       }
       final error = await connect();
-      if (error != null) return error;
+      if (error != null) return SignInSaveFailed(error);
     }
     try {
-      await AppLog.trace('account.link', () => api.linkAccount(idToken));
-      AppLog.event('account.linked');
-      return null;
+      await AppLog.trace(
+        'account.link',
+        () => api.linkAccount(idToken, replace: replace),
+      );
+      AppLog.event('account.linked', {if (replace) 'replaced': true});
+      return const SignInSaved();
     } on HouseholdException catch (error) {
-      AppLog.event('account.link_failed', {'kind': error.kind.name});
-      return error.message;
+      final conflict = error.accountConflict;
+      if (error.isAccountInUse && conflict != null) {
+        AppLog.event('account.link_conflict', {
+          'pets': conflict.pets,
+          'hasLastDay': conflict.lastDay != null,
+        });
+        return SignInSaveConflict(conflict);
+      }
+      AppLog.event('account.link_failed', {
+        'kind': error.kind.name,
+        'code': ?error.code,
+        if (replace) 'replace': true,
+      });
+      return SignInSaveFailed(error.message);
     }
   }
 
@@ -93,4 +122,28 @@ extension CareSignIn on CareRepository {
     }
     await AccountService.signOut();
   }
+}
+
+/// Outcome of [CareSignIn.saveSignIn].
+sealed class SignInSave {
+  const SignInSave();
+}
+
+/// The sign-in now brings this household back on a new phone.
+final class SignInSaved extends SignInSave {
+  const SignInSaved();
+}
+
+/// Nothing was saved; [message] says why in plain words.
+final class SignInSaveFailed extends SignInSave {
+  const SignInSaveFailed(this.message);
+
+  final String message;
+}
+
+/// The sign-in already saves another household; nothing changed.
+final class SignInSaveConflict extends SignInSave {
+  const SignInSaveConflict(this.conflict);
+
+  final AccountConflict conflict;
 }

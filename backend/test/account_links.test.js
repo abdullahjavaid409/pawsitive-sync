@@ -122,13 +122,47 @@ describe("account links", () => {
     assert.equal(await recoverAccount(pool, "firebase", uid()), null);
   });
 
-  test("linking the same sign-in again moves it to the newest membership", async () => {
+  test("a sign-in saving another household is never moved without replace", async () => {
     const first = await household();
     const second = await household();
     const subject = uid();
     await linkAccount(pool, first.owner, "firebase", subject);
-    await linkAccount(pool, second.owner, "firebase", subject);
+    const refused = await linkAccount(pool, second.owner, "firebase", subject);
+    assert.equal(refused.linked, false);
+    assert.equal(typeof refused.conflict.pets, "number");
+    assert.ok(Array.isArray(refused.conflict.petNames));
+    assert.equal(
+      (await recoverAccount(pool, "firebase", subject)).householdId,
+      first.owner.householdId,
+      "the first household stays recoverable",
+    );
+  });
+
+  test("replace moves the sign-in to the newest membership", async () => {
+    const first = await household();
+    const second = await household();
+    const subject = uid();
+    await linkAccount(pool, first.owner, "firebase", subject);
+    const moved = await linkAccount(pool, second.owner, "firebase", subject, { replace: true });
+    assert.deepEqual(moved, { linked: true, replaced: true });
     assert.equal((await recoverAccount(pool, "firebase", subject)).householdId, second.owner.householdId);
+  });
+
+  test("linking the same membership again is a no-op success", async () => {
+    const { owner } = await household();
+    const subject = uid();
+    await linkAccount(pool, owner, "firebase", subject);
+    assert.deepEqual(await linkAccount(pool, owner, "firebase", subject), { linked: true });
+  });
+
+  test("a link to a member that is gone is taken over without asking", async () => {
+    const { owner, helper } = await household();
+    const other = await household();
+    const subject = uid();
+    await linkAccount(pool, helper, "firebase", subject);
+    await removeMember(pool, owner, helper.memberId);
+    const taken = await linkAccount(pool, other.owner, "firebase", subject);
+    assert.equal(taken.linked, true);
   });
 
   test("a removed member can't sign back in", async () => {

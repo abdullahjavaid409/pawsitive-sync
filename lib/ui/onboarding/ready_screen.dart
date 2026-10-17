@@ -170,6 +170,25 @@ class ReadyScreen extends StatelessWidget {
                   ),
                 ),
               ),
+              const SizedBox(height: 20),
+              // First value in the first minute: answering "yes" logs the
+              // dose once setup saves the medicine, and the double-dose
+              // check covers the reminder. Optional; never blocks.
+              // A real question, not a caption (Headway-style weight).
+              Text(
+                'Has ${model.petName.trim()} had today’s '
+                '${ClockFormat.label(model.firstDosePart.defaultMinute)} dose?',
+                textAlign: TextAlign.center,
+                style: text.titleSmall,
+              ),
+              const SizedBox(height: 10),
+              ChoicePills<bool>(
+                label: 'Today’s dose',
+                options: const [true, false],
+                value: model.firstDoseGiven,
+                labelOf: (given) => given ? 'Yes, already given' : 'Not yet',
+                onChanged: model.answerFirstDose,
+              ),
             ],
           ],
         ),
@@ -179,6 +198,12 @@ class ReadyScreen extends StatelessWidget {
             AppLog.event('onboarding.step', {
               'step': 'ready',
               'medicine': model.hasMedicine,
+              if (model.hasMedicine)
+                'firstDose': switch (model.firstDoseGiven) {
+                  true => 'given',
+                  false => 'not_yet',
+                  null => 'unanswered',
+                },
             });
             // The plan choice finishes setup (applyOnboarding) either way.
             context.go(AppRoutes.paywall);

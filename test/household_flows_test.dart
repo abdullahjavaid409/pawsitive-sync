@@ -341,6 +341,79 @@ void main() {
     });
   });
 
+  group('Save sign-in to an account', () {
+    const conflictBody = {
+      'error': 'This account already saves another household.',
+      'code': 'account_in_use',
+      'conflict': {
+        'pets': 2,
+        'petNames': ['Milo', 'Bella'],
+        'lastDay': '2026-10-12',
+      },
+    };
+
+    test('already saving another household: nothing moves, caller asks', () async {
+      final care = await connectedCare({
+        'POST /v1/auth/firebase/link': (_) => (409, conflictBody),
+      });
+
+      final result = await care.saveSignIn('id-token');
+
+      expect(result, isA<SignInSaveConflict>());
+      final conflict = (result as SignInSaveConflict).conflict;
+      expect(conflict.summary, 'Milo and Bella · last dose Oct 12');
+      // No replace flag was sent: the server keeps the old link.
+      expect(
+        adapter.bodiesFor('POST /v1/auth/firebase/link').single,
+        isNot(contains('replace')),
+      );
+      expectLogged('account.link_conflict', fields: {'pets': 2});
+      expectNotLogged('account.linked');
+    });
+
+    test('replace only when asked: sends replace and logs it', () async {
+      final care = await connectedCare({
+        'POST /v1/auth/firebase/link': (_) => (200, {'linked': true}),
+      });
+
+      final result = await care.saveSignIn('id-token', replace: true);
+
+      expect(result, isA<SignInSaved>());
+      expect(
+        adapter.bodiesFor('POST /v1/auth/firebase/link').single,
+        containsPair('replace', true),
+      );
+      expectLogged('account.linked', fields: {'replaced': true});
+    });
+
+    test('offline: a plain failure, the household is untouched', () async {
+      final care = await connectedCare({});
+      adapter.offline = true;
+      final pets = care.pets.length;
+
+      final result = await care.saveSignIn('id-token');
+
+      expect(result, isA<SignInSaveFailed>());
+      expect(care.pets, hasLength(pets));
+      expect(care.isConnected, isTrue);
+      expectLogged('account.link_failed', fields: {'kind': 'offline'});
+    });
+
+    test('a second tap shares the running save (one request)', () async {
+      final care = await connectedCare({
+        'POST /v1/auth/firebase/link': (_) => (200, {'linked': true}),
+      });
+
+      final results = await Future.wait([
+        care.saveSignIn('id-token'),
+        care.saveSignIn('id-token'),
+      ]);
+
+      expect(results, everyElement(isA<SignInSaved>()));
+      expect(adapter.bodiesFor('POST /v1/auth/firebase/link'), hasLength(1));
+    });
+  });
+
   group('Leave household', () {
     test('tells the server, then keeps pets and medicines solo', () async {
       final care = await connectedCare({

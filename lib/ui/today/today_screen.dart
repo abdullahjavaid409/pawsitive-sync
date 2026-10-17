@@ -1,6 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:pawsitive_sync/ui/account/account_sheet.dart';
+import 'package:pawsitive_sync/data/firebase_setup.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:go_router/go_router.dart';
 import 'package:pawsitive_sync/core/logging/app_log.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
@@ -295,6 +299,11 @@ class _TodayScreenState extends State<TodayScreen> {
                     const SizedBox(height: 12),
                     const _QuickActions(),
                     if (!care.isPro) const TodayProCard(),
+                    // Pro has something to keep: offer saving it to an
+                    // account once a dose is in the log (Free never sees it;
+                    // saving needs the household online, a Pro feature).
+                    if (care.isPro && care.logs.isNotEmpty)
+                      const _SaveAccountBanner(),
                     const _RemindersBanner(),
                   ] else ...[
                     TodayStart(
@@ -884,6 +893,154 @@ class _RemindersBannerState extends State<_RemindersBanner> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// One-time "keep this household if you change phones" nudge on Today for
+/// Pro households not saved to an account yet. Hidden while the choice
+/// loads (never flashes), once signed in (saved), when sign-in can't run
+/// (no Firebase), and for good after the person closes it — Settings and
+/// Household still offer saving.
+class _SaveAccountBanner extends StatefulWidget {
+  const _SaveAccountBanner();
+
+  @override
+  State<_SaveAccountBanner> createState() => _SaveAccountBannerState();
+}
+
+class _SaveAccountBannerState extends State<_SaveAccountBanner> {
+  static const _hiddenKey = 'today_save_account_hidden_v1';
+
+  bool _hidden = true;
+  bool _busy = false;
+  bool _shownLogged = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!FirebaseSetup.isReady) return;
+    SharedPreferences.getInstance()
+        .then((prefs) => prefs.getBool(_hiddenKey) ?? false)
+        .catchError((Object error, StackTrace stack) {
+          // Unreadable prefs: show nothing rather than nag every launch.
+          AppLog.error('account.today_card_state_failed', error, stack);
+          return true;
+        })
+        .then((hidden) {
+          if (mounted) setState(() => _hidden = hidden);
+        });
+  }
+
+  Future<void> _dismiss() async {
+    AppLog.event('account.today_card_dismissed');
+    setState(() => _hidden = true);
+    try {
+      await (await SharedPreferences.getInstance()).setBool(_hiddenKey, true);
+    } on Object catch (error, stack) {
+      AppLog.error('account.today_card_state_failed', error, stack);
+    }
+  }
+
+  Future<void> _save() async {
+    if (_busy) return;
+    AppLog.event('account.today_card_tap');
+    setState(() => _busy = true);
+    // account.* lines for the sign-in itself come from the sheet/repository.
+    final saved = await showAccountSheet(context, mode: AccountSheetMode.save);
+    AppLog.event('account.today_card_result', {'saved': saved});
+    if (mounted) setState(() => _busy = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_hidden) return const SizedBox.shrink();
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.userChanges(),
+      initialData: FirebaseAuth.instance.currentUser,
+      builder: (context, snapshot) {
+        // Signed in = saved (a failed save signs out again).
+        if (snapshot.data != null) return const SizedBox.shrink();
+        if (!_shownLogged) {
+          _shownLogged = true;
+          AppLog.event('account.today_card_shown');
+        }
+        final scheme = Theme.of(context).colorScheme;
+        final tokens = context.paws;
+        final text = Theme.of(context).textTheme;
+        return Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: Material(
+            color: tokens.neutral,
+            borderRadius: BorderRadius.circular(PawsRadii.cardValue),
+            // One button for VoiceOver/TalkBack; "Hide" stays its own.
+            child: Semantics(
+              button: true,
+              enabled: !_busy,
+              label:
+                  'Save this household to an account, so it comes back '
+                  'if you change phones',
+              child: InkWell(
+                onTap: _busy ? null : _save,
+                borderRadius: BorderRadius.circular(PawsRadii.cardValue),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 4, 4),
+                  child: Row(
+                    children: [
+                      // Read once, as the button's label (no double read).
+                      Expanded(
+                        child: ExcludeSemantics(
+                          child: Row(
+                            children: [
+                              StrokeIcon(
+                                StrokeIconKind.userCheck,
+                                size: 20,
+                                color: tokens.brandDark,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 8,
+                                  ),
+                                  child: Text(
+                                    'Keep this household if you change phones',
+                                    style: text.bodyMedium?.copyWith(
+                                      color: scheme.onSurface,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(
+                                _busy ? '…' : 'Save',
+                                style: text.bodyMedium?.copyWith(
+                                  color: tokens.brandDark,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Hide',
+                        onPressed: _busy ? null : _dismiss,
+                        icon: StrokeIcon(
+                          StrokeIconKind.close,
+                          size: 16,
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

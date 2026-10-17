@@ -746,9 +746,26 @@ async function route(req, url, requestId) {
       log("auth.firebase_rejected", { requestId, reason: signIn.reason, route: "link" });
       return { status: 401, body: { error: "We couldn’t confirm that sign-in. Try signing in again." } };
     }
-    const linked = await linkAccount(pool, auth, "firebase", signIn.uid);
-    log("auth.firebase_linked", { requestId, householdId: auth.householdId, provider: signIn.provider });
-    return { status: 200, body: linked };
+    const linked = await linkAccount(pool, auth, "firebase", signIn.uid, { replace: body.replace === true });
+    if (!linked.linked) {
+      // Saved to another household that still exists: the phone asks first.
+      log("auth.firebase_link_conflict", { requestId, householdId: auth.householdId, pets: linked.conflict.pets });
+      return {
+        status: 409,
+        body: {
+          error: "This account already saves another household.",
+          code: "account_in_use",
+          conflict: linked.conflict,
+        },
+      };
+    }
+    log("auth.firebase_linked", {
+      requestId,
+      householdId: auth.householdId,
+      provider: signIn.provider,
+      replaced: linked.replaced === true,
+    });
+    return { status: 200, body: { linked: true } };
   }
 
   if (req.method === "POST" && path === "/v1/auth/firebase/unlink") {

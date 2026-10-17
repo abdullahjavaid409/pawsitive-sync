@@ -129,6 +129,50 @@ enum HouseholdErrorKind {
   server,
 }
 
+/// What a sign-in already saves, so the person can choose knowingly.
+class AccountConflict {
+  const AccountConflict({
+    required this.pets,
+    required this.petNames,
+    this.lastDay,
+  });
+
+  factory AccountConflict.fromJson(Map<String, dynamic> json) =>
+      AccountConflict(
+        pets: (json['pets'] as num?)?.toInt() ?? 0,
+        petNames: [
+          for (final name in (json['petNames'] as List?) ?? const [])
+            if (name is String && name.trim().isNotEmpty) name.trim(),
+        ],
+        lastDay: json['lastDay'] is String ? json['lastDay'] as String : null,
+      );
+
+  final int pets;
+
+  /// Up to three, oldest first.
+  final List<String> petNames;
+
+  /// `yyyy-MM-dd` of the newest dose logged there, if any.
+  final String? lastDay;
+
+  /// "Milo and Bella · last dose Oct 12" — enough to recognise it.
+  String get summary {
+    final names = switch (petNames.length) {
+      0 => pets == 1 ? '1 pet' : '$pets pets',
+      1 => petNames.first,
+      2 => '${petNames[0]} and ${petNames[1]}',
+      _ => '${petNames[0]}, ${petNames[1]} and ${pets - 2} more',
+    };
+    final day = lastDay == null ? null : DateTime.tryParse(lastDay!);
+    if (day == null) return names;
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', //
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return '$names · last dose ${months[day.month - 1]} ${day.day}';
+  }
+}
+
 class HouseholdException implements Exception {
   const HouseholdException(
     this.message, {
@@ -137,10 +181,17 @@ class HouseholdException implements Exception {
     this.status,
     this.timedOut = false,
     this.code,
+    this.accountConflict,
   });
 
   final String message;
   final HouseholdErrorKind kind;
+
+  /// 409 `account_in_use`: the sign-in already saves another household
+  /// that still exists (see [AccountConflict]).
+  final AccountConflict? accountConflict;
+
+  bool get isAccountInUse => code == 'account_in_use';
 
   /// The server’s machine-readable reason (`role_forbidden`, `pro_required`,
   /// `invite_expired`, `member_removed`, `member_gone`). Null from older servers.
@@ -234,8 +285,14 @@ class HouseholdApi {
   }
 
   /// Saves this member's sign-in so the household can be recovered later.
-  Future<void> linkAccount(String idToken) async {
-    await _send('POST', '/v1/auth/firebase/link', {'idToken': idToken});
+  /// [replace]: move the sign-in here even if it saves another household
+  /// (only after the person chose that). Without it the server answers 409
+  /// [HouseholdException.isAccountInUse] instead of moving it.
+  Future<void> linkAccount(String idToken, {bool replace = false}) async {
+    await _send('POST', '/v1/auth/firebase/link', {
+      'idToken': idToken,
+      if (replace) 'replace': true,
+    });
   }
 
   /// Forgets this member's sign-in (signing out of the account).
@@ -634,8 +691,12 @@ class HouseholdApi {
         serverMessage ?? 'Someone already logged this dose.',
         kind: HouseholdErrorKind.conflict,
         status: status,
+        code: code,
         existing: data is Map<String, dynamic> && data['log'] is Map
             ? _log(_map(data['log']))
+            : null,
+        accountConflict: data is Map<String, dynamic> && data['conflict'] is Map
+            ? AccountConflict.fromJson(_map(data['conflict']))
             : null,
       ),
       400 || 413 => HouseholdException(

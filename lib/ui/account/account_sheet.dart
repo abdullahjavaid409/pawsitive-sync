@@ -8,6 +8,7 @@ import 'package:pawsitive_sync/core/theme/paws_tokens.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/account_service.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
+import 'package:pawsitive_sync/data/household_api.dart' show AccountConflict;
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:pawsitive_sync/core/widgets/system_menu.dart';
@@ -113,9 +114,38 @@ class _AccountSheetState extends State<_AccountSheet> {
 
   Future<void> _useSignIn(String idToken, String? email) async {
     final care = context.read<CareRepository>();
-    final String? error;
+    String? error;
     if (widget.mode == AccountSheetMode.save) {
-      error = await care.saveSignIn(idToken);
+      var result = await care.saveSignIn(idToken);
+      if (result case SignInSaveConflict(:final conflict)) {
+        if (!mounted) return;
+        final replace = await _confirmReplaceSaved(conflict);
+        AppLog.event('account.link_conflict_choice', {
+          'choice': replace ? 'replace' : 'keep',
+        });
+        if (!replace) {
+          // Nothing changed on the server; don't stay signed in to an
+          // account that saves a different household on this phone.
+          await AccountService.signOut();
+          if (!mounted) return;
+          setState(() {
+            _busy = null;
+            _error =
+                'Nothing changed. That household stays saved to this '
+                'account. To use it here, choose “Restore a saved '
+                'household” in Settings.';
+          });
+          return;
+        }
+        result = await care.saveSignIn(idToken, replace: true);
+      }
+      error = switch (result) {
+        SignInSaved() => null,
+        SignInSaveFailed(:final message) => message,
+        // Only if the server reports another conflict right after replace.
+        SignInSaveConflict() =>
+          'That account changed while saving. Try again in a moment.',
+      };
     } else {
       // Restoring replaces whatever this phone holds; ask first if that's
       // anything at all.
@@ -146,14 +176,49 @@ class _AccountSheetState extends State<_AccountSheet> {
     });
   }
 
-  Future<bool> _confirmReplace(CareRepository care) async {
+  /// The sign-in already saves another household. Saving here would stop
+  /// that one coming back with this account, so it's the person's choice,
+  /// with Cancel (keep it) as the safe default (HIG Alerts).
+  Future<bool> _confirmReplaceSaved(AccountConflict conflict) async {
     final answer = await showDialog<bool>(
       context: context,
+      routeSettings: const RouteSettings(name: 'account_in_use'),
+      builder: (dialog) => AlertDialog(
+        title: const Text('This account already saves a household'),
+        content: Text(
+          '${conflict.summary}.\n\nSave this phone instead and that '
+          'household won’t come back with this account any more. Nothing '
+          'is deleted.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialog).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dialog).pop(true),
+            child: const Text('Save this phone'),
+          ),
+        ],
+      ),
+    );
+    return answer ?? false;
+  }
+
+  Future<bool> _confirmReplace(CareRepository care) async {
+    // Says exactly what goes, so nobody loses a log by surprise.
+    final pets = care.pets;
+    final names = pets.length == 1 ? pets.first.name : '${pets.length} pets';
+    final answer = await showDialog<bool>(
+      context: context,
+      routeSettings: const RouteSettings(name: 'restore_replace'),
       builder: (dialog) => AlertDialog(
         title: const Text('Replace what’s on this phone?'),
         content: Text(
-          'Your saved household replaces ${care.pets.length == 1 ? 'the pet' : 'the ${care.pets.length} pets'} '
-          'and log on this phone.',
+          // No dose count: memory holds only recent history.
+          'Your saved household replaces $names and '
+          '${pets.length == 1 ? 'its' : 'their'} dose log on this phone. '
+          'They can’t be brought back.',
         ),
         actions: [
           TextButton(
@@ -167,7 +232,12 @@ class _AccountSheetState extends State<_AccountSheet> {
         ],
       ),
     );
-    return answer ?? false;
+    final replace = answer ?? false;
+    AppLog.event('account.restore_replace_choice', {
+      'choice': replace ? 'replace' : 'keep',
+      'pets': pets.length,
+    });
+    return replace;
   }
 
   Future<void> _submitEmail() async {

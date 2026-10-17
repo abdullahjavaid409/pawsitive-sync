@@ -1416,17 +1416,60 @@ async function deleteAccountLinks(client, householdId, memberId) {
  * come back on a new phone. Any member may link their own sign-in. One
  * sign-in leads to one membership; linking again moves it (newest wins).
  */
-export async function linkAccount(pool, { householdId, memberId }, provider, subject) {
+/**
+ * Ties a verified sign-in to this member. If the sign-in already saves a
+ * *different* membership that still exists, nothing changes unless
+ * `replace` is true: moving the link silently would make that household
+ * unrecoverable (data loss). Returns `{ linked: true }` or
+ * `{ linked: false, conflict: { pets, petNames, lastDay } }` so the phone
+ * can ask the person (restore that one, or replace it).
+ */
+export async function linkAccount(pool, { householdId, memberId }, provider, subject, { replace = false } = {}) {
   const who = text(subject, "subject", { max: 128 });
   const kind = oneOf(provider, ["firebase"], "provider", "firebase");
-  await pool.query(
-    `INSERT INTO account_links (provider, subject, household_id, member_id)
-     VALUES ($1,$2,$3,$4)
-     ON CONFLICT (provider, subject) DO UPDATE
-       SET household_id = EXCLUDED.household_id, member_id = EXCLUDED.member_id, linked_at = now()`,
-    [kind, who, householdId, memberId],
-  );
-  return { linked: true };
+  return transaction(pool, async (client) => {
+    const existing = (
+      await client.query(
+        "SELECT household_id, member_id FROM account_links WHERE provider = $1 AND subject = $2 FOR UPDATE",
+        [kind, who],
+      )
+    ).rows[0];
+    const elsewhere =
+      existing && (existing.household_id !== householdId || existing.member_id !== memberId);
+    if (elsewhere && !replace) {
+      const member = await client.query("SELECT 1 FROM members WHERE household_id = $1 AND id = $2", [
+        existing.household_id,
+        existing.member_id,
+      ]);
+      // A link to a member that is gone protects nothing: take it over.
+      if (member.rowCount > 0) {
+        const pets = await client.query(
+          "SELECT name FROM pets WHERE household_id = $1 ORDER BY created_at, id",
+          [existing.household_id],
+        );
+        const last = await client.query("SELECT max(day) AS day FROM dose_logs WHERE household_id = $1", [
+          existing.household_id,
+        ]);
+        return {
+          linked: false,
+          conflict: {
+            pets: pets.rowCount,
+            // The person proved they own this sign-in; names help them choose.
+            petNames: pets.rows.slice(0, 3).map((row) => row.name),
+            lastDay: last.rows[0]?.day ?? null,
+          },
+        };
+      }
+    }
+    await client.query(
+      `INSERT INTO account_links (provider, subject, household_id, member_id)
+       VALUES ($1,$2,$3,$4)
+       ON CONFLICT (provider, subject) DO UPDATE
+         SET household_id = EXCLUDED.household_id, member_id = EXCLUDED.member_id, linked_at = now()`,
+      [kind, who, householdId, memberId],
+    );
+    return { linked: true, ...(elsewhere ? { replaced: true } : {}) };
+  });
 }
 
 /** Removes this member's sign-in link (signing out of the account). */

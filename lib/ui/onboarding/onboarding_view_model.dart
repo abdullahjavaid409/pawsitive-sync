@@ -48,6 +48,27 @@ class OnboardingViewModel extends ChangeNotifier {
   /// True once the medicine step was completed (not skipped).
   bool hasMedicine = false;
 
+  /// "Has `pet` had today's dose?" on the ready screen: true = already
+  /// given (logged once the medicine is saved), false = not yet, null =
+  /// not answered. Optional; only asked when there is a medicine.
+  bool? firstDoseGiven;
+
+  /// The dose the ready screen asks about: the earliest time picked.
+  DayPart get firstDosePart => DayPart.values.firstWhere(
+    medParts.contains,
+    orElse: () => DayPart.morning,
+  );
+
+  void answerFirstDose(bool given) {
+    if (firstDoseGiven == given) return;
+    firstDoseGiven = given;
+    AppLog.event('onboarding.first_dose_answer', {
+      'answer': given ? 'given' : 'not_yet',
+      'part': firstDosePart.name,
+    });
+    notifyListeners();
+  }
+
   /// v14 setup step 3: people to invite, by email. Sent from the invite
   /// flow once setup is done (inviting needs the household online).
   final List<String> invites = [];
@@ -298,6 +319,7 @@ class OnboardingViewModel extends ChangeNotifier {
     medSite = '';
     medSupply = '';
     hasMedicine = false;
+    firstDoseGiven = null;
     invites.clear();
     householdDone = false;
     inviteAfterSetup = false;
