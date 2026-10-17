@@ -149,7 +149,9 @@ void main() {
   testWidgets('real savings badge shown on yearly', (tester) async {
     await pumpPaywall(tester);
     expect(find.text('Save 49%'), findsOneWidget);
-    expect(find.text('\$2.49/mo'), findsOneWidget);
+    // The billed yearly amount leads; the monthly breakdown is secondary.
+    expect(find.text('\$29.99/yr'), findsOneWidget);
+    expect(find.text('\$2.49/mo · whole household'), findsOneWidget);
   });
 
   testWidgets('no RevenueCat offer: no made-up prices or trials', (

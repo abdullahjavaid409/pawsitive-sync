@@ -410,10 +410,12 @@ class _PaywallScreenState extends State<PaywallScreen> {
                     _PlanTile(
                       selected: yearly,
                       title: 'Yearly',
+                      // Apple: the billed amount is the most prominent
+                      // price; the per-month breakdown stays subordinate.
+                      // developer.apple.com/app-store/subscriptions
                       subtitle:
-                          '${_price(BillingPlan.yearly)} per year · '
-                          'whole household',
-                      price: '$_yearlyPerMonth/mo',
+                          '$_yearlyPerMonth/mo · whole household',
+                      price: '${_price(BillingPlan.yearly)}/yr',
                       badge: _yearlyBadge,
                       onPressed: locked
                           ? null
