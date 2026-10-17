@@ -27,17 +27,27 @@ void main() {
   testWidgets('pet filter updates daily progress and next dose together', (
     tester,
   ) async {
+    final handle = tester.ensureSemantics();
     final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14));
     await _pump(tester, care);
-    expect(find.text('2 doses left today'), findsOneWidget);
-    expect(find.text('Gave it'), findsOneWidget);
+    String progress([String? petId]) {
+      final doses = care.doses.where((d) => petId == null || d.petId == petId);
+      final given = doses.where((d) => d.status == DoseStatus.given).length;
+      return '$given of ${doses.length} doses given today';
+    }
+
+    // v14 progress card: "X of Y doses given today" and one next action.
+    expect(find.bySemanticsLabel(progress()), findsOneWidget);
+    expect(find.text('Mark given'), findsOneWidget);
     await tester.tap(find.text('Juniper'));
     await tester.pumpAndSettle();
-    expect(find.text('All cared for.'), findsOneWidget);
-    expect(find.text('Gave it'), findsNothing);
+    expect(find.bySemanticsLabel(progress('juniper')), findsOneWidget);
+    expect(find.text('Everyone is covered for today'), findsOneWidget);
+    expect(find.text('Mark given'), findsNothing);
     await tester.tap(find.text('All pets'));
     await tester.pumpAndSettle();
-    expect(find.text('2 doses left today'), findsOneWidget);
+    expect(find.bySemanticsLabel(progress()), findsOneWidget);
+    handle.dispose();
   });
 
   testWidgets('a due dose inside a group opens confirmation without logging', (
@@ -55,19 +65,20 @@ void main() {
     );
     await _pump(tester, care);
     final dose = care.doses.firstWhere((d) => d.name == 'Gabapentin');
+    // v14 rows show the medicine name; pet, amount and time sit below it.
     await tester.scrollUntilVisible(
-      find.text(dose.title),
+      find.text(dose.name),
       200,
       scrollable: _verticalScroll(),
     );
     await Scrollable.ensureVisible(
-      tester.element(find.text(dose.title)),
+      tester.element(find.text(dose.name)),
       alignment: 0.5,
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text(dose.title));
+    await tester.tap(find.text(dose.name));
     await tester.pumpAndSettle();
-    expect(find.text('Log Gabapentin'), findsOneWidget);
+    expect(find.text('Log Miso’s Gabapentin?'), findsOneWidget);
     expect(care.doseById(dose.id)!.status, DoseStatus.due);
     expect(tester.takeException(), isNull);
   });
@@ -77,9 +88,11 @@ void main() {
   ) async {
     final care = sampleCare(clock: () => DateTime(2026, 10, 3, 7));
     await _pump(tester, care);
-    expect(find.text('Later today'), findsOneWidget);
+    expect(find.textContaining('Later today'), findsOneWidget);
     expect(find.text('View medicine'), findsOneWidget);
-    expect(find.text('Gave it'), findsNothing);
+    expect(find.text('Mark given'), findsNothing);
+    // Rows for later doses say so instead of offering "Give".
+    expect(find.text('Give'), findsNothing);
   });
 
   testWidgets('a pet with no report can switch back to a pet with records', (
@@ -97,15 +110,15 @@ void main() {
     await tester.tap(find.text('Pip'));
     await tester.pumpAndSettle();
     expect(find.byType(CareEmptyState), findsOneWidget);
-    expect(find.byType(CarePetPicker), findsOneWidget);
+    // The pet switch stays in the header so the way back is never lost.
     await tester.ensureVisible(find.text('Miso'));
     await tester.tap(find.text('Miso'));
     await tester.pumpAndSettle();
-    expect(find.text('Medication record'), findsOneWidget);
+    expect(find.text('By medicine'), findsOneWidget);
     expect(find.byType(CareEmptyState), findsNothing);
   });
 
-  testWidgets('medicine form saves the selected pet, daily times and supply', (
+  testWidgets('medicine flow saves the selected pet, daily times and supply', (
     tester,
   ) async {
     // Pro: Juniper already has Free’s one medicine.
@@ -114,11 +127,20 @@ void main() {
     final router = await _pump(tester, care);
     router.go('${AppRoutes.schedule}?pet=juniper');
     await tester.pumpAndSettle();
-    expect(find.text('A simple routine for Juniper.'), findsOneWidget);
-    expect(tester.testTextInput.isVisible, isFalse);
-    await tester.enterText(find.byType(TextFormField).at(0), 'Eye drops');
-    await tester.enterText(find.byType(TextFormField).at(1), '1 drop');
-    tester.testTextInput.hide();
+    expect(find.text('For Juniper'), findsOneWidget);
+    // 1. Name
+    await tester.enterText(find.byType(TextField), 'Eye drops');
+    await _continue(tester);
+    // 2. Form sets the unit
+    await tester.tap(find.text('Drops'));
+    await _continue(tester);
+    // 3. Amount, and where drops go (required for drops)
+    await tester.enterText(find.byType(TextField).first, '1');
+    await tester.pumpAndSettle();
+    expect(find.text('Choose where it’s given.'), findsOneWidget);
+    await tester.tap(find.text('Left eye'));
+    await _continue(tester);
+    // 4. When
     await _reveal(tester, find.text('Evening'));
     await tester.tap(find.text('Evening'));
     await _reveal(tester, find.text('7 days'));
@@ -126,13 +148,18 @@ void main() {
     await _reveal(tester, find.text('Track remaining doses'));
     await tester.tap(find.text('Track remaining doses'));
     await tester.pumpAndSettle();
-    await _reveal(tester, find.text('Doses remaining'));
-    await tester.enterText(find.byType(TextFormField).last, '30');
+    await tester.enterText(find.byType(TextField).last, '30');
+    await _continue(tester);
+    // 5. Review, then save
+    expect(find.text('Look right?'), findsOneWidget);
+    expect(find.text('1 drop'), findsOneWidget);
     await tester.tap(find.text('Save medicine'));
     await tester.pumpAndSettle();
     final medicine = care.medications.singleWhere((m) => m.name == 'Eye drops');
     expect(medicine.petId, 'juniper');
     expect(medicine.amount, '1 drop');
+    expect(medicine.site, 'Left eye');
+    expect(medicine.everyDays, 1);
     expect(medicine.parts, [DayPart.morning, DayPart.evening]);
     expect(medicine.supplyTotal, 30);
     expect(medicine.endDay, '2026-10-09');
@@ -144,6 +171,27 @@ void main() {
     );
   });
 
+  testWidgets('review edits jump back and return to the review', (
+    tester,
+  ) async {
+    final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14))
+      ..debugStorePro = true;
+    final router = await _pump(tester, care);
+    router.go('${AppRoutes.schedule}?pet=juniper');
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'Gabapentin');
+    for (var i = 0; i < 4; i++) {
+      await _continue(tester);
+    }
+    expect(find.text('As prescribed'), findsOneWidget);
+    await tester.tap(find.bySemanticsLabel('Edit each dose'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField).first, '0.5');
+    await tester.tap(find.text('Back to review'));
+    await tester.pumpAndSettle();
+    expect(find.text('½ tablet'), findsOneWidget);
+  });
+
   testWidgets('Free: evening dose time opens the paywall, not the schedule', (
     tester,
   ) async {
@@ -152,6 +200,10 @@ void main() {
     final router = await _pump(tester, care);
     router.go('${AppRoutes.schedule}?pet=$petId');
     await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'Methimazole');
+    for (var i = 0; i < 3; i++) {
+      await _continue(tester);
+    }
     expect(
       find.text(
         'Free includes one morning dose (4 AM to noon) and its reminder. Pro adds afternoon, evening and any time.',
@@ -177,7 +229,7 @@ void main() {
   });
 
   testWidgets(
-    'medicine validation explains missing details and optional supply can be removed',
+    'medicine flow explains missing details and optional supply can be removed',
     (tester) async {
       // Pro: Free at its medicine cap opens the paywall instead (own test).
       final care = sampleCare()..debugStorePro = true;
@@ -185,35 +237,52 @@ void main() {
       final router = await _pump(tester, care);
       router.go(AppRoutes.schedule);
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Save medicine'));
+      // No name: Continue is off and says why.
+      expect(
+        find.text('Type a name or pick one from the list'),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Continue'));
       await tester.pumpAndSettle();
-      expect(find.text('Enter the medicine name.'), findsOneWidget);
+      expect(find.text('What’s the medicine called?'), findsOneWidget);
       expect(care.medications.length, initialCount);
-      await tester.enterText(find.byType(TextFormField).first, 'New medicine');
-      tester.testTextInput.hide();
+      await tester.enterText(find.byType(TextField).first, 'New medicine');
+      await _continue(tester);
+      await _continue(tester);
+      // A split capsule is refused with a reason.
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Capsule'));
+      await _continue(tester);
+      await tester.enterText(find.byType(TextField).first, '1.5');
+      await tester.pumpAndSettle();
+      expect(
+        find.text('A capsule can’t be split. Use a whole number.'),
+        findsWidgets,
+      );
+      await tester.enterText(find.byType(TextField).first, '');
+      await _continue(tester);
       await _reveal(tester, find.text('Morning'));
       await tester.tap(find.text('Morning'));
-      await tester.tap(find.text('Save medicine'));
       await tester.pumpAndSettle();
       expect(find.text('Select at least one time of day.'), findsOneWidget);
-      await _reveal(tester, find.text('Afternoon'));
       await tester.tap(find.text('Afternoon'));
       await _reveal(tester, find.text('Track remaining doses'));
       await tester.tap(find.text('Track remaining doses'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Save medicine'));
-      await tester.pumpAndSettle();
       expect(find.text('Enter the number of doses left.'), findsOneWidget);
-      await tester.enterText(find.byType(TextFormField).last, '12');
+      await tester.enterText(find.byType(TextField).last, '12');
       tester.testTextInput.hide();
       await _reveal(tester, find.text('Track remaining doses'));
       await tester.tap(find.text('Track remaining doses'));
+      await _continue(tester);
       await tester.tap(find.text('Save medicine'));
       await tester.pumpAndSettle();
       final medicine = care.medications.singleWhere(
         (m) => m.name == 'New medicine',
       );
       expect(medicine.supplyTotal, 0);
+      expect(medicine.amount, '');
       expect(medicine.parts, [DayPart.afternoon]);
     },
   );
@@ -223,10 +292,15 @@ void main() {
     (tester) async {
       final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14));
       await _pump(tester, care);
+      // v14: "Coming up" lives on the pet's page, not Today.
+      await tester.tap(find.text('Pets').last);
+      await tester.pumpAndSettle();
       await _reveal(tester, find.text('Add event'));
       await tester.tap(find.text('Add event'));
       await tester.pumpAndSettle();
       expect(find.text('Add care event'), findsOneWidget);
+      await tester.tap(find.text('Vet visit'));
+      await tester.pump();
       await tester.enterText(find.byType(TextField).first, 'Annual checkup');
       await tester.enterText(
         find.byType(TextField).last,
@@ -263,14 +337,14 @@ void main() {
     await care.markDoseUncertain('fluids.afternoon');
     await _pump(tester, care);
 
-    // The hero answers first: the "not sure" dose needs a check.
-    expect(find.text('Needs a check'), findsOneWidget);
+    // The progress card answers first: the "not sure" dose needs a check.
+    expect(find.textContaining('Needs a check'), findsOneWidget);
     expect(find.text('Review dose'), findsOneWidget);
-    // The rounds card: given count and one pocket per dose.
-    expect(find.text('TODAY’S ROUNDS'), findsOneWidget);
+    // Morning / Afternoon / Evening groups, as in v14.
+    expect(find.text('Morning'), findsOneWidget);
     // Who gave each dose sits on its line, in plain words.
-    expect(find.textContaining('Sara, 8:02 AM'), findsOneWidget);
-    expect(find.textContaining('Dan, 8:30 AM'), findsOneWidget);
+    expect(find.textContaining('Sara · 8:02 AM'), findsOneWidget);
+    expect(find.textContaining('Dan · 8:30 AM'), findsOneWidget);
     // Every state reads out for VoiceOver, ending with its state.
     for (final state in [
       RegExp('given by Sara at 8:02 AM\$'),
@@ -281,17 +355,16 @@ void main() {
     }
     // "Not sure" keeps its full warning on the line.
     expect(find.textContaining('not sure — check first'), findsWidgets);
-    // Adding happens in the log.
-    await _reveal(tester, find.text('Add medicine'));
-    expect(find.text('Add medicine'), findsOneWidget);
+    // v14 keeps Today to doses: adding a medicine lives on Pets.
+    expect(find.text('Add medicine'), findsNothing);
 
     // One pet: only its lines remain.
     await tester.drag(_verticalScroll(), const Offset(0, 2000));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Juniper'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('Dan, 8:30 AM'), findsOneWidget);
-    expect(find.textContaining('Sara, 8:02 AM'), findsNothing);
+    expect(find.textContaining('Dan · 8:30 AM'), findsOneWidget);
+    expect(find.textContaining('Sara · 8:02 AM'), findsNothing);
     expect(tester.takeException(), isNull);
     handle.dispose();
   });
@@ -301,8 +374,8 @@ void main() {
     addTearDown(() => ClockFormat.use24h.value = false);
     final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14));
     await _pump(tester, care);
-    expect(find.text('08:00'), findsWidgets);
-    expect(find.text('8:00 AM'), findsNothing);
+    expect(find.textContaining('08:00'), findsWidgets);
+    expect(find.textContaining('8:00 AM'), findsNothing);
     expect(tester.takeException(), isNull);
   });
 
@@ -321,11 +394,12 @@ void main() {
     final dose = care.nextDue!;
     await care.markDoseUncertain(dose.id);
     await _pump(tester, care);
-    expect(find.text('Needs a check'), findsOneWidget);
+    expect(find.textContaining('Needs a check'), findsOneWidget);
     expect(find.text('Review dose'), findsOneWidget);
     await tester.tap(find.text('Review dose'));
     await tester.pumpAndSettle();
-    expect(find.text('Log ${dose.name}'), findsOneWidget);
+    final pet = care.tryPetById(dose.petId)!.name;
+    expect(find.text('Log $pet’s ${dose.name}?'), findsOneWidget);
     expect(care.doseById(dose.id)!.status, DoseStatus.due);
   });
 
@@ -334,6 +408,8 @@ void main() {
   ) async {
     final care = sampleCare();
     await _pump(tester, care, size: const Size(320, 640), scale: 1.6);
+    await tester.tap(find.text('Pets').last);
+    await tester.pumpAndSettle();
     await _reveal(tester, find.text('Add event'));
     await tester.tap(find.text('Add event'));
     await tester.pumpAndSettle();
@@ -463,4 +539,14 @@ Future<GoRouter> _pump(
     care.dispose();
   });
   return router;
+}
+
+/// Taps the flow's Continue (or Back to review) and lets the step settle.
+Future<void> _continue(WidgetTester tester) async {
+  await tester.pumpAndSettle();
+  final next = find.text('Continue').evaluate().isNotEmpty
+      ? find.text('Continue')
+      : find.text('Back to review');
+  await tester.tap(next);
+  await tester.pumpAndSettle();
 }

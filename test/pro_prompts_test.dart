@@ -71,61 +71,49 @@ void main() {
       expect(await ProPrompts.tryAuto('b', now: DateTime(2026, 1, 1)), isFalse);
     });
 
-    test(
-      'first week: once a day (not install day), then once a week',
-      () async {
-        final t = DateTime(2026, 10, 4, 9);
-        // First idle visit only records the install time.
-        expect(await ProPrompts.takeIdle(now: t), isNull);
-        // Install day had the onboarding paywall: nothing more that day.
+    test('first week is quiet, then at most once a week', () async {
+      final t = DateTime(2026, 10, 4, 9);
+      // First idle visit only records the install time.
+      expect(await ProPrompts.takeIdle(now: t), isNull);
+      for (var day = 4; day <= 10; day++) {
         expect(
-          await ProPrompts.takeIdle(now: DateTime(2026, 10, 4, 21)),
+          await ProPrompts.takeIdle(now: DateTime(2026, 10, day, 20)),
           isNull,
+          reason: 'day $day',
         );
-        for (var day = 5; day <= 10; day++) {
-          expect(
-            await ProPrompts.takeIdle(now: DateTime(2026, 10, day, 8)),
-            ProPrompts.firstWeek,
-            reason: 'day $day',
-          );
-          // Once a day, however many visits.
-          expect(
-            await ProPrompts.takeIdle(now: DateTime(2026, 10, day, 20)),
-            isNull,
-          );
-        }
-        expectLogged('billing.prompt.shown', fields: {'trigger': 'first_week'});
-        // Week over: weekly, counted from the last prompt.
-        final week = t.add(ProPrompts.weeklyEvery);
-        expect(await ProPrompts.takeIdle(now: week), isNull);
-        final next = DateTime(2026, 10, 17, 8);
-        expect(await ProPrompts.takeIdle(now: next), ProPrompts.weekly);
-        expect(
-          await ProPrompts.takeIdle(now: next.add(const Duration(days: 6))),
-          isNull,
-        );
-        expect(
-          await ProPrompts.takeIdle(now: next.add(ProPrompts.weeklyEvery)),
-          ProPrompts.weekly,
-        );
-        // A clock set back is "too soon".
-        expect(await ProPrompts.takeIdle(now: t), isNull);
-      },
-    );
+      }
+      final week = t.add(ProPrompts.weeklyEvery);
+      expect(await ProPrompts.takeIdle(now: week), ProPrompts.weekly);
+      expectLogged('billing.prompt.shown', fields: {'trigger': 'weekly'});
+      expect(
+        await ProPrompts.takeIdle(now: week.add(const Duration(days: 6))),
+        isNull,
+      );
+      expect(
+        await ProPrompts.takeIdle(now: week.add(ProPrompts.weeklyEvery)),
+        ProPrompts.weekly,
+      );
+      // A clock set back is "too soon".
+      expect(await ProPrompts.takeIdle(now: t), isNull);
+    });
 
     test(
-      'a queued moment blocked by cooldown still lets the daily one show',
+      'a queued moment blocked by cooldown still lets the weekly one show',
       () async {
         final t = DateTime(2026, 10, 4, 9);
         expect(await ProPrompts.takeIdle(now: t), isNull);
-        expect(
-          await ProPrompts.takeIdle(now: DateTime(2026, 10, 5, 9)),
-          ProPrompts.firstWeek,
-        );
+        final week = t.add(ProPrompts.weeklyEvery);
+        expect(await ProPrompts.takeIdle(now: week), ProPrompts.weekly);
         await ProPrompts.queue(ProPrompts.uncertain);
+        // The queued moment waits out the 3-day cooldown...
         expect(
-          await ProPrompts.takeIdle(now: DateTime(2026, 10, 6, 9)),
-          ProPrompts.firstWeek,
+          await ProPrompts.takeIdle(now: week.add(const Duration(days: 1))),
+          isNull,
+        );
+        // ...then shows before the next weekly one.
+        expect(
+          await ProPrompts.takeIdle(now: week.add(const Duration(days: 4))),
+          ProPrompts.uncertain,
         );
       },
     );
@@ -180,10 +168,10 @@ void main() {
       expect(find.byType(ProLock), findsWidgets);
       router.go(AppRoutes.reports);
       await t.pumpAndSettle();
-      await _reveal(t, find.text('Share with vet'));
+      await _reveal(t, find.text('Share report with vet'));
       expect(
         find.ancestor(
-          of: find.text('Share with vet'),
+          of: find.text('Share report with vet'),
           matching: find.byType(WithProLock),
         ),
         findsOneWidget,
@@ -226,7 +214,7 @@ void main() {
       await t.pumpAndSettle();
       await t.tap(find.byTooltip('Add pet'));
       await t.pumpAndSettle();
-      expect(find.text('Every pet deserves the same care'), findsOneWidget);
+      expect(find.text('Room for every pet'), findsOneWidget);
       expectLogged('billing.paywall.opened', fields: {'reason': 'second_pet'});
     });
 
@@ -305,10 +293,15 @@ void main() {
         supplyTotal: 3,
       );
       await _pump(t, care);
-      // Below the photo hero: scroll to it like a person would.
-      await _reveal(t, find.text('Apoquel: 3 doses left'));
-      expect(find.textContaining('is running low'), findsNothing);
-      expect(find.text('Apoquel: 3 doses left'), findsOneWidget);
+      // v14 "Supplies" row, below the day's doses.
+      await _reveal(t, find.text('Apoquel is running low'));
+      expect(find.text('Supplies'), findsOneWidget);
+      expect(find.text('Apoquel is running low'), findsOneWidget);
+      // The real alert, not the Free teaser that sells it.
+      expect(
+        find.text('Pro sends a heads-up before it runs out.'),
+        findsNothing,
+      );
     });
 
     testWidgets(
@@ -316,8 +309,8 @@ void main() {
       (t) async {
         final care = sampleCare(clock: () => DateTime(2026, 10, 3, 14));
         await _pump(t, care);
-        await _reveal(t, find.text('Gave it'));
-        await t.tap(find.text('Gave it'));
+        await _reveal(t, find.text('Mark given'));
+        await t.tap(find.text('Mark given'));
         await t.pumpAndSettle();
         await t.tap(find.text('Not sure if given'));
         await t.pumpAndSettle(const Duration(seconds: 2));
@@ -325,7 +318,7 @@ void main() {
         await t.pump(const Duration(seconds: 5));
         await t.pumpAndSettle();
         expect(find.text('Not sure if it was given?'), findsNothing);
-        expect(find.text('Needs a check'), findsOneWidget);
+        expect(find.textContaining('Needs a check'), findsOneWidget);
         expectLogged('billing.prompt.queued', fields: {'trigger': 'uncertain'});
         expectNotLogged('billing.paywall.opened');
         expect(

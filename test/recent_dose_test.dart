@@ -323,7 +323,7 @@ void main() {
       expect(AppLog.logged('dose.recent_warning'), isTrue);
 
       // A warning, not a block: the owner may know it's right.
-      await tester.tap(find.text('Log dose'));
+      await tester.tap(find.text('Confirm given'));
       await tester.pump(const Duration(seconds: 1));
       await tester.pumpAndSettle();
       expect(AppLog.logged('dose.log.completed'), isTrue);

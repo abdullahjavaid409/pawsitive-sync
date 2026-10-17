@@ -35,73 +35,70 @@ void main() {
 
     await qa.step('Welcome opens setup', () async {
       await qa.tap(find.text('Get started'));
-      await qa.see('Add a name to continue');
+      await qa.see('Add your pet’s name to continue');
       qa.event('welcome.continued');
     });
 
     await qa.step(
       'Edge: blank or whitespace pet name blocks Continue',
       () async {
-        await qa.tap(find.text('Add a name to continue'));
-        await qa.see('Add a name to continue');
+        await qa.tap(find.text('Continue'));
+        await qa.see('Add your pet’s name to continue');
         await qa.type(find.byType(TextFormField), '   ');
-        await qa.see('Add a name to continue');
-        qa.noEvent('onboarding.step', {'step': 'pet_basics'});
+        await qa.see('Add your pet’s name to continue');
+        qa.noEvent('onboarding.step', {'step': 'pet'});
       },
     );
 
-    await qa.step('Pet basics accepts a name', () async {
+    await qa.step('Pet step accepts a name', () async {
       await qa.type(find.byType(TextFormField), 'Luna');
+      await qa.tap(find.text('Cat'));
       await qa.tap(find.text('Continue'));
-      qa.event('onboarding.step', {'step': 'pet_basics'});
+      qa.event('onboarding.step', {'step': 'pet'});
     });
 
-    await qa.step(
-      'Edge: impossible weight blocks, valid weight continues',
-      () async {
-        await qa.type(find.byType(TextFormField).last, '999');
-        await qa.see('Enter a weight like 4.6, or leave blank.');
-        await qa.tap(find.text('Continue'));
-        qa.noEvent('onboarding.step', {'step': 'pet_details'});
-        await qa.type(find.byType(TextFormField).last, '4.2');
-        await qa.tap(find.text('Continue'));
-        qa.event('onboarding.step', {'step': 'pet_details'});
-      },
-    );
-
-    await qa.step('Edge: health step needs at least one condition', () async {
-      await qa.tap(find.text('Select at least one'));
-      await qa.see('Select at least one');
-      await qa.tap(find.text('Diabetes'));
-      await qa.tap(find.text('Continue with 1 selected'));
-      qa.event('onboarding.step', {'step': 'conditions', 'count': 1});
+    await qa.step('Edge: first medicine needs a name and amount', () async {
+      // No red and nothing picked until Continue is tried.
+      await qa.tap(find.text('Continue'));
+      await qa.see('Still needed: name · form');
+      qa.event('onboarding.medicine_blocked');
+      await qa.type(find.byType(TextField).first, 'Methimazole');
+      await qa.see('Pick the form it comes in.');
+      qa.noEvent('onboarding.step', {'step': 'medicine'});
+      // Skipped here; the five-step add-medicine flow is tested below.
+      await qa.tap(find.text('Skip'));
+      qa.event('onboarding.step', {'step': 'medicine', 'skipped': true});
     });
 
-    await qa.step('Care circle and reminders steps', () async {
+    await qa.step('Household and reminders steps', () async {
       await qa.tap(find.text('Continue'));
+      qa.event('onboarding.step', {'step': 'household'});
       await qa.tap(find.text('Not now'));
       qa.event('onboarding.step', {'step': 'notifications', 'ask': false});
+      await qa.tap(find.text('Go to Today'));
     });
 
     await qa.step('Paywall: continue free lands on Today', () async {
       await qa.tap(find.text('Continue free with 1 pet'));
       await qa.see('Today');
-      await qa.see('Free');
       qa.event('billing.continued_free');
       qa.event('billing.paywall.complete', {'isPro': false});
     });
 
-    await qa.step('Edge: medicine form validation', () async {
+    await qa.step('Edge: medicine flow validation', () async {
       await qa.tap(find.text('Add first medicine'));
-      await qa.tap(find.text('Save medicine'));
-      await qa.see('Enter the medicine name.');
-      await qa.type(find.widgetWithText(TextField, 'e.g. Apoquel'), 'Apoquel');
+      await qa.see('Type a name or pick one from the list');
+      await qa.type(
+        find.widgetWithText(TextField, 'Search or type a name'),
+        'Apoquel',
+      );
+      await qa.tap(find.text('Continue'));
+      await qa.tap(find.text('Continue'));
+      await qa.tap(find.text('Continue'));
       await qa.tap(find.text('Morning'));
-      await qa.tap(find.text('Save medicine'));
       await qa.see('Select at least one time of day.');
       await qa.tap(find.text('Morning'));
       await qa.tap(find.text('Track remaining doses'));
-      await qa.tap(find.text('Save medicine'));
       await qa.see('Enter the number of doses left.');
       qa.noEvent('medication.add.completed');
     });
@@ -113,15 +110,16 @@ void main() {
       qa.event('billing.paywall.opened', {'reason': 'more_dose_times'});
       qa.event('medication.add.blocked', {'reason': 'free_tier_times'});
       await qa.tap(find.byTooltip('Close'));
-      // Back on the form, still morning only, nothing typed lost.
-      await qa.see('Apoquel');
+      // Back on the same step, still morning only, nothing typed lost.
+      await qa.see('When does Luna take it?');
       qa.noEvent('medication.add.completed');
     });
 
     await qa.step(
       'Add medicine with supply tracking (offline write)',
       () async {
-        await qa.type(find.widgetWithText(TextField, 'e.g. 30'), '4');
+        await qa.type(find.byType(TextField).last, '4');
+        await qa.tap(find.text('Continue'));
         await qa.tap(find.text('Save medicine'));
         await qa.see('Apoquel is on Luna’s Today list.');
         qa.event('medication.add.completed', {'tracksSupply': true});
@@ -136,18 +134,18 @@ void main() {
     );
 
     await qa.step('Not sure if given marks a dose for a check', () async {
-      await qa.tap(find.text('Gave it'));
-      await qa.see('Log Apoquel');
+      await qa.tap(find.text('Mark given'));
+      await qa.see('Log Luna’s Apoquel?');
       await qa.tap(find.text('Not sure if given'));
-      await qa.see('Needs a check');
-      await qa.see('Luna · You are not sure — check first');
+      await qa.see('Needs a check', partial: true);
+      await qa.see('not sure — check first', partial: true);
       qa.event('dose.uncertain.completed');
     });
 
     await qa.step('Review the unsure dose and log it', () async {
       await qa.tap(find.text('Review dose'));
-      await qa.tap(find.text('Log dose').last);
-      await qa.see('All cared for.');
+      await qa.tap(find.text('Confirm given').last);
+      await qa.see('Everyone is covered for today');
       qa.event('dose.log.completed');
     });
 
@@ -174,7 +172,9 @@ void main() {
       final petId = care.pets.single.id;
       expect(care.activeMedicationCount(petId), 1);
       expect(care.canAddMedication(petId), isFalse);
-      await qa.tap(find.text('Add'));
+      // v14: adding a medicine lives on the pet's page.
+      await qa.tapLabel('Pets');
+      await qa.tap(find.text('Add medicine'));
       await qa.see('Every medicine, one schedule');
       qa.event('billing.paywall.opened', {'reason': 'more_meds'});
       await qa.tap(find.byTooltip('Close'));
@@ -185,6 +185,11 @@ void main() {
 
     await qa.step('Care event add and remove', () async {
       await qa.tap(find.text('Add event'));
+      // No type picked yet: Save asks for one instead of guessing.
+      await qa.tap(find.text('Save event'));
+      await qa.see('Pick the type of care');
+      qa.noEvent('care_event.added');
+      await qa.tap(find.text('Vet visit'));
       await qa.tap(find.text('Save event'));
       await qa.see('Vet checkup');
       qa.event('care_event.added', {'kind': 'vetVisit'});
@@ -238,7 +243,7 @@ void main() {
         final reloaded = CareRepository(store: HouseholdStore());
         await reloaded.restore();
         expect(_apoquel(reloaded).times, {DayPart.morning: 7 * 60 + 15});
-        await qa.tap(find.text('Back'));
+        await qa.tap(find.byTooltip('Back'));
         await qa.tapLabel('Today');
         await qa.see('7:15 AM', partial: true);
         await qa.tapLabel('Pets');
@@ -247,7 +252,7 @@ void main() {
 
     await qa.step('Pro gate: second pet opens paywall', () async {
       await qa.tap(find.byTooltip('Add pet'));
-      await qa.see('Pro unlocks');
+      await qa.see('Room for every pet');
       await qa.tap(find.byTooltip('Close'));
       expect(_care(t).pets, hasLength(1));
     });
@@ -262,18 +267,21 @@ void main() {
 
     await qa.step('Reports show accurate free history', () async {
       await qa.tapLabel('Reports');
-      await qa.see('Upgrade');
+      await qa.see(
+        'Pro makes a PDF of the last 90 days your vet can read, with who gave each dose.',
+      );
       final care = _care(t);
       final report = care.reportFor(care.pets.single.id, 30);
       expect(report.lines.fold<int>(0, (sum, l) => sum + l.given), 1);
       expect(report.skipped, 0);
     });
 
-    await qa.step('Pro gate: 90-day history opens paywall', () async {
-      await qa.tap(find.text('90 days'));
-      await qa.see('Their whole story, not just a month');
-      qa.event('report.range_locked', {'days': 90});
-      qa.event('billing.paywall.opened', {'reason': 'history'});
+    // v14 Reports has no range picker: the Pro gate is the vet export
+    // (a PDF of the last 90 days), and Free still sees its own 28 days.
+    await qa.step('Pro gate: vet export opens paywall', () async {
+      await qa.tap(find.text('Share report with vet'));
+      await qa.see('Walk into the vet with answers');
+      qa.event('billing.paywall.opened', {'reason': 'vet_export'});
       await qa.tap(find.byTooltip('Close'));
       expect(_care(t).historyFromDay, isNotNull);
     });
@@ -305,7 +313,8 @@ void main() {
     );
 
     await qa.step('Settings: restore purchases without a store', () async {
-      await qa.tapLabel('Today');
+      // v14: the settings gear sits in the Household tab's header.
+      await qa.tapLabel('Household');
       await qa.tap(find.byTooltip('Settings'));
       await qa.tap(find.text('Restore purchases'));
       qa.event('billing.restore.requested');
@@ -313,7 +322,13 @@ void main() {
 
     await qa.step('Pro gate: weekly summary opens paywall', () async {
       await qa.see('Weekly summary');
-      await qa.tap(find.text('See Pro').first);
+      // The See Pro on the Weekly summary row, not the plan card's.
+      await qa.tap(
+        find.descendant(
+          of: find.widgetWithText(ListTile, 'Weekly summary'),
+          matching: find.text('See Pro'),
+        ),
+      );
       await qa.see('Know the week went right');
       qa.event('billing.paywall.opened', {'reason': 'weekly_summary'});
       await qa.tap(find.byTooltip('Close'));
@@ -340,12 +355,12 @@ void main() {
     await qa.step('Onboard and start the Pro trial', () async {
       await qa.tap(find.text('Get started'));
       await qa.type(find.byType(TextFormField), 'Miso');
+      await qa.tap(find.text('Cat'));
       await qa.tap(find.text('Continue'));
-      await qa.tap(find.text('Continue'));
-      await qa.tap(find.text('Diabetes'));
-      await qa.tap(find.text('Continue with 1 selected'));
+      await qa.tap(find.text('Skip'));
       await qa.tap(find.text('Continue'));
       await qa.tap(find.text('Not now'));
+      await qa.tap(find.text('Go to Today'));
       await qa.tap(find.text('Continue free with 1 pet'));
       // Pro only comes from RevenueCat; stand in for its entitlement listener.
       _care(t).applyStoreEntitlement(true, BillingPlan.yearly);
@@ -356,17 +371,15 @@ void main() {
 
     await qa.step('Add Insulin with 4 doses tracked', () async {
       await qa.tap(find.text('Add first medicine'));
-      await qa.type(find.widgetWithText(TextField, 'e.g. Apoquel'), 'Insulin');
-      await qa.tap(find.text('Track remaining doses'));
-      await qa.type(find.widgetWithText(TextField, 'e.g. 30'), '4');
-      await qa.tap(find.text('Save medicine'));
+      await qa.addMedicine('Insulin', supply: 4);
       qa.event('medication.add.completed');
     });
 
     await qa.step('Backend: invite creates the household online', () async {
       await qa.tapLabel('Household');
       await qa.tap(find.text('Invite someone'));
-      await qa.see('YOUR INVITE CODE');
+      // The code is fetched as the flow opens (step 1: who it's for).
+      await qa.see('Who are you inviting?');
       await qa.waitUntil(
         () => _care(t).inviteCode.isNotEmpty,
         seconds: 15,
@@ -383,7 +396,7 @@ void main() {
         what: 'household.connected',
       );
       qa.event('household.connected');
-      await qa.tap(find.byTooltip('Back'));
+      await qa.tap(find.byTooltip('Close'));
     });
 
     await qa.step('Backend: partner joins with the invite code', () async {
@@ -459,7 +472,7 @@ void main() {
         seconds: 15,
         what: 'household.synced after pull to refresh',
       );
-      await qa.see('All cared for.');
+      await qa.see('Everyone is covered for today');
       qa.event('push.partner_detected');
     });
 
@@ -472,7 +485,7 @@ void main() {
     await qa.step('Pro: low-supply banner, refill syncs to backend', () async {
       expect(_care(t).medications.single.dosesLeft, 3);
       await qa.tap(find.text('Refill'));
-      await qa.see('SUPPLY · LOW');
+      await qa.see('Supply · low');
       await qa.tap(find.text('I refilled it'));
       await qa.see('The box is full again.');
       qa.event('medication.refill.completed');
@@ -493,13 +506,13 @@ void main() {
       bool tabsShown() =>
           petsTab.evaluate().isNotEmpty ||
           find.byType(NavigationRail).evaluate().isNotEmpty &&
-              find.text('Back').evaluate().isEmpty;
+              find.byTooltip('Back').evaluate().isEmpty;
       for (
         var i = 0;
-        i < 3 && !tabsShown() && find.text('Back').evaluate().isNotEmpty;
+        i < 3 && !tabsShown() && find.byTooltip('Back').evaluate().isNotEmpty;
         i++
       ) {
-        await qa.tap(find.text('Back').last);
+        await qa.tap(find.byTooltip('Back').last);
       }
     });
 
@@ -507,6 +520,7 @@ void main() {
       await qa.tapLabel('Pets');
       await qa.tap(find.byTooltip('Add pet'));
       await qa.type(find.widgetWithText(TextField, 'Pet name'), 'Pepper');
+      await qa.tap(find.text('Dog'));
       await qa.tap(find.text('Save pet'));
       qa.event('pet.add.completed');
       await qa.waitUntil(
@@ -518,12 +532,15 @@ void main() {
 
     await qa.step('Pro: vet report sharing is unlocked', () async {
       await qa.tapLabel('Reports');
-      await qa.see('Share with vet');
-      qa.absent('Upgrade');
+      await qa.see('Share report with vet');
+      qa.absent(
+        'Pro makes a PDF of the last 90 days your vet can read, with who gave each dose.',
+      );
     });
 
     await qa.step('Leave household resets this phone only', () async {
-      await qa.tapLabel('Today');
+      // v14: the settings gear sits in the Household tab's header.
+      await qa.tapLabel('Household');
       await qa.tap(find.byTooltip('Settings'));
       await qa.tap(find.text('Leave household'));
       await qa.tap(find.text('Leave'));

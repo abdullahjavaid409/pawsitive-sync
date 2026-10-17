@@ -78,18 +78,13 @@ void main() {
       bool morning = true,
       int? supply,
     }) async {
-      await qa.type(find.widgetWithText(TextField, 'e.g. Apoquel'), name);
-      await qa.type(
-        find.widgetWithText(TextField, 'e.g. 1 tablet or 2 units'),
-        amount,
+      await qa.addMedicine(
+        name,
+        amount: amount,
+        morning: morning,
+        evening: evening,
+        supply: supply,
       );
-      if (!morning) await qa.tap(find.text('Morning'));
-      if (evening) await qa.tap(find.text('Evening'));
-      if (supply != null) {
-        await qa.tap(find.text('Track remaining doses'));
-        await qa.type(find.widgetWithText(TextField, 'e.g. 30'), '$supply');
-      }
-      await qa.tap(find.text('Save medicine'));
       await qa.settle(2500);
     }
 
@@ -100,13 +95,11 @@ void main() {
     await qa.type(find.byType(TextFormField), 'Miso');
     await shot('onboarding_pet');
     await qa.tap(find.text('Continue'));
-    await qa.type(find.byType(TextFormField).last, '4.6');
-    await qa.tap(find.text('Continue'));
-    await qa.tap(find.text('Diabetes'));
-    await shot('onboarding_conditions');
-    await qa.tap(find.text('Continue with 1 selected'));
+    // v14 setup: the first medicine is added after Pro below, so skip it.
+    await qa.tap(find.text('Skip'));
     await qa.tap(find.text('Continue'));
     await qa.tap(find.text('Not now'));
+    await qa.tap(find.text('Go to Today'));
     await shot('paywall');
     await qa.tap(find.text('Continue free with 1 pet'));
     // Pro only comes from RevenueCat; stand in for its entitlement listener.
@@ -136,11 +129,19 @@ void main() {
     await tab('Household');
     await qa.tap(find.text('Invite someone'));
     await qa.waitUntil(() => care().inviteCode.isNotEmpty, seconds: 20);
+    await qa.type(find.byType(TextField).first, 'Sara');
+    await qa.tap(find.text('Share'));
+    await qa.tap(find.text('Continue'));
+    await qa.tap(find.text('Family or partner'));
+    await qa.tap(find.text('Continue'));
     await shot('invite');
     final partner = HouseholdApi(Uri.parse(AppConfig.apiBaseUrl));
     final session = await partner.join(code: care().inviteCode, name: 'Sara');
     partner.token = session.token;
-    await qa.tap(find.byTooltip('Back'));
+    for (var i = 0; i < 2; i++) {
+      await qa.tap(find.byTooltip('Back'));
+    }
+    await qa.tap(find.byTooltip('Close'));
 
     final meds = session.snapshot.medications;
     Future<void> logAs(

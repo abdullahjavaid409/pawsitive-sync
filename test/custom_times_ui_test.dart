@@ -51,12 +51,10 @@ void main() {
       final router = await _pump(tester, care);
       router.go('${AppRoutes.schedule}?pet=miso');
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextFormField).at(0), 'Thyroid');
-      tester.testTextInput.hide();
-      // Default time shows on the tile and in its own row.
-      await _reveal(tester, find.text('Morning reminder'));
+      await _toSchedule(tester, 'Thyroid');
+      // The default time sits beside its part; tap it to change it.
       expect(find.text('8:00 AM'), findsWidgets);
-      await tester.tap(find.text('Morning reminder'));
+      await tester.tap(find.text('8:00 AM').first);
       await tester.pumpAndSettle();
       expect(
         find.text('Morning reminder'),
@@ -69,7 +67,8 @@ void main() {
         fields: {'part': 'morning', 'custom': true},
       );
       expect(find.text('7:15 AM'), findsWidgets);
-      await _reveal(tester, find.text('Save medicine'));
+      await tester.tap(find.text('Continue'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Save medicine'));
       await tester.pumpAndSettle();
       final med = care.medications.singleWhere((m) => m.name == 'Thyroid');
@@ -87,10 +86,10 @@ void main() {
     final router = await _pump(tester, care);
     router.go('${AppRoutes.schedule}?pet=miso');
     await tester.pumpAndSettle();
-    await _reveal(tester, find.text('Morning reminder'));
-    await tester.tap(find.text('Morning reminder'));
+    await _toSchedule(tester, 'Thyroid');
+    await tester.tap(find.text('8:00 AM').first);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Cancel'));
+    await tester.tap(find.text('Cancel').last);
     await tester.pumpAndSettle();
     expectLogged('medication.time_pick_cancelled', fields: {'part': 'morning'});
     expect(find.text('8:00 AM'), findsWidgets);
@@ -172,4 +171,14 @@ Future<GoRouter> _pump(WidgetTester tester, CareRepository care) async {
     care.dispose();
   });
   return router;
+}
+
+/// Add-medicine flow: name, then Continue past form and amount to "when".
+Future<void> _toSchedule(WidgetTester tester, String name) async {
+  await tester.enterText(find.byType(TextField).first, name);
+  for (var i = 0; i < 3; i++) {
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+  }
 }

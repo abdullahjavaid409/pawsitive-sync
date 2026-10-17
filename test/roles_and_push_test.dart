@@ -755,9 +755,13 @@ void main() {
       late CareRepository care;
       await t.runAsync(() async => (care, _) = await connected());
       await pump(t, care);
-      expect(find.text('Caregiver'), findsOneWidget);
-      expect(find.byTooltip('Manage Dan'), findsOneWidget);
-      expect(find.text('Ask the owner to invite people.'), findsNothing);
+      // v14 rows: the role leads the subtitle; the whole row opens Manage.
+      expect(find.textContaining('Caregiver'), findsOneWidget);
+      expect(find.byKey(const ValueKey('manage-dan')), findsOneWidget);
+      expect(
+        find.textContaining('Ask the owner to invite people.'),
+        findsNothing,
+      );
     });
 
     testWidgets('caregiver: no Manage, invite disabled with a hint', (t) async {
@@ -767,8 +771,11 @@ void main() {
             (care, _) = await connected(me: 'dan', role: MemberRole.caregiver),
       );
       await pump(t, care);
-      expect(find.byTooltip('Manage Sam'), findsNothing);
-      expect(find.text('Ask the owner to invite people.'), findsOneWidget);
+      expect(find.byKey(const ValueKey('manage-sam')), findsNothing);
+      expect(
+        find.textContaining('Ask the owner to invite people.'),
+        findsOneWidget,
+      );
       final invite = t.widget<ButtonStyleButton>(
         find.ancestor(
           of: find.text('Invite someone'),

@@ -5,13 +5,12 @@ import 'package:pawsitive_sync/core/routing/app_router.dart';
 import 'package:pawsitive_sync/core/theme/app_theme.dart';
 import 'package:pawsitive_sync/core/widgets/paws_widgets.dart';
 import 'package:pawsitive_sync/data/care_repository.dart';
-import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/onboarding/caregivers_screen.dart';
-import 'package:pawsitive_sync/ui/onboarding/conditions_screen.dart';
+import 'package:pawsitive_sync/ui/onboarding/first_medicine_screen.dart';
 import 'package:pawsitive_sync/ui/onboarding/notifications_screen.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:pawsitive_sync/ui/onboarding/pet_basics_screen.dart';
-import 'package:pawsitive_sync/ui/onboarding/pet_details_screen.dart';
+import 'package:pawsitive_sync/ui/onboarding/ready_screen.dart';
 import 'package:pawsitive_sync/ui/onboarding/welcome_screen.dart';
 import 'package:pawsitive_sync/ui/paywall/paywall_screen.dart';
 import 'package:provider/provider.dart';
@@ -21,8 +20,12 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   testWidgets(
-    'redesigned setup preserves answers and completes the five steps',
+    'v14 setup: pet, first medicine, household, notifications, ready',
     (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
       final model = OnboardingViewModel();
       final care = CareRepository();
       final router = createRouter(model);
@@ -41,49 +44,100 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Get started'));
       await tester.pumpAndSettle();
+
+      // 1. Pet: Continue waits for a name and says so.
+      expect(find.text('Add your pet’s name to continue'), findsOneWidget);
       await tester.enterText(find.byType(TextFormField), 'Miso');
-      await tester.ensureVisible(find.text('Dog'));
       await tester.tap(find.text('Dog'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Continue'));
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.byType(TextFormField), '4.6.1');
+      // 2. First medicine: name, form, amount; Free shows Pro on evening.
+      expect(find.text('What does Miso take?'), findsOneWidget);
+      // Nothing picked or red on arrival: no form, no frequency, no hint.
+      expect(find.textContaining('Still needed'), findsNothing);
+      expect(find.text('Amount per dose'), findsNothing);
+      await tester.ensureVisible(find.text('Continue'));
+      await tester.tap(find.text('Continue'));
+      await tester.pumpAndSettle();
+      expect(model.hasMedicine, isFalse);
+      // Everything missing at once, each under its own field.
+      expect(find.text('Still needed: name · form'), findsOneWidget);
+      expect(
+        find.text('Add the medicine’s name, or skip this step'),
+        findsOneWidget,
+      );
+      expect(find.text('Pick the form it comes in'), findsOneWidget);
+      expect(find.text('Pick how often'), findsNothing);
+      // Typing clears that field's message straight away.
+      await tester.enterText(find.byType(TextField).first, 'Insulin');
       await tester.pump();
       expect(
-        tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
-        isNull,
+        find.text('Add the medicine’s name, or skip this step'),
+        findsNothing,
       );
-      await tester.enterText(find.byType(TextFormField), '4.6');
+      await tester.tap(find.text('Injection'));
+      await tester.pumpAndSettle();
+      expect(find.text('Pick the form it comes in'), findsNothing);
+      expect(find.text('Amount per dose'), findsOneWidget);
+      await tester.ensureVisible(find.text('Every day'));
+      await tester.tap(find.text('Every day'));
       await tester.pump();
-      await tester.tap(find.byTooltip('Back'));
-      await tester.pumpAndSettle();
-      expect(model.petName, 'Miso');
-      expect(model.species, Species.dog);
+      expect(find.text('Pick how often'), findsNothing);
+      expect(find.text('Add how much Miso gets each time.'), findsOneWidget);
+      // + fills the amount without typing; − steps it back down.
+      await tester.ensureVisible(find.bySemanticsLabel('More').first);
+      await tester.tap(find.bySemanticsLabel('More').first);
+      await tester.pump();
+      expect(find.text('Add how much Miso gets each time.'), findsNothing);
+      await tester.enterText(find.byType(TextField).at(1), '2');
+      await tester.pump();
+      expect(find.text('Pro'), findsNWidgets(2), reason: 'midday, evening');
+      await tester.ensureVisible(find.text('Continue'));
       await tester.tap(find.text('Continue'));
       await tester.pumpAndSettle();
-      expect(model.weight, '4.6');
-      await tester.tap(find.text('Continue'));
-      await tester.pumpAndSettle();
+      expect(model.hasMedicine, isTrue);
+      expect(model.medAmountText, '2 units');
 
-      await tester.ensureVisible(find.text('Diabetes'));
-      await tester.tap(find.text('Diabetes'));
+      // 3. Household: an address waits for after setup.
+      await tester.enterText(find.byType(TextField), 'sara@');
+      await tester.tap(find.text('Add'));
+      await tester.pump();
+      expect(
+        find.text('Enter a full email, like sara@example.com'),
+        findsOneWidget,
+      );
+      await tester.enterText(find.byType(TextField), 'sara@example.com');
+      await tester.tap(find.text('Add'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Continue with 1 selected'));
-      await tester.pumpAndSettle();
-      await tester.ensureVisible(find.text('Partner or family'));
-      await tester.tap(find.text('Partner or family'));
-      await tester.pumpAndSettle();
-      expect(model.caregivers, {'Partner or family'});
       await tester.tap(find.text('Continue'));
       await tester.pumpAndSettle();
+      expect(model.invites, ['sara@example.com']);
+      expect(model.inviteAfterSetup, isTrue);
+
+      // 4. Notifications: Not now.
       await tester.tap(find.text('Not now'));
       await tester.pumpAndSettle();
-      await tester.pump(const Duration(seconds: 2));
+      expect(model.remindersOn, isFalse);
+
+      // 5. Ready: the medicine as it will be saved.
+      expect(find.text('Insulin'), findsOneWidget);
+      expect(find.text('2 units · 8:00 AM'), findsOneWidget);
+      await tester.tap(find.text('Go to Today'));
       await tester.pumpAndSettle();
       expect(find.byType(PaywallScreen), findsOneWidget);
-      expect(model.remindersOn, isFalse);
       expect(tester.takeException(), isNull);
+
+      // Continuing free saves the pet, then the medicine.
+      await tester.tap(find.byTooltip('Continue free'));
+      await tester.pumpAndSettle();
+      expect(care.pets.single.name, 'Miso');
+      expect(care.medications.single.name, 'Insulin');
+      expect(care.medications.single.amount, '2 units');
+      expect(model.isComplete, isTrue);
+      // Free: inviting is Pro, so the address is named, not lost.
+      expect(find.textContaining('sara@example.com'), findsOneWidget);
       await tester.pumpWidget(const SizedBox.shrink());
       router.dispose();
       model.dispose();
@@ -94,10 +148,10 @@ void main() {
   const screens = <Widget>[
     WelcomeScreen(),
     PetBasicsScreen(),
-    PetDetailsScreen(),
-    ConditionsScreen(),
+    FirstMedicineScreen(),
     CaregiversScreen(),
     NotificationsScreen(),
+    ReadyScreen(),
   ];
 
   for (final scenario in [
@@ -113,16 +167,18 @@ void main() {
       tester.view.devicePixelRatio = 1;
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
-      final model = OnboardingViewModel()
-        ..setName('Miso')
-        ..toggleCondition('Diabetes')
-        ..ensureDefaultCaregiver();
+      final model = OnboardingViewModel()..setName('Miso');
       addTearDown(model.dispose);
+      final care = CareRepository();
+      addTearDown(care.dispose);
 
       for (final screen in screens) {
         await tester.pumpWidget(
-          ChangeNotifierProvider.value(
-            value: model,
+          MultiProvider(
+            providers: [
+              ChangeNotifierProvider.value(value: model),
+              ChangeNotifierProvider.value(value: care),
+            ],
             child: MaterialApp(
               theme: scenario.dark ? AppTheme.dark() : AppTheme.light(),
               home: MediaQuery(
@@ -141,6 +197,8 @@ void main() {
         final action = find.byType(FilledButton).first;
         final rect = tester.getRect(action);
         final footer = tester.getRect(find.byType(OnboardingFooter));
+        // Footer uses the page's 24 px gutters, so the button lines up
+        // with the fields above it.
         expect(rect.width, closeTo(footer.width - 48, 0.1));
         expect(rect.bottom, lessThanOrEqualTo(scenario.size.height));
         expect(action.hitTestable(), findsOneWidget);

@@ -286,7 +286,7 @@ void main() {
       DoseReminders.pendingOpen.value = ReminderOpen(doseId: due.id);
       await tester.pumpAndSettle();
       expect(
-        find.text('Amount given'),
+        find.text('Confirm given'),
         findsOneWidget,
         reason: 'the log sheet',
       );
@@ -307,6 +307,8 @@ void main() {
           scrollable: find.byType(Scrollable).first,
         );
         expect(note, findsOneWidget);
+        await tester.ensureVisible(find.text('Not now'));
+        await tester.pumpAndSettle();
         await tester.tap(find.text('Not now'));
         await tester.pumpAndSettle();
         expect(note, findsNothing);

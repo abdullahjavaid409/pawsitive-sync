@@ -28,7 +28,7 @@ void main() {
     );
     await tester.pump();
 
-    expect(find.textContaining('Did anyone give'), findsOneWidget);
+    expect(find.textContaining('Every dose'), findsOneWidget);
     expect(find.text('Gave It'), findsOneWidget);
 
     await tester.ensureVisible(find.text('Get started'));
@@ -36,15 +36,20 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Who are we caring for?'), findsOneWidget);
-    expect(find.text('Add a name to continue'), findsOneWidget);
+    expect(find.text('Add your pet’s name to continue'), findsOneWidget);
 
     await tester.enterText(find.byType(TextFormField), 'Miso');
+    await tester.pump();
+    // Name alone isn't enough: species starts unpicked.
+    expect(find.text('Pick cat, dog, rabbit or other'), findsOneWidget);
+    await tester.ensureVisible(find.text('Cat'));
+    await tester.tap(find.text('Cat'));
     await tester.pump();
     await tester.ensureVisible(find.text('Continue'));
     await tester.tap(find.text('Continue'));
     await tester.pumpAndSettle();
 
-    expect(find.text('A little about Miso'), findsOneWidget);
+    expect(find.text('What does Miso take?'), findsOneWidget);
   });
 
   testWidgets('skipped onboarding routes resume at the earliest missing step', (
@@ -100,7 +105,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Did anyone give'), findsOneWidget);
+    expect(find.textContaining('Every dose'), findsOneWidget);
     final overflows = errors.where((error) => error.contains('overflowed'));
     expect(overflows, isEmpty, reason: overflows.join('\n'));
   });
@@ -176,7 +181,9 @@ void main() {
 
     expect(find.text('Add first medicine'), findsOneWidget);
 
-    for (final label in ['My pet', 'Family & helpers', 'Vet report']) {
+    for (final label in ['My pet', 'Household', 'Vet report']) {
+      // The tile reads "<name>. <caption>"; the tab bar's "Household" doesn't.
+      final tile = find.bySemanticsLabel(RegExp('^$label\\. '));
       final router = GoRouter.of(tester.element(find.byType(Scaffold).first));
       router.go(AppRoutes.today);
       await tester.pumpAndSettle();
@@ -187,12 +194,8 @@ void main() {
           )
           .first;
       tester.state<ScrollableState>(scrollable).position.jumpTo(0);
-      await tester.scrollUntilVisible(
-        find.bySemanticsLabel(label),
-        150,
-        scrollable: scrollable,
-      );
-      await tester.tap(find.bySemanticsLabel(label));
+      await tester.scrollUntilVisible(tile, 150, scrollable: scrollable);
+      await tester.tap(tile);
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull, reason: label);
     }

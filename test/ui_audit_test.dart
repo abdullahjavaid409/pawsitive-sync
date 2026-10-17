@@ -50,7 +50,11 @@ Future<(CareRepository, FakeHouseholdAdapter)> _connected(
   return (care, adapter);
 }
 
-Future<GoRouter> _pumpInvite(WidgetTester t, CareRepository care) async {
+Future<GoRouter> _pumpInvite(
+  WidgetTester t,
+  CareRepository care, {
+  String name = 'Sara weekend',
+}) async {
   final router = _inviteRouter();
   addTearDown(router.dispose);
   await t.pumpWidget(
@@ -63,6 +67,12 @@ Future<GoRouter> _pumpInvite(WidgetTester t, CareRepository care) async {
     () => Future<void>.delayed(const Duration(milliseconds: 50)),
   );
   await t.pump();
+  // Step 1: who. Share sheet, so no Mail/Messages plugin is needed.
+  await t.enterText(find.byType(TextField).first, name);
+  await t.tap(find.text('Share'));
+  await t.pump();
+  await t.tap(find.text('Continue'));
+  await t.pumpAndSettle();
   return router;
 }
 
@@ -140,56 +150,131 @@ void main() {
     expect(find.byType(CircularProgressIndicator), findsNothing);
     expect(_sitterBodies(adapter), isEmpty);
 
-    await t.ensureVisible(find.text('Pro'));
-    await t.tap(find.text('Pro'));
+    await t.tap(find.text('Pet sitter'));
     await t.pumpAndSettle();
     // The gate has no line of its own: billing.paywall.opened from=sitter_link.
     expect(find.text('paywall:invite'), findsOneWidget);
   });
 
-  testWidgets('pro: opening the screen never creates a link', (t) async {
+  testWidgets('step 1 needs a name and a valid address', (t) async {
+    final (care, _) = await _connected(t, pro: true);
+    final router = _inviteRouter();
+    addTearDown(router.dispose);
+    await t.pumpWidget(
+      ChangeNotifierProvider.value(
+        value: care,
+        child: MaterialApp.router(routerConfig: router),
+      ),
+    );
+    await t.pump();
+    FilledButton continueButton() =>
+        t.widget<FilledButton>(find.widgetWithText(FilledButton, 'Continue'));
+    expect(continueButton().onPressed, isNull, reason: 'no name yet');
+    await t.enterText(find.byType(TextField).first, 'Sara');
+    await t.pump();
+    expect(continueButton().onPressed, isNotNull);
+
+    await t.enterText(find.byType(TextField).last, '12');
+    await t.pump();
+    expect(find.text('Check the phone number'), findsOneWidget);
+    expect(continueButton().onPressed, isNull);
+    await t.enterText(find.byType(TextField).last, '+1 (415) 555-0100');
+    await t.pump();
+    expect(continueButton().onPressed, isNotNull);
+
+    await t.tap(find.text('Email'));
+    await t.pump();
+    await t.enterText(find.byType(TextField).last, 'sara@');
+    await t.pump();
+    expect(
+      find.text('Enter a full email, like sara@example.com'),
+      findsOneWidget,
+    );
+    await t.enterText(find.byType(TextField).last, 'sara@example.com');
+    await t.pump();
+    expect(continueButton().onPressed, isNotNull);
+  });
+
+  testWidgets('pro: walking to review never creates a link', (t) async {
     final (care, adapter) = await _connected(t, pro: true);
     await _pumpInvite(t, care);
-    expect(find.text('Create browser link'), findsOneWidget);
+    await t.tap(find.text('Pet sitter'));
+    await t.pump();
+    await t.tap(find.text('2 weeks'));
+    await t.pump();
+    await t.tap(find.text('Continue'));
+    await t.pumpAndSettle();
+    expect(find.text('Look it over'), findsOneWidget);
+    expect(find.text('Pet sitter · 2 weeks'), findsOneWidget);
     expect(_sitterBodies(adapter), isEmpty);
   });
 
-  Future<void> createWith(WidgetTester t, String? typed) async {
+  testWidgets('family: review shows the code message, back steps', (t) async {
+    final (care, _) = await _connected(t, pro: true);
+    await _pumpInvite(t, care, name: 'Sara Lee');
+    await t.tap(find.text('Family or partner'));
+    await t.pump();
+    await t.tap(find.text('Continue'));
+    await t.pumpAndSettle();
+    await t.enterText(find.byType(TextField), 'Fridge door');
+    await t.pump();
+    expect(
+      find.textContaining('Hi Sara! Fridge door', findRichText: true),
+      findsOneWidget,
+    );
+    expect(find.bySemanticsLabel(RegExp(care.inviteCode)), findsOneWidget);
+    await t.tap(find.byTooltip('Back'));
+    await t.pumpAndSettle();
+    expect(find.text('What can Sara do?'), findsOneWidget);
+  });
+
+  testWidgets('pro: send creates the named link for the chosen days', (
+    t,
+  ) async {
     final (care, adapter) = await _connected(
       t,
       pro: true,
-      more: [_sitterReply],
+      more: [_sitterReply, _sitterReply],
     );
     await _pumpInvite(t, care);
-    // Centred, so the pinned Share button below the list can’t cover it.
+    await t.tap(find.text('Pet sitter'));
+    await t.pump();
+    await t.tap(find.text('2 weeks'));
+    await t.pump();
+    await t.tap(find.text('Continue'));
+    await t.pumpAndSettle();
+    await t.tap(find.text('Share invite'));
     await t.runAsync(
-      () => Scrollable.ensureVisible(
-        t.element(find.text('Create browser link')),
-        alignment: 0.5,
-      ),
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
     );
     await t.pumpAndSettle();
-    await t.tap(find.text('Create browser link'));
+    final body = _sitterBodies(adapter).single as Map;
+    expect(body['label'], 'Sara weekend');
+    expect(body['days'], 14);
+    // The share sheet call fails fast in tests (no plugin) and is caught.
+    await t.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
+    );
+    await t.pumpAndSettle();
+    expect(find.text('Invite ready for Sara'), findsOneWidget);
+    expect(find.text('Sara weekend'), findsOneWidget);
+    expect(find.text('Works until Oct 10'), findsOneWidget);
+    // Last step closes rather than going back to send twice.
+    expect(find.byTooltip('Close'), findsOneWidget);
+
+    // Another sitter: the sheet still offers the default label.
+    await t.tap(find.text('Create another link'));
     await t.pumpAndSettle();
     expect(find.text('Who is this link for?'), findsOneWidget);
-    if (typed != null) await t.enterText(find.byType(TextField), typed);
     await t.tap(find.text('Create'));
     await t.pumpAndSettle();
     await t.runAsync(
       () => Future<void>.delayed(const Duration(milliseconds: 100)),
     );
     await t.pump();
-    final body = _sitterBodies(adapter).single as Map;
-    expect(body['label'], typed ?? care.defaultSitterLabel());
-    expect(find.text(typed ?? care.defaultSitterLabel()), findsOneWidget);
-    expect(find.text('Works until Oct 10'), findsOneWidget);
-  }
-
-  testWidgets('pro: default label is sent when kept', (t) async {
-    await createWith(t, null);
-  });
-
-  testWidgets('pro: custom label is sent', (t) async {
-    await createWith(t, 'Sara weekend');
+    expect(
+      (_sitterBodies(adapter).last as Map)['label'],
+      care.defaultSitterLabel(),
+    );
   });
 }

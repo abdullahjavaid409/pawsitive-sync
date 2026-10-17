@@ -134,7 +134,10 @@ void main() {
           path: () async => path,
         );
         final db = (await LocalDatabase.shared.open())!;
-        expectLogged('store.migrated', fields: {'from': 2, 'to': 3});
+        expectLogged(
+          'store.migrated',
+          fields: {'from': 2, 'to': LocalDatabase.schemaVersion},
+        );
         final row = (await db.query('medications')).single;
         final med = LocalRows.toMedication(row);
         expect(med.needsPro, isFalse);

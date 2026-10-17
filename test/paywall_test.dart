@@ -203,9 +203,9 @@ void main() {
         200,
         scrollable: find.byType(Scrollable).first,
       );
-      expect(find.text('TODAY'), findsOneWidget);
-      expect(find.text('DAY 5'), findsOneWidget);
-      expect(find.text('DAY 7'), findsOneWidget);
+      expect(find.text('Today'), findsOneWidget);
+      expect(find.text('Oct 8'), findsOneWidget);
+      expect(find.text('Oct 10'), findsOneWidget);
       expect(find.text(r'$29.99 per year starts'), findsOneWidget);
       expect(find.textContaining('whole household'), findsOneWidget);
       expect(tester.takeException(), isNull);
@@ -240,7 +240,7 @@ void main() {
         scrollable: find.byType(Scrollable).first,
       );
       expect(find.text('We remind you'), findsNothing);
-      expect(find.text('DAY 2'), findsOneWidget);
+      expect(find.text('Oct 5'), findsOneWidget);
     });
 
     for (final dark in [false, true]) {

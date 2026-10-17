@@ -239,3 +239,48 @@ class Qa {
 
   int count(String name) => eventCount?.call(name) ?? 0;
 }
+
+/// Drives the five-step add-medicine flow (name → form → amount → when →
+/// review) the way a person would. [amount] is "2 units", "1 tablet",
+/// "100 mg"; the form is picked from its unit. [morning] false unticks the
+/// default morning dose.
+extension AddMedicineFlow on Qa {
+  Future<void> addMedicine(
+    String name, {
+    String amount = '',
+    bool morning = true,
+    bool evening = false,
+    int? supply,
+    bool save = true,
+  }) async {
+    await type(find.widgetWithText(TextField, 'Search or type a name'), name);
+    await tap(find.text('Continue'));
+    final parts = amount.trim().split(RegExp(r'\s+'));
+    final unit = parts.length > 1 ? parts[1] : '';
+    final form = switch (unit) {
+      'unit' || 'units' => 'Injection',
+      'drop' || 'drops' => 'Drops',
+      'ml' => 'Liquid',
+      'capsule' || 'capsules' => 'Capsule',
+      'chew' || 'chews' => 'Chew',
+      _ => 'Tablet',
+    };
+    await tap(find.text(form));
+    await tap(find.text('Continue'));
+    if (amount.trim().isNotEmpty) {
+      await type(find.byType(TextField).first, parts.first);
+      if (unit == 'mg' || unit == 'ml' && form == 'Injection') {
+        await tap(find.text(unit));
+      }
+    }
+    await tap(find.text('Continue'));
+    if (!morning) await tap(find.text('Morning'));
+    if (evening) await tap(find.text('Evening'));
+    if (supply != null) {
+      await tap(find.text('Track remaining doses'));
+      await type(find.byType(TextField).last, '$supply');
+    }
+    await tap(find.text('Continue'));
+    if (save) await tap(find.text('Save medicine'));
+  }
+}

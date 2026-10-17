@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pawsitive_sync/core/routing/routes.dart';
+import 'package:pawsitive_sync/ui/meds/medicine_forms.dart';
 import 'package:pawsitive_sync/ui/onboarding/onboarding_view_model.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -22,24 +23,70 @@ void main() {
     final model = OnboardingViewModel()..setName('   ');
 
     expect(model.hasValidPetName, isFalse);
-    expect(model.guardRoute(AppRoutes.petDetails), AppRoutes.pet);
+    expect(model.guardRoute(AppRoutes.firstMedicine), AppRoutes.pet);
   });
 
-  test('route guards block skipped steps', () {
-    final model = OnboardingViewModel()..setName('Miso');
+  test('route guards block skipped steps (v14: pet, medicine, household, '
+      'notifications, ready)', () {
+    final model = OnboardingViewModel();
+    expect(model.guardRoute(AppRoutes.caregivers), AppRoutes.pet);
 
-    expect(model.guardRoute(AppRoutes.petDetails), isNull);
-    expect(model.guardRoute(AppRoutes.conditions), isNull);
-    expect(model.guardRoute(AppRoutes.caregivers), AppRoutes.conditions);
-    expect(model.guardRoute(AppRoutes.notifications), AppRoutes.conditions);
-
-    model.toggleCondition('Diabetes');
+    model.setName('Miso');
+    expect(model.resumeRoute, AppRoutes.firstMedicine);
+    expect(model.guardRoute(AppRoutes.firstMedicine), isNull);
     expect(model.guardRoute(AppRoutes.caregivers), isNull);
-    expect(model.guardRoute(AppRoutes.notifications), AppRoutes.caregivers);
+    expect(model.guardRoute(AppRoutes.ready), AppRoutes.caregivers);
 
-    model.toggleCaregiver('Just me');
-    expect(model.guardRoute(AppRoutes.notifications), isNull);
+    model.householdDone = true;
     expect(model.resumeRoute, AppRoutes.notifications);
+    expect(model.guardRoute(AppRoutes.ready), AppRoutes.notifications);
+
+    model.chooseReminders(false);
+    expect(model.resumeRoute, AppRoutes.ready);
+    expect(model.guardRoute(AppRoutes.ready), isNull);
+  });
+
+  test('medicine draft: form picks the unit, amount reads naturally', () {
+    final model = OnboardingViewModel()..setForm(MedicineForm.injection);
+    expect(model.medUnit, 'units');
+    model.medAmount = '2';
+    expect(model.medAmountText, '2 units');
+    model.setForm(MedicineForm.tablet);
+    expect(model.medUnit, 'tablet');
+    model.medAmount = '0.5';
+    expect(model.medAmountText, '½ tablet');
+    model.medAmount = 'abc';
+    expect(model.medAmountText, '');
+  });
+
+  test('invites are trimmed, lower-cased and never duplicated', () {
+    final model = OnboardingViewModel()
+      ..addInvite(' Sara@Example.com ')
+      ..addInvite('sara@example.com')
+      ..addInvite('');
+    expect(model.invites, ['sara@example.com']);
+    model.removeInvite('sara@example.com');
+    expect(model.invites, isEmpty);
+  });
+
+  test('sign-out reset clears the medicine and invite drafts', () {
+    final model = OnboardingViewModel()
+      ..setName('Miso')
+      ..setForm(MedicineForm.drops)
+      ..addInvite('a@b.co');
+    model
+      ..medName = 'Ofloxacin'
+      ..hasMedicine = true
+      ..householdDone = true
+      ..inviteAfterSetup = true;
+    model.resetForSignOut();
+    expect(model.medName, '');
+    expect(model.medForm, MedicineForm.tablet);
+    expect(model.hasMedicine, isFalse);
+    expect(model.invites, isEmpty);
+    expect(model.householdDone, isFalse);
+    expect(model.inviteAfterSetup, isFalse);
+    expect(model.remindersAnswered, isFalse);
   });
 
   test('finish persists completion and is idempotent', () async {

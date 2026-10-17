@@ -66,13 +66,11 @@ void main() {
     await qa.type(find.byType(TextFormField), 'Miso');
     await hold(1);
     await qa.tap(find.text('Continue'));
-    await qa.type(find.byType(TextFormField).last, '4.6');
-    await qa.tap(find.text('Continue'));
-    await qa.tap(find.text('Diabetes'));
-    await hold(1);
-    await qa.tap(find.text('Continue with 1 selected'));
+    // v14 setup: the first medicine is added after Pro below, so skip it.
+    await qa.tap(find.text('Skip'));
     await qa.tap(find.text('Continue'));
     await qa.tap(find.text('Not now'));
+    await qa.tap(find.text('Go to Today'));
     await hold(2.5);
     await qa.tap(find.text('Continue free with 1 pet'));
 
@@ -87,14 +85,8 @@ void main() {
       String amount, {
       bool evening = false,
     }) async {
-      await qa.type(find.widgetWithText(TextField, 'e.g. Apoquel'), name);
-      await qa.type(
-        find.widgetWithText(TextField, 'e.g. 1 tablet or 2 units'),
-        amount,
-      );
-      if (evening) await qa.tap(find.text('Evening'));
       await hold(1.2);
-      await qa.tap(find.text('Save medicine'));
+      await qa.addMedicine(name, amount: amount, evening: evening);
       await qa.settle(2000);
     }
 
@@ -105,25 +97,25 @@ void main() {
     await toTop();
     await hold(3);
 
-    // 3. One tap: "Gave it", confirmed in the log.
-    await qa.tap(find.text('Gave it'));
+    // 3. One tap: "Mark given", confirmed on the sheet.
+    await qa.tap(find.text('Mark given'));
     await hold(2);
-    await qa.tap(find.text('Log dose').last);
+    await qa.tap(find.text('Confirm given').last);
     await qa.settle(1500);
     await hold(2.5);
 
     // 4. The guard: trying the same dose again is stopped by name and time.
-    await qa.tap(find.textContaining('Insulin · ').first);
+    await qa.tap(find.text('Insulin').first);
     await qa.see('ALREADY GIVEN');
     await hold(5);
     await qa.tap(find.text('Don’t give it'));
     await hold(1);
 
     // 5. Not sure if given: the next person is told to check first.
-    await qa.tap(find.text('Gave it'));
+    await qa.tap(find.text('Mark given'));
     await hold(1.5);
     await qa.tap(find.text('Not sure if given'));
-    await qa.see('Needs a check');
+    await qa.see('Needs a check', partial: true);
     await hold(3.5);
 
     // 6. A sitter gets a browser link: no app, no account.
@@ -135,13 +127,15 @@ void main() {
     // household Pro in the QA database only.
     debugPrint('[demo] server-pro');
     await hold(1.5);
-    await qa.tap(find.text('Create browser link'));
-    await qa.type(
-      find.widgetWithText(TextField, 'Who is this link for?'),
-      'Jordan (sitter)',
-    );
+    await qa.type(find.byType(TextField).first, 'Jordan (sitter)');
+    await qa.tap(find.text('Share'));
+    await qa.tap(find.text('Continue'));
+    await qa.tap(find.text('Pet sitter'));
+    await qa.tap(find.text('Continue'));
     await hold(1);
-    await qa.tap(find.text('Create'));
+    // Creates the link, then opens the iOS share sheet (the script's
+    // recording dismisses it).
+    await qa.tap(find.text('Share invite'));
     await qa.waitUntil(() => care().sitterLink != null, seconds: 20);
     await hold(2.5);
 
@@ -154,7 +148,7 @@ void main() {
     await qa.settle(1500);
 
     // 7. Everything in one record for the vet.
-    await qa.tap(find.byTooltip('Back'));
+    await qa.tap(find.text('Done'));
     await qa.tapLabel('Reports');
     await toTop();
     await hold(3.5);

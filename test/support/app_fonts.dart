@@ -5,12 +5,20 @@ import 'package:flutter/services.dart';
 /// Loads real fonts so widget tests measure real text widths (the default
 /// test font is a fixed-width box face).
 ///
-/// The app's body text is the system font (SF Pro on iOS), which the test
-/// host can't load, so Atkinson Hyperlegible Next stands in for it under the
-/// same proxy names; its widths are close to SF Pro Text's.
+/// The app bundles its body font (Figtree). The system proxy names are
+/// still mapped to a stand-in for any widget that asks for them directly.
 Future<void> loadAppFonts() async {
   const families = {
-    'Instrument Serif': ['assets/fonts/InstrumentSerif-Regular.ttf'],
+    'Instrument Serif': [
+      'assets/fonts/InstrumentSerif-Regular.ttf',
+      'assets/fonts/InstrumentSerif-Italic.ttf',
+    ],
+    'Figtree': [
+      'assets/fonts/Figtree-Regular.ttf',
+      'assets/fonts/Figtree-Medium.ttf',
+      'assets/fonts/Figtree-SemiBold.ttf',
+      'assets/fonts/Figtree-Bold.ttf',
+    ],
     'Atkinson Hyperlegible Mono': [
       'assets/fonts/AtkinsonHyperlegibleMono-Medium.ttf',
     ],

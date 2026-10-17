@@ -134,23 +134,14 @@ void main() {
     // --- Onboarding ---
     await _action(tester, 'get started', () => tap(find.text('Get started')));
     await tester.enterText(find.byType(TextFormField), 'Luna');
+    await tap(find.text('Cat'));
     await tester.pump();
     await _action(tester, 'pet basics', () => tap(find.text('Continue')));
-    await _action(tester, 'pet details', () => tap(find.text('Continue')));
-    await tester.tap(find.text('Diabetes'));
-    await tester.pumpAndSettle();
-    await _action(
-      tester,
-      'conditions',
-      () => tap(find.text('Continue with 1 selected')),
-    );
-    await _action(tester, 'care circle', () => tap(find.text('Continue')));
-    await _action(tester, 'reminders', () async {
-      await tap(find.text('Not now'));
-      for (var i = 0; i < 5; i++) {
-        await tester.pump(const Duration(seconds: 1)); // "Reminders stay off"
-      }
-    });
+    // v14 setup: skip the first medicine (added below), no invites.
+    await _action(tester, 'skip medicine', () => tap(find.text('Skip')));
+    await _action(tester, 'household', () => tap(find.text('Continue')));
+    await _action(tester, 'reminders', () => tap(find.text('Not now')));
+    await _action(tester, 'ready', () => tap(find.text('Go to Today')));
     final finish = await _action(
       tester,
       'finish setup',
@@ -171,13 +162,19 @@ void main() {
       'open add medicine',
       () => tap(find.text('Add first medicine')),
     );
-    await tester.enterText(
-      find.widgetWithText(TextField, 'e.g. Apoquel'),
-      'Apoquel',
-    );
+    // Five-step flow: name, form, amount, when (with supply), review.
+    await tester.enterText(find.byType(TextField).first, 'Apoquel');
+    for (var i = 0; i < 3; i++) {
+      await tester.pumpAndSettle();
+      await tap(find.text('Continue'));
+    }
+    await tester.pumpAndSettle();
     await tap(find.text('Track remaining doses'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.widgetWithText(TextField, 'e.g. 30'), '4');
+    await tester.enterText(find.byType(TextField).last, '4');
+    await tester.pumpAndSettle();
+    await tap(find.text('Continue'));
+    await tester.pumpAndSettle();
     final saved = await _action(
       tester,
       'save medicine',
@@ -187,9 +184,9 @@ void main() {
     await tester.pump(const Duration(seconds: 6)); // SnackBar leaves
 
     // --- Log a dose ---
-    await _action(tester, 'open dose', () => tap(find.text('Gave it')));
+    await _action(tester, 'open dose', () => tap(find.text('Mark given')));
     final logged = await _action(tester, 'log dose', () async {
-      await tap(find.text('Log dose').last);
+      await tap(find.text('Confirm given').last);
       await tester.pump(const Duration(seconds: 1)); // sheet closes itself
     });
     expect(logged.map((e) => e.name), contains('dose.log.completed'));
@@ -213,7 +210,7 @@ void main() {
           w.properties.label == label,
     );
     for (var i = 0; i < 3 && tab('Pets').evaluate().isEmpty; i++) {
-      await tester.tap(find.text('Back').last);
+      await tester.tap(find.byTooltip('Back').last);
       await tester.pumpAndSettle();
     }
 
@@ -224,6 +221,7 @@ void main() {
       find.widgetWithText(TextField, 'Pet name'),
       'Pepper',
     );
+    await tap(find.text('Dog'));
     final added = await _action(
       tester,
       'save pet',
@@ -232,8 +230,8 @@ void main() {
     expect(added.map((e) => e.name), contains('pet.add.completed'));
     await tester.pump(const Duration(seconds: 6));
 
-    // --- Open settings ---
-    await _action(tester, 'today tab', () => tap(tab('Today')));
+    // --- Open settings (v14: from Household's header) ---
+    await _action(tester, 'household tab', () => tap(tab('Household')));
     final settings = await _action(
       tester,
       'open settings',
