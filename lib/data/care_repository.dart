@@ -3318,6 +3318,9 @@ class CareRepository extends ChangeNotifier {
     }
     final wasConnected = isConnected;
     await _keepPetsAfterLeave();
+    // The server dropped this member's account link with the membership;
+    // staying signed in would read as "saved" when nothing is.
+    await AccountService.signOut();
     AppLog.event('household.left', {
       'wasConnected': wasConnected,
       'pets': _pets.length,
