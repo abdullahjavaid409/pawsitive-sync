@@ -80,17 +80,18 @@ void main() {
       await tester.tap(find.text('Injection'));
       await tester.pumpAndSettle();
       expect(find.text('Pick the form it comes in'), findsNothing);
-      expect(find.text('Amount per dose'), findsOneWidget);
+      expect(find.text('Amount per dose · optional'), findsOneWidget);
       await tester.ensureVisible(find.text('Every day'));
       await tester.tap(find.text('Every day'));
       await tester.pump();
       expect(find.text('Pick how often'), findsNothing);
-      expect(find.text('Add how much Miso gets each time.'), findsOneWidget);
+      // Blank amount is allowed (follow the vet's note), as when adding a
+      // medicine later.
+      expect(find.textContaining('Add how much'), findsNothing);
       // + fills the amount without typing; − steps it back down.
       await tester.ensureVisible(find.bySemanticsLabel('More').first);
       await tester.tap(find.bySemanticsLabel('More').first);
       await tester.pump();
-      expect(find.text('Add how much Miso gets each time.'), findsNothing);
       await tester.enterText(find.byType(TextField).at(1), '2');
       await tester.pump();
       expect(find.text('Pro'), findsNWidgets(2), reason: 'midday, evening');

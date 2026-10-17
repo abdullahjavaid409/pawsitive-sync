@@ -358,6 +358,13 @@ abstract final class DoseReminders {
     CareRepository care, {
     String reason = 'manual',
   }) {
+    // This run plans from the current state, so a debounced 'data' run for
+    // the same change (e.g. a settings save also bumps the store) would
+    // only repeat it. Only when attached to this repository.
+    if (identical(care, _care)) {
+      _debounce?.cancel();
+      _signature = _signatureOf(care);
+    }
     if (_running != null) {
       _again = true;
       _againReason = reason;

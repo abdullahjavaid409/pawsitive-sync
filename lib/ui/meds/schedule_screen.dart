@@ -12,6 +12,7 @@ import 'package:pawsitive_sync/core/widgets/post_frame.dart';
 import 'package:pawsitive_sync/core/widgets/stroke_icon.dart';
 import 'package:pawsitive_sync/data/care_repository.dart'
     show CareRepository, dayKey;
+import 'package:pawsitive_sync/data/reminder_choice.dart';
 import 'package:pawsitive_sync/domain/models.dart';
 import 'package:pawsitive_sync/ui/meds/dose_time_picker.dart';
 import 'package:pawsitive_sync/ui/meds/medicine_forms.dart';
@@ -76,9 +77,17 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
   bool _busy = false;
   String? _error;
 
+  /// Dose reminders on for this phone (Settings); assumed on until read.
+  bool _remindersOn = true;
+
   @override
   void initState() {
     super.initState();
+    // Only for the review line: never promise reminders that are off.
+    // ReminderChoice.read logs and swallows its own failures.
+    ReminderChoice.read().then((on) {
+      if (mounted && on != _remindersOn) setState(() => _remindersOn = on);
+    });
     _lookup = MedicineLookup(
       context.read<CareRepository>().searchMedicinesOnline,
     )..addListener(_onLookup);
@@ -1177,7 +1186,10 @@ class _ScheduleScreenState extends State<ScheduleScreen> {
           care.isConnected
               ? 'Everyone in the household will see ${_name.text.trim()} and '
                     'get its reminders.'
-              : 'It shows on Today with a reminder at each time.',
+              : _remindersOn
+              ? 'It shows on Today with a reminder at each time.'
+              : 'It shows on Today. Turn on reminders in Settings to get a '
+                    'nudge at each time.',
           style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
         ),
       ),

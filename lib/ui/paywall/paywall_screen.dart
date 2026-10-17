@@ -427,7 +427,8 @@ class _PaywallScreenState extends State<PaywallScreen> {
                     _PlanTile(
                       selected: !yearly,
                       title: 'Monthly',
-                      subtitle: '${_price(BillingPlan.monthly)} per month',
+                      // The price is already on the right; don't repeat it.
+                      subtitle: 'Billed monthly · cancel anytime',
                       price: '${_price(BillingPlan.monthly)}/mo',
                       onPressed: locked
                           ? null

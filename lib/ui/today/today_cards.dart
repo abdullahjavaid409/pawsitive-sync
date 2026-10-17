@@ -767,10 +767,19 @@ class _AlsoDue extends StatelessWidget {
 /// No medicine yet: the pet, one sentence, one action. Same card shape as
 /// the hero so the first screen already looks like the app.
 class TodayStart extends StatelessWidget {
-  const TodayStart({super.key, required this.pet, required this.onStart});
+  const TodayStart({
+    super.key,
+    required this.pet,
+    required this.onStart,
+    this.hasHistory = false,
+  });
 
   final Pet? pet;
   final VoidCallback onStart;
+
+  /// Doses were logged before (every medicine since stopped): the log
+  /// doesn't "start" here, so the copy says what's next instead.
+  final bool hasHistory;
 
   @override
   Widget build(BuildContext context) {
@@ -801,6 +810,8 @@ class TodayStart extends StatelessWidget {
                   Text(
                     pet == null
                         ? 'Good care starts here.'
+                        : hasHistory
+                        ? 'Nothing due for ${pet.name}.'
                         : '${pet.name}’s log starts here.',
                     style: text.headlineMedium,
                   ),
@@ -808,6 +819,9 @@ class TodayStart extends StatelessWidget {
                   Text(
                     pet == null
                         ? 'Add your pet, then their medicine. It takes a minute.'
+                        : hasHistory
+                        ? 'Their past doses stay in Reports. Add a medicine '
+                              'when a new one starts.'
                         : 'Add the first medicine. Logging a dose is free and '
                               'works without signal.',
                     style: text.bodyLarge?.copyWith(
@@ -830,7 +844,11 @@ class TodayStart extends StatelessWidget {
                         color: scheme.onPrimary,
                       ),
                       label: Text(
-                        pet == null ? 'Add a pet' : 'Add first medicine',
+                        pet == null
+                            ? 'Add a pet'
+                            : hasHistory
+                            ? 'Add medicine'
+                            : 'Add first medicine',
                       ),
                     ),
                   ),

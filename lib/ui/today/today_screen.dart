@@ -299,6 +299,7 @@ class _TodayScreenState extends State<TodayScreen> {
                   ] else ...[
                     TodayStart(
                       pet: selectedPet ?? care.primaryPet,
+                      hasHistory: care.logs.isNotEmpty,
                       onStart: hasPet
                           ? addMedicine
                           : () {

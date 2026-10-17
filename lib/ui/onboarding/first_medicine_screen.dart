@@ -111,10 +111,14 @@ class _FirstMedicineScreenState extends State<FirstMedicineScreen> {
       if (!_model.medEveryPicked) issues[_Field.often] = 'Pick how often';
       return _withSupply(issues);
     }
+    // Blank is fine (follow the vet's note), same as adding a medicine
+    // later; only a typed amount that can't be right blocks.
+    final typed = _amount.text.trim();
     final qty = _qty;
-    if (_amount.text.trim().isEmpty || qty == null || qty <= 0) {
-      issues[_Field.amount] = 'Add how much $_petName gets each time';
-    } else if (form.wholeOnly &&
+    if (typed.isNotEmpty && (qty == null || qty <= 0)) {
+      issues[_Field.amount] = 'Enter an amount greater than 0';
+    } else if (qty != null &&
+        form.wholeOnly &&
         _model.medUnit == form.units.firstOrNull &&
         qty != qty.roundToDouble()) {
       issues[_Field.amount] =
@@ -238,12 +242,12 @@ class _FirstMedicineScreenState extends State<FirstMedicineScreen> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const SizedBox(height: 24),
-        FieldLabel('Amount per dose', key: _keys[_Field.amount]),
+        FieldLabel('Amount per dose · optional', key: _keys[_Field.amount]),
         Padding(
           padding: const EdgeInsets.fromLTRB(4, 0, 4, 10),
           child: Text(
             'How much $pet gets each time. Tap − or +, or type it. '
-            'Check the label if unsure.',
+            'Leave it blank to follow the vet’s instructions.',
             style: text.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
           ),
         ),
